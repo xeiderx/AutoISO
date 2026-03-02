@@ -6,7 +6,10 @@ __pycache__/
 *.sqlite
 *.log
 .env
-data/
+# 忽略 data 文件夹下的所有内容（比如后面生成的数据库文件）
+/data/*
+# 但是不要忽略 .gitkeep 文件
+!/data/.gitkeep
 output/
 .vscode/
 .idea/
