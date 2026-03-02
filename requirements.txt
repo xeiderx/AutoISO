@@ -1,0 +1,5 @@
+flask
+flask-sqlalchemy
+apscheduler
+qbittorrent-api
+requests

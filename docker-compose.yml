@@ -1,0 +1,15 @@
+services:
+  autoiso:
+    build: .
+    container_name: autoiso
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/data/autoiso.db
+      - OUTPUT_DIR=/output
+    volumes:
+      - ./data:/data
+      - /downloads:/downloads:ro
+      - ./output:/output
