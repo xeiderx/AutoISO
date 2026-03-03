@@ -13,7 +13,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "isoarr-v2-secret-key")
+app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
 app.permanent_session_lifetime = timedelta(days=7)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.getenv('DB_PATH', '/data/autoiso.db')}"
@@ -26,8 +26,8 @@ POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 WAITING_TAG = os.getenv("QB_WAITING_TAG", "待封装")
 DONE_TAG = os.getenv("QB_DONE_TAG", "已封装")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
@@ -124,6 +124,12 @@ def delete_setting(key):
     item = SystemSetting.query.filter_by(key=key).first()
     if item:
         db.session.delete(item)
+
+
+def get_auth_credentials():
+    username = get_setting("auth_username") or DEFAULT_ADMIN_USERNAME
+    password = get_setting("auth_password") or DEFAULT_ADMIN_PASSWORD
+    return username, password
 
 
 def format_seconds(seconds):
@@ -286,7 +292,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             update_torrent_tags(client, getattr(torrent, "hash", ""))
 
             send_telegram_message(
-                "[IsoArr V2] 封装成功\n"
+                "[AutoISO V2] 封装成功\n"
                 f"节点: {server.name}\n"
                 f"任务: {torrent.name}\n"
                 f"耗时: {duration}\n"
@@ -299,7 +305,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             db.session.commit()
 
             send_telegram_message(
-                "[IsoArr V2] 封装失败\n"
+                "[AutoISO V2] 封装失败\n"
                 f"节点: {server.name}\n"
                 f"任务: {torrent.name}\n"
                 f"耗时: {duration}\n"
@@ -318,7 +324,7 @@ def poll_and_pack():
                 client = make_qb_client(server)
                 torrents = client.torrents_info()
             except Exception as exc:
-                send_telegram_message(f"[IsoArr V2] 节点连接失败\n节点: {server.name}\n错误: {exc}")
+                send_telegram_message(f"[AutoISO V2] 节点连接失败\n节点: {server.name}\n错误: {exc}")
                 continue
 
             for torrent in torrents:
@@ -341,7 +347,7 @@ def poll_and_pack():
                     db.session.add(failed_record)
                     db.session.commit()
                     send_telegram_message(
-                        "[IsoArr V2] 任务处理异常\n"
+                        "[AutoISO V2] 任务处理异常\n"
                         f"节点: {server.name}\n"
                         f"任务: {getattr(torrent, 'name', 'unknown')}\n"
                         f"错误: {exc}"
@@ -355,9 +361,10 @@ def login():
             return redirect(url_for("index"))
         return render_template("login.html", error="")
 
-    username = (request.form.get("username") or "").strip()
-    password = (request.form.get("password") or "").strip()
-    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+    input_username = (request.form.get("username") or "").strip()
+    input_password = (request.form.get("password") or "").strip()
+    auth_username, auth_password = get_auth_credentials()
+    if input_username == auth_username and input_password == auth_password:
         session["logged_in"] = True
         session.permanent = True
         return redirect(url_for("index"))
@@ -375,6 +382,28 @@ def logout():
 @require_login
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/qb/test", methods=["POST"])
+def test_qb_connection():
+    payload = request.get_json(force=True)
+    url = (payload.get("url") or "").strip()
+    username = (payload.get("username") or "").strip()
+    password = (payload.get("password") or "").strip()
+    if not all([url, username, password]):
+        return jsonify({"error": "参数不完整"}), 400
+
+    try:
+        client = qbittorrentapi.Client(
+            host=url,
+            username=username,
+            password=password,
+            REQUESTS_ARGS={"timeout": 15},
+        )
+        client.auth_log_in()
+        return jsonify({"ok": True, "message": "连接成功"})
+    except Exception as exc:
+        return jsonify({"error": f"连接失败: {exc}"}), 400
 
 
 @app.route("/api/qbservers", methods=["GET"])
@@ -446,7 +475,7 @@ def save_telegram_settings():
     set_setting("tg_chat_id", tg_chat_id)
     db.session.commit()
 
-    ok, message = send_telegram_message("[IsoArr V2] Telegram 配置已保存，测试消息发送成功。")
+    ok, message = send_telegram_message("[AutoISO V2] Telegram 配置已保存，测试消息发送成功。")
     if not ok:
         return jsonify({"error": f"已保存，但测试消息发送失败: {message}"}), 400
 
@@ -457,6 +486,27 @@ def save_telegram_settings():
 def clear_telegram_settings():
     delete_setting("tg_token")
     delete_setting("tg_chat_id")
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/settings/auth", methods=["GET"])
+def get_auth_settings():
+    auth_username, _ = get_auth_credentials()
+    return jsonify({"auth_username": auth_username})
+
+
+@app.route("/api/settings/auth", methods=["POST"])
+def save_auth_settings():
+    payload = request.get_json(force=True)
+    auth_username = (payload.get("auth_username") or "").strip()
+    auth_password = (payload.get("auth_password") or "").strip()
+
+    if not auth_username or not auth_password:
+        return jsonify({"error": "账号和密码不能为空"}), 400
+
+    set_setting("auth_username", auth_username)
+    set_setting("auth_password", auth_password)
     db.session.commit()
     return jsonify({"ok": True})
 

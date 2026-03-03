@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>IsoArr V2 Dashboard</title>
+  <title>AutoISO V2 Dashboard</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
@@ -53,6 +53,7 @@
       color: #cbd5e1;
       padding: 10px 12px;
       margin-bottom: 6px;
+      cursor: pointer;
     }
     .nav-link:hover, .nav-link.active {
       background: rgba(255, 255, 255, .09);
@@ -73,9 +74,6 @@
       border: 0;
       border-radius: 14px;
       box-shadow: var(--card-shadow);
-    }
-    .section-anchor {
-      scroll-margin-top: 18px;
     }
     .stat-icon {
       width: 44px;
@@ -110,12 +108,12 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><i class="bi bi-collection-play"></i> IsoArr V2</div>
-    <div class="small text-secondary mb-3">NAS 原盘封装中控台</div>
+    <div class="brand"><i class="bi bi-collection-play"></i> AutoISO V2</div>
+    <div class="small text-secondary mb-3">原盘封装中控台</div>
     <nav class="nav flex-column" id="sideNav">
-      <a class="nav-link active" href="#dashboard" data-target="dashboard"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
-      <a class="nav-link" href="#settings" data-target="settings"><i class="bi bi-sliders me-2"></i> 设置管理</a>
-      <a class="nav-link" href="#history" data-target="history"><i class="bi bi-clock-history me-2"></i> 历史记录</a>
+      <a class="nav-link active" data-view="viewDashboard"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
+      <a class="nav-link" data-view="viewSettings"><i class="bi bi-sliders me-2"></i> 设置管理</a>
+      <a class="nav-link" data-view="viewHistory"><i class="bi bi-clock-history me-2"></i> 历史记录</a>
     </nav>
     <hr class="border-secondary">
     <a href="/logout" class="btn btn-outline-light w-100"><i class="bi bi-box-arrow-right me-1"></i> 退出登录</a>
@@ -124,13 +122,13 @@
   <main class="main">
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
-        <div class="fw-bold">Dashboard</div>
+        <div class="fw-bold">AutoISO V2 Dashboard</div>
         <div class="text-muted small">系统每 60 秒自动轮询 qBittorrent 待封装任务</div>
       </div>
       <button class="btn btn-sm btn-outline-primary" id="btnRefreshAll"><i class="bi bi-arrow-clockwise me-1"></i> 刷新</button>
     </div>
 
-    <section id="dashboard" class="section-anchor mb-4">
+    <section id="viewDashboard" class="app-view">
       <div class="row g-3 mb-3" id="statsCards">
         <div class="col-md-6 col-xl-3">
           <div class="card soft h-100"><div class="card-body">加载中...</div></div>
@@ -145,8 +143,8 @@
       </div>
     </section>
 
-    <section id="settings" class="section-anchor mb-4">
-      <div class="row g-3">
+    <section id="viewSettings" class="app-view d-none">
+      <div class="row g-3 mb-3">
         <div class="col-xl-6">
           <div class="card soft h-100">
             <div class="card-body">
@@ -156,7 +154,8 @@
                 <div class="col-md-6"><input class="form-control" name="url" placeholder="http://qb-host:8080" required></div>
                 <div class="col-md-6"><input class="form-control" name="username" placeholder="账号" required></div>
                 <div class="col-md-6"><input class="form-control" name="password" type="password" placeholder="密码" required></div>
-                <div class="col-12 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle me-1"></i>添加节点</button></div>
+                <div class="col-md-6 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle me-1"></i>添加节点</button></div>
+                <div class="col-md-6 d-grid"><button class="btn btn-outline-info" type="button" id="btnTestQb"><i class="bi bi-plug me-1"></i>测试连接</button></div>
               </form>
               <div id="qbList"></div>
             </div>
@@ -178,9 +177,30 @@
           </div>
         </div>
       </div>
+
+      <div class="row g-3">
+        <div class="col-xl-6">
+          <div class="card soft">
+            <div class="card-body">
+              <h5 class="card-title"><i class="bi bi-shield-lock me-2"></i>安全设置</h5>
+              <form id="authForm" class="row g-2">
+                <div class="col-12">
+                  <input class="form-control" name="auth_username" placeholder="新用户名" required>
+                </div>
+                <div class="col-12">
+                  <input class="form-control" name="auth_password" type="password" placeholder="新密码" required>
+                </div>
+                <div class="col-12 d-grid">
+                  <button class="btn btn-warning" type="submit"><i class="bi bi-key me-1"></i>保存账号密码</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section id="history" class="section-anchor mb-3">
+    <section id="viewHistory" class="app-view d-none">
       <div class="card soft">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-2">
@@ -252,6 +272,12 @@
     if (status === 'Success') return '<span class="badge text-bg-success">Success</span>';
     if (status === 'Failed') return '<span class="badge text-bg-danger">Failed</span>';
     return '<span class="badge text-bg-warning">Processing</span>';
+  }
+
+  function switchView(viewId) {
+    document.querySelectorAll('.app-view').forEach(view => view.classList.add('d-none'));
+    const target = document.getElementById(viewId);
+    if (target) target.classList.remove('d-none');
   }
 
   async function loadStats() {
@@ -352,6 +378,13 @@
     form.tg_chat_id.value = data.tg_chat_id || '';
   }
 
+  async function loadAuthSettings() {
+    const data = await api('/api/settings/auth');
+    const form = document.getElementById('authForm');
+    form.auth_username.value = data.auth_username || '';
+    form.auth_password.value = '';
+  }
+
   async function loadHistory() {
     const list = await api('/api/history?limit=100');
     const tbody = document.getElementById('historyBody');
@@ -383,6 +416,7 @@
         loadProgress(),
         loadServers(),
         loadTgSettings(),
+        loadAuthSettings(),
         loadHistory(),
       ]);
     } catch (err) {
@@ -404,6 +438,24 @@
     });
     form.reset();
     await loadServers();
+    alert('节点添加成功');
+  });
+
+  document.getElementById('btnTestQb').addEventListener('click', async () => {
+    const form = document.getElementById('qbForm');
+    try {
+      const data = await api('/api/qb/test', {
+        method: 'POST',
+        body: JSON.stringify({
+          url: form.url.value,
+          username: form.username.value,
+          password: form.password.value,
+        }),
+      });
+      alert(data.message || '连接成功');
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   document.getElementById('tgForm').addEventListener('submit', async (event) => {
@@ -425,16 +477,28 @@
     await loadTgSettings();
   });
 
+  document.getElementById('authForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    await api('/api/settings/auth', {
+      method: 'POST',
+      body: JSON.stringify({
+        auth_username: form.auth_username.value,
+        auth_password: form.auth_password.value,
+      }),
+    });
+    form.auth_password.value = '';
+    alert('账号密码已更新');
+  });
+
   document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
   document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
 
   document.querySelectorAll('#sideNav .nav-link').forEach(link => {
-    link.addEventListener('click', event => {
-      event.preventDefault();
+    link.addEventListener('click', () => {
       document.querySelectorAll('#sideNav .nav-link').forEach(x => x.classList.remove('active'));
       link.classList.add('active');
-      const section = document.getElementById(link.dataset.target);
-      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      switchView(link.dataset.view);
     });
   });
 
