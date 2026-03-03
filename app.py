@@ -13,7 +13,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.2.3"
+APP_VERSION = "v0.2.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -36,7 +36,7 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
-GB = 1024 ** 3
+GB = 1024**3
 
 
 class QBServer(db.Model):
@@ -90,7 +90,6 @@ def require_login(view_func):
 def auth_guard():
     endpoint = request.endpoint or ""
     public_endpoints = {"login", "static"}
-
     if endpoint in public_endpoints:
         return
     if session.get("logged_in"):
@@ -172,24 +171,21 @@ def get_path_size_bytes(path):
 
 
 def extract_error_tail(stderr, stdout):
-    # 过滤 xorriso 启动横幅，保留最后 3-5 行核心报错
-    raw_lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
-    skip_tokens = ["xorriso 1.5.6", "libburnia", "rockridge", "copyright"]
+    lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
     filtered = []
-    for ln in raw_lines:
+    for ln in lines:
         low = ln.lower()
-        if any(token in low for token in skip_tokens):
+        if low.startswith("xorriso ") or "libburnia" in low:
             continue
         filtered.append(ln)
 
-    target = filtered if filtered else raw_lines
+    target = filtered if filtered else lines
     if target:
-        picked = target[-5:]
-        return "\n".join(picked)
+        return "\n".join(target[-5:])
 
-    fallback = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
-    if fallback:
-        return "\n".join(fallback[-3:])
+    out_lines = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
+    if out_lines:
+        return "\n".join(out_lines[-3:])
     return "unknown error"
 
 
@@ -265,7 +261,6 @@ def pack_to_iso(task_name, source_path, vol_id):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     iso_path = os.path.join(OUTPUT_DIR, f"{task_name}.iso")
 
-    # 避免 xorriso 因目标文件已存在（残留 0KB）直接退出
     if os.path.exists(iso_path):
         os.remove(iso_path)
 
@@ -273,7 +268,8 @@ def pack_to_iso(task_name, source_path, vol_id):
         "xorriso",
         "-as",
         "mkisofs",
-        "-udf",
+        "-iso-level",
+        "3",
         "-V",
         vol_id,
         "-o",
@@ -345,10 +341,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.end_time = finished
             history.message = f"ISO: {iso_path}"
             db.session.commit()
-
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
-
             send_tg_notification(
                 "[AutoISO] 封装成功\n"
                 f"节点: {server.name}\n"
@@ -361,10 +355,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.end_time = finished
             history.message = extract_error_tail(err, out)
             db.session.commit()
-
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
-
             send_tg_notification(
                 "[AutoISO] 封装失败\n"
                 f"节点: {server.name}\n"
@@ -402,7 +394,6 @@ def process_all_qbs():
                 except Exception as exc:
                     qb_remove_tags(client, torrent_hash, [PACKING_TAG, WAITING_TAG])
                     qb_add_tags(client, torrent_hash, [FAILED_TAG])
-
                     failed_record = PackHistory(
                         task_name=getattr(torrent, "name", "unknown"),
                         qb_server_id=server.id,
@@ -435,7 +426,6 @@ def login():
         session["logged_in"] = True
         session.permanent = True
         return redirect(url_for("index"))
-
     return render_template("login.html", error="账号或密码错误", version=APP_VERSION)
 
 
@@ -459,7 +449,6 @@ def test_qb_connection():
     password = (payload.get("password") or "").strip()
     if not all([url, username, password]):
         return jsonify({"error": "参数不完整"}), 400
-
     try:
         client = qbittorrentapi.Client(
             host=url,
@@ -476,17 +465,7 @@ def test_qb_connection():
 @app.route("/api/qbservers", methods=["GET"])
 def list_qbservers():
     items = QBServer.query.order_by(QBServer.id.desc()).all()
-    return jsonify(
-        [
-            {
-                "id": row.id,
-                "name": row.name,
-                "url": row.url,
-                "username": row.username,
-            }
-            for row in items
-        ]
-    )
+    return jsonify([{"id": x.id, "name": x.name, "url": x.url, "username": x.username} for x in items])
 
 
 @app.route("/api/qbservers", methods=["POST"])
@@ -496,13 +475,10 @@ def add_qbserver():
     url = (payload.get("url") or "").strip()
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
-
     if not all([name, url, username, password]):
         return jsonify({"error": "参数不完整"}), 400
-
     if QBServer.query.filter_by(name=name).first():
         return jsonify({"error": "节点别名已存在"}), 400
-
     db.session.add(QBServer(name=name, url=url, username=username, password=password))
     db.session.commit()
     return jsonify({"ok": True})
@@ -513,7 +489,6 @@ def delete_qbserver(server_id):
     item = db.session.get(QBServer, server_id)
     if not item:
         return jsonify({"error": "节点不存在"}), 404
-
     db.session.delete(item)
     db.session.commit()
     return jsonify({"ok": True})
@@ -536,19 +511,15 @@ def save_telegram_settings():
     tg_token = (payload.get("tg_token") or "").strip()
     tg_chat_id = (payload.get("tg_chat_id") or "").strip()
     tg_proxy = (payload.get("tg_proxy") or "").strip()
-
     if not tg_token or not tg_chat_id:
         return jsonify({"error": "tg_token 和 tg_chat_id 不能为空"}), 400
-
     set_setting("tg_token", tg_token)
     set_setting("tg_chat_id", tg_chat_id)
     set_setting("tg_proxy", tg_proxy)
     db.session.commit()
-
-    ok, message = send_tg_notification("[AutoISO] Telegram 配置已保存，测试消息发送成功。")
+    ok, msg = send_tg_notification("[AutoISO] Telegram 配置已保存，测试消息发送成功。")
     if not ok:
-        return jsonify({"error": f"已保存，但测试消息发送失败: {message}"}), 400
-
+        return jsonify({"error": f"已保存，但测试消息发送失败: {msg}"}), 400
     return jsonify({"ok": True})
 
 
@@ -573,12 +544,10 @@ def save_auth_settings():
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
-
     if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
     if auth_password != auth_password_confirm:
         return jsonify({"error": "两次密码输入不一致"}), 400
-
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)
     db.session.commit()
@@ -587,15 +556,16 @@ def save_auth_settings():
 
 @app.route("/api/history", methods=["GET"])
 def list_history():
-    limit = max(1, min(request.args.get("limit", default=50, type=int), 200))
-    rows = PackHistory.query.order_by(PackHistory.id.desc()).limit(limit).all()
-
+    limit = request.args.get("limit", default=0, type=int)
+    query = PackHistory.query.order_by(PackHistory.id.desc())
+    if limit and limit > 0:
+        query = query.limit(limit)
+    rows = query.all()
     data = []
     for row in rows:
         duration_seconds = None
         if row.start_time and row.end_time:
             duration_seconds = int((row.end_time - row.start_time).total_seconds())
-
         data.append(
             {
                 "id": row.id,
@@ -626,7 +596,6 @@ def delete_history_batch():
             clean_ids.append(int(x))
         except (TypeError, ValueError):
             continue
-
     if not clean_ids:
         return jsonify({"error": "未提供有效的历史记录 ID"}), 400
 
@@ -640,7 +609,6 @@ def get_progress():
     tasks = []
     with ACTIVE_TASKS_LOCK:
         snapshot = dict(ACTIVE_TASKS)
-
     for key, task in snapshot.items():
         source_size = task.get("source_size_bytes", 0)
         iso_path = task.get("iso_path", "")
@@ -648,7 +616,6 @@ def get_progress():
         percent = 0.0
         if source_size > 0:
             percent = min(100.0, max(0.0, (iso_size / source_size) * 100))
-
         started = task.get("start_time")
         tasks.append(
             {
@@ -663,7 +630,6 @@ def get_progress():
                 "elapsed_seconds": int((now_local() - started).total_seconds()) if started else 0,
             }
         )
-
     return jsonify({"active": len(tasks) > 0, "tasks": tasks})
 
 
@@ -671,14 +637,12 @@ def get_progress():
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
     success_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.status == "Success").scalar() or 0
-
     total_size_gb = (
         db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
         .filter(PackHistory.file_size_gb.isnot(None))
         .scalar()
         or 0.0
     )
-
     finished_rows = PackHistory.query.filter(
         PackHistory.start_time.isnot(None), PackHistory.end_time.isnot(None)
     ).all()
@@ -686,9 +650,7 @@ def get_stats():
     if finished_rows:
         total_seconds = sum((row.end_time - row.start_time).total_seconds() for row in finished_rows)
         avg_seconds = int(total_seconds / len(finished_rows))
-
     success_rate = (success_count / total_count * 100) if total_count else 0
-
     return jsonify(
         {
             "total_count": total_count,
