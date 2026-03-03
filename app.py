@@ -26,7 +26,9 @@ db = SQLAlchemy(app)
 TZ = timezone(timedelta(hours=8))
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 WAITING_TAG = os.getenv("QB_WAITING_TAG", "待封装")
+PACKING_TAG = os.getenv("QB_PACKING_TAG", "封装中")
 DONE_TAG = os.getenv("QB_DONE_TAG", "已封装")
+FAILED_TAG = os.getenv("QB_FAILED_TAG", "封装失败")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
 DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -171,6 +173,13 @@ def get_path_size_bytes(path):
     return total
 
 
+def extract_error_tail(stderr, stdout, limit=800):
+    text_msg = (stderr or "").strip() or (stdout or "").strip() or "unknown error"
+    if len(text_msg) <= limit:
+        return text_msg
+    return text_msg[-limit:]
+
+
 def send_tg_notification(text_msg):
     token = get_setting("tg_token")
     chat_id = get_setting("tg_chat_id")
@@ -213,18 +222,24 @@ def has_waiting_tag(tags_str):
     return WAITING_TAG in tags
 
 
-def update_torrent_tags(client, torrent_hash):
-    if not torrent_hash:
+def qb_remove_tags(client, torrent_hash, tags):
+    if not torrent_hash or not tags:
         return
+    tags_text = ",".join([x for x in tags if x])
     try:
-        client.torrents_remove_tags(tags=WAITING_TAG, torrent_hashes=torrent_hash)
+        client.torrents_remove_tags(tags=tags_text, torrent_hashes=torrent_hash)
     except TypeError:
-        client.torrents_remove_tags(tags=WAITING_TAG, hashes=torrent_hash)
+        client.torrents_remove_tags(tags=tags_text, hashes=torrent_hash)
 
+
+def qb_add_tags(client, torrent_hash, tags):
+    if not torrent_hash or not tags:
+        return
+    tags_text = ",".join([x for x in tags if x])
     try:
-        client.torrents_add_tags(tags=DONE_TAG, torrent_hashes=torrent_hash)
+        client.torrents_add_tags(tags=tags_text, torrent_hashes=torrent_hash)
     except TypeError:
-        client.torrents_add_tags(tags=DONE_TAG, hashes=torrent_hash)
+        client.torrents_add_tags(tags=tags_text, hashes=torrent_hash)
 
 
 def resolve_source_path(torrent):
@@ -236,7 +251,7 @@ def resolve_source_path(torrent):
     return os.path.join(save_path, name)
 
 
-def pack_to_iso(task_name, source_path):
+def pack_to_iso(task_name, source_path, vol_id):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     iso_path = os.path.join(OUTPUT_DIR, f"{task_name}.iso")
     cmd = [
@@ -245,7 +260,7 @@ def pack_to_iso(task_name, source_path):
         "mkisofs",
         "-udf",
         "-V",
-        task_name,
+        vol_id,
         "-o",
         iso_path,
         source_path,
@@ -277,7 +292,8 @@ def process_one_torrent(server: QBServer, client, torrent):
     db.session.commit()
 
     started = now_local()
-    task_key = f"{server.id}:{getattr(torrent, 'hash', torrent.name)}"
+    torrent_hash = getattr(torrent, "hash", "")
+    task_key = f"{server.id}:{torrent_hash or torrent.name}"
     with ACTIVE_TASKS_LOCK:
         ACTIVE_TASKS[task_key] = {
             "task_name": torrent.name,
@@ -289,7 +305,23 @@ def process_one_torrent(server: QBServer, client, torrent):
         }
 
     try:
-        ok, iso_path, out, err = pack_to_iso(torrent.name, source_path)
+        if not os.path.isdir(source_path):
+            history.status = "Failed"
+            history.end_time = now_local()
+            history.message = f"源路径不是文件夹: {source_path}"
+            db.session.commit()
+            qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+            qb_add_tags(client, torrent_hash, [FAILED_TAG])
+            send_tg_notification(
+                "[AutoISO] 封装失败\n"
+                f"节点: {server.name}\n"
+                f"任务: {torrent.name}\n"
+                f"错误: {history.message}"
+            )
+            return
+
+        vol_id = (torrent.name or "AUTOISO")[:30]
+        ok, iso_path, out, err = pack_to_iso(torrent.name, source_path, vol_id)
         finished = now_local()
         duration = format_seconds((finished - started).total_seconds())
 
@@ -299,7 +331,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.message = f"ISO: {iso_path}"
             db.session.commit()
 
-            update_torrent_tags(client, getattr(torrent, "hash", ""))
+            qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+            qb_add_tags(client, torrent_hash, [DONE_TAG])
 
             send_tg_notification(
                 "[AutoISO] 封装成功\n"
@@ -311,8 +344,11 @@ def process_one_torrent(server: QBServer, client, torrent):
         else:
             history.status = "Failed"
             history.end_time = finished
-            history.message = (err or out or "unknown error")[:3000]
+            history.message = extract_error_tail(err, out)
             db.session.commit()
+
+            qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+            qb_add_tags(client, torrent_hash, [FAILED_TAG])
 
             send_tg_notification(
                 "[AutoISO] 封装失败\n"
@@ -326,7 +362,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             ACTIVE_TASKS.pop(task_key, None)
 
 
-def poll_and_pack():
+def process_all_qbs():
     with app.app_context():
         servers = QBServer.query.all()
         for server in servers:
@@ -343,9 +379,15 @@ def poll_and_pack():
                 if not has_waiting_tag(getattr(torrent, "tags", "")):
                     continue
 
+                torrent_hash = getattr(torrent, "hash", "")
                 try:
+                    qb_remove_tags(client, torrent_hash, [WAITING_TAG])
+                    qb_add_tags(client, torrent_hash, [PACKING_TAG])
                     process_one_torrent(server, client, torrent)
                 except Exception as exc:
+                    qb_remove_tags(client, torrent_hash, [PACKING_TAG, WAITING_TAG])
+                    qb_add_tags(client, torrent_hash, [FAILED_TAG])
+
                     failed_record = PackHistory(
                         task_name=getattr(torrent, "name", "unknown"),
                         qb_server_id=server.id,
@@ -624,7 +666,7 @@ def get_stats():
 
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 scheduler.add_job(
-    func=poll_and_pack,
+    func=process_all_qbs,
     trigger="interval",
     seconds=POLL_SECONDS,
     id="poll_pack_job",
