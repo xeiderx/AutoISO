@@ -1,3 +1,4 @@
+
 import atexit
 import logging
 import os
@@ -10,11 +11,12 @@ from functools import wraps
 import qbittorrentapi
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.3.0"
+APP_VERSION = "v0.3.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -26,7 +28,6 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 TZ = timezone(timedelta(hours=8))
-POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 WAITING_TAG = os.getenv("QB_WAITING_TAG", "待封装")
 PACKING_TAG = os.getenv("QB_PACKING_TAG", "封装中")
 DONE_TAG = os.getenv("QB_DONE_TAG", "已封装")
@@ -34,38 +35,13 @@ FAILED_TAG = os.getenv("QB_FAILED_TAG", "封装失败")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
 DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+DEFAULT_CRON_SCHEDULE = os.getenv("DEFAULT_CRON_SCHEDULE", "* * * * *")
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
 GB = 1024**3
-
-
-def setup_logging():
-    log_dir = os.path.dirname(LOG_FILE)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-
-    logger = logging.getLogger("autoiso")
-    logger.setLevel(logging.INFO)
-
-    if logger.handlers:
-        return logger
-
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setFormatter(fmt)
-    logger.addHandler(file_handler)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(fmt)
-    logger.addHandler(stream_handler)
-
-    return logger
-
-
-logger = setup_logging()
+LOG_TS_RE = re.compile(r"^(?P<dt>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,\d{3})?\s")
 
 
 class QBServer(db.Model):
@@ -99,6 +75,34 @@ class SystemSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), nullable=False, unique=True)
     value = db.Column(db.Text, nullable=False)
+
+
+def setup_logging():
+    log_dir = os.path.dirname(LOG_FILE)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    logger_obj = logging.getLogger("autoiso")
+    logger_obj.setLevel(logging.INFO)
+
+    if logger_obj.handlers:
+        return logger_obj
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger_obj.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger_obj.addHandler(stream_handler)
+
+    return logger_obj
+
+
+logger = setup_logging()
+scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
 def now_local():
@@ -162,6 +166,41 @@ def get_auth_credentials():
     return username, password
 
 
+def get_cron_schedule():
+    return get_setting("cron_schedule") or DEFAULT_CRON_SCHEDULE
+
+
+def build_cron_trigger(cron_expr):
+    expr = (cron_expr or "").strip() or DEFAULT_CRON_SCHEDULE
+    try:
+        return CronTrigger.from_crontab(expr), expr
+    except Exception:
+        logger.exception("invalid cron expression: %s, fallback to default", expr)
+        fallback = DEFAULT_CRON_SCHEDULE
+        return CronTrigger.from_crontab(fallback), fallback
+
+
+def apply_scheduler_cron(cron_expr):
+    trigger, normalized = build_cron_trigger(cron_expr)
+    set_setting("cron_schedule", normalized)
+    db.session.commit()
+
+    job = scheduler.get_job("pack_job")
+    if job:
+        scheduler.reschedule_job("pack_job", trigger=trigger)
+    else:
+        scheduler.add_job(
+            func=process_all_qbs,
+            trigger=trigger,
+            id="pack_job",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+    logger.info("scheduler cron applied: %s", normalized)
+    return normalized
+
+
 def format_seconds(seconds):
     seconds = int(max(0, seconds))
     m, s = divmod(seconds, 60)
@@ -197,7 +236,6 @@ def get_path_size_bytes(path):
             except OSError:
                 continue
     return total
-
 
 def extract_error_tail(stderr, stdout):
     lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
@@ -408,7 +446,6 @@ def process_one_torrent(server: QBServer, client, torrent):
         with ACTIVE_TASKS_LOCK:
             ACTIVE_TASKS.pop(task_key, None)
 
-
 def process_all_qbs():
     with app.app_context():
         servers = QBServer.query.all()
@@ -432,7 +469,6 @@ def process_all_qbs():
                 try:
                     qb_remove_tags(client, torrent_hash, [WAITING_TAG])
                     qb_add_tags(client, torrent_hash, [PACKING_TAG])
-
                     send_tg_notification(
                         "[AutoISO] 开始封装\n"
                         f"节点: {server.name}\n"
@@ -460,6 +496,39 @@ def process_all_qbs():
                         f"任务: {getattr(torrent, 'name', 'unknown')}\n"
                         f"错误: {exc}"
                     )
+
+
+def parse_recent_log_entries(hours=24):
+    if not os.path.exists(LOG_FILE):
+        return []
+
+    cutoff = datetime.now() - timedelta(hours=hours)
+    entries = []
+    current_lines = []
+    current_dt = None
+
+    with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            m = LOG_TS_RE.match(line)
+            if m:
+                if current_lines and current_dt:
+                    entries.append((current_dt, "\n".join(current_lines)))
+                current_lines = [line]
+                try:
+                    current_dt = datetime.strptime(m.group("dt"), "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    current_dt = None
+            else:
+                if current_lines:
+                    current_lines.append(line)
+
+    if current_lines and current_dt:
+        entries.append((current_dt, "\n".join(current_lines)))
+
+    recent = [item for item in entries if item[0] >= cutoff]
+    recent.sort(key=lambda x: x[0], reverse=True)
+    return [item[1] for item in recent]
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -531,7 +600,6 @@ def add_qbserver():
         return jsonify({"error": "节点别名已存在"}), 400
     db.session.add(QBServer(name=name, url=url, username=username, password=password))
     db.session.commit()
-    logger.info("qb server added, id=%s, name=%s", QBServer.query.order_by(QBServer.id.desc()).first().id, name)
     return jsonify({"ok": True})
 
 
@@ -567,7 +635,6 @@ def update_qbserver():
         server.password = password
 
     db.session.commit()
-    logger.info("qb server updated, id=%s, name=%s", server.id, server.name)
     return jsonify({"ok": True})
 
 
@@ -578,9 +645,7 @@ def delete_qbserver(server_id):
         return jsonify({"error": "节点不存在"}), 404
     db.session.delete(item)
     db.session.commit()
-    logger.info("qb server deleted, id=%s", server_id)
     return jsonify({"ok": True})
-
 
 @app.route("/api/settings/telegram", methods=["GET"])
 def get_telegram_settings():
@@ -620,10 +685,47 @@ def clear_telegram_settings():
     return jsonify({"ok": True})
 
 
+@app.route("/api/settings/system", methods=["GET"])
+def get_system_settings():
+    auth_username, _ = get_auth_credentials()
+    return jsonify({"auth_username": auth_username, "cron_schedule": get_cron_schedule()})
+
+
+@app.route("/api/settings/system", methods=["POST"])
+def save_system_settings():
+    payload = request.get_json(force=True) or {}
+    auth_username = (payload.get("auth_username") or "").strip()
+    auth_password = (payload.get("auth_password") or "").strip()
+    auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
+    cron_expr = (payload.get("cron_schedule") or "").strip()
+
+    if not auth_username:
+        return jsonify({"error": "账号不能为空"}), 400
+
+    if cron_expr:
+        try:
+            CronTrigger.from_crontab(cron_expr)
+        except Exception as exc:
+            return jsonify({"error": f"Cron 表达式无效: {exc}"}), 400
+    else:
+        cron_expr = get_cron_schedule()
+
+    if auth_password or auth_password_confirm:
+        if not auth_password or not auth_password_confirm:
+            return jsonify({"error": "修改密码时必须填写并确认新密码"}), 400
+        if auth_password != auth_password_confirm:
+            return jsonify({"error": "两次密码输入不一致"}), 400
+        set_setting("auth_password", auth_password)
+
+    set_setting("auth_username", auth_username)
+    normalized = apply_scheduler_cron(cron_expr)
+    return jsonify({"ok": True, "cron_schedule": normalized})
+
+
 @app.route("/api/settings/auth", methods=["GET"])
 def get_auth_settings():
     auth_username, _ = get_auth_credentials()
-    return jsonify({"auth_username": auth_username})
+    return jsonify({"auth_username": auth_username, "cron_schedule": get_cron_schedule()})
 
 
 @app.route("/api/settings/auth", methods=["POST"])
@@ -632,14 +734,22 @@ def save_auth_settings():
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
+    cron_expr = (payload.get("cron_schedule") or "").strip() or get_cron_schedule()
+
     if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
     if auth_password != auth_password_confirm:
         return jsonify({"error": "两次密码输入不一致"}), 400
+
+    try:
+        CronTrigger.from_crontab(cron_expr)
+    except Exception as exc:
+        return jsonify({"error": f"Cron 表达式无效: {exc}"}), 400
+
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)
-    db.session.commit()
-    return jsonify({"ok": True})
+    normalized = apply_scheduler_cron(cron_expr)
+    return jsonify({"ok": True, "cron_schedule": normalized})
 
 
 @app.route("/api/history", methods=["GET"])
@@ -689,19 +799,14 @@ def delete_history_batch():
 
     PackHistory.query.filter(PackHistory.id.in_(clean_ids)).delete(synchronize_session=False)
     db.session.commit()
-    logger.info("history deleted count=%s", len(clean_ids))
     return jsonify({"ok": True, "deleted": len(clean_ids)})
 
 
 @app.route("/api/logs", methods=["GET"])
 def get_logs():
     try:
-        if not os.path.exists(LOG_FILE):
-            return jsonify({"logs": ""})
-        with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-        tail = "".join(lines[-200:])
-        return jsonify({"logs": tail})
+        logs = parse_recent_log_entries(hours=24)
+        return jsonify({"logs": logs})
     except Exception as exc:
         logger.exception("read logs failed")
         return jsonify({"error": f"读取日志失败: {exc}"}), 500
@@ -736,6 +841,42 @@ def get_progress():
     return jsonify({"active": len(tasks) > 0, "tasks": tasks})
 
 
+@app.route("/api/pending", methods=["GET"])
+def list_pending():
+    rows = []
+    servers = QBServer.query.order_by(QBServer.id.asc()).all()
+    for server in servers:
+        try:
+            client = make_qb_client(server)
+            torrents = client.torrents_info()
+        except Exception:
+            logger.exception("pending fetch failed, node=%s", server.name)
+            continue
+
+        for torrent in torrents:
+            if not has_waiting_tag(getattr(torrent, "tags", "")):
+                continue
+
+            size_bytes = int(getattr(torrent, "size", 0) or getattr(torrent, "total_size", 0) or 0)
+            added_on = getattr(torrent, "added_on", 0) or 0
+            try:
+                added_dt = datetime.fromtimestamp(int(added_on), TZ).strftime("%Y-%m-%d %H:%M") if added_on else ""
+            except Exception:
+                added_dt = ""
+
+            rows.append(
+                {
+                    "title": getattr(torrent, "name", ""),
+                    "size_gb": round(size_bytes / GB, 3),
+                    "node_alias": server.name,
+                    "added_on": added_dt,
+                }
+            )
+
+    rows.sort(key=lambda x: x.get("added_on", ""), reverse=True)
+    return jsonify(rows)
+
+
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
@@ -746,6 +887,17 @@ def get_stats():
         .scalar()
         or 0.0
     )
+
+    now_dt = now_local().replace(tzinfo=None)
+    month_start = datetime(now_dt.year, now_dt.month, 1)
+    month_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.start_time >= month_start).scalar() or 0
+    month_size_gb = (
+        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
+        .filter(PackHistory.start_time >= month_start)
+        .scalar()
+        or 0.0
+    )
+
     finished_rows = PackHistory.query.filter(
         PackHistory.start_time.isnot(None), PackHistory.end_time.isnot(None)
     ).all()
@@ -762,25 +914,35 @@ def get_stats():
             "total_size_text": format_data_size(float(total_size_gb)),
             "avg_duration_seconds": avg_seconds,
             "avg_duration_text": format_seconds(avg_seconds),
+            "month_count": month_count,
+            "month_size_gb": round(float(month_size_gb), 2),
+            "month_size_text": format_data_size(float(month_size_gb)),
         }
     )
-
-
-scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-scheduler.add_job(
-    func=process_all_qbs,
-    trigger="interval",
-    seconds=POLL_SECONDS,
-    id="poll_pack_job",
-    max_instances=1,
-    coalesce=True,
-    replace_existing=True,
-)
 
 with app.app_context():
     os.makedirs("/data", exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     ensure_schema()
+
+    if not get_setting("cron_schedule"):
+        set_setting("cron_schedule", DEFAULT_CRON_SCHEDULE)
+        db.session.commit()
+
+    init_cron = get_cron_schedule()
+    trigger, normalized = build_cron_trigger(init_cron)
+    if normalized != init_cron:
+        set_setting("cron_schedule", normalized)
+        db.session.commit()
+
+scheduler.add_job(
+    func=process_all_qbs,
+    trigger=trigger,
+    id="pack_job",
+    max_instances=1,
+    coalesce=True,
+    replace_existing=True,
+)
 
 if not scheduler.running:
     scheduler.start()

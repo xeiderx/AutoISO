@@ -1,4 +1,5 @@
-﻿<!doctype html>
+
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -12,97 +13,30 @@
       --bg: #f3f6fb;
       --card-shadow: 0 8px 30px rgba(17, 24, 39, .08);
     }
-    body {
-      background: var(--bg);
-      color: #111827;
-      min-height: 100vh;
-    }
+    body { background: var(--bg); color: #111827; min-height: 100vh; }
     .sidebar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: var(--sidebar-w);
-      height: 100vh;
-      background: linear-gradient(180deg, #0b1220, #111a2f);
-      color: #e5e7eb;
-      padding: 22px 16px;
-      box-shadow: 6px 0 20px rgba(0, 0, 0, .12);
-      z-index: 1000;
-      overflow-y: auto;
+      position: fixed; top: 0; left: 0; width: var(--sidebar-w); height: 100vh;
+      background: linear-gradient(180deg, #0b1220, #111a2f); color: #e5e7eb;
+      padding: 22px 16px; box-shadow: 6px 0 20px rgba(0,0,0,.12); z-index: 1000; overflow-y: auto;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 18px;
-      letter-spacing: .3px;
-    }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; color:#fff; margin-bottom:18px; letter-spacing:.3px; }
     .brand i {
       background: linear-gradient(135deg, #0d6efd, #00d4ff);
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      width: 34px; height: 34px; border-radius: 10px; display:inline-flex; align-items:center; justify-content:center;
     }
-    .nav-link {
-      border-radius: 10px;
-      color: #cbd5e1;
-      padding: 10px 12px;
-      margin-bottom: 6px;
-      cursor: pointer;
-    }
-    .nav-link:hover, .nav-link.active {
-      background: rgba(255, 255, 255, .09);
-      color: #fff;
-    }
-    .main {
-      margin-left: var(--sidebar-w);
-      padding: 24px;
-    }
-    .topbar {
-      background: #fff;
-      border-radius: 14px;
-      box-shadow: var(--card-shadow);
-      padding: 14px 18px;
-      margin-bottom: 18px;
-    }
-    .card.soft {
-      border: 0;
-      border-radius: 14px;
-      box-shadow: var(--card-shadow);
-    }
+    .nav-link { border-radius:10px; color:#cbd5e1; padding:10px 12px; margin-bottom:6px; cursor:pointer; }
+    .nav-link:hover, .nav-link.active { background: rgba(255,255,255,.09); color:#fff; }
+    .main { margin-left: var(--sidebar-w); padding: 24px; }
+    .topbar { background:#fff; border-radius:14px; box-shadow:var(--card-shadow); padding:14px 18px; margin-bottom:18px; }
+    .card.soft { border:0; border-radius:14px; box-shadow:var(--card-shadow); }
     .stat-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      color: #fff;
+      width:44px; height:44px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; font-size:20px; color:#fff;
     }
-    .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    .table-wrap {
-      max-height: 68vh;
-      overflow: auto;
-    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .table-wrap { max-height: 68vh; overflow: auto; }
     @media (max-width: 992px) {
-      .sidebar {
-        position: static;
-        width: 100%;
-        height: auto;
-        border-radius: 0 0 14px 14px;
-      }
-      .main {
-        margin-left: 0;
-        padding: 16px;
-      }
+      .sidebar { position: static; width: 100%; height: auto; border-radius: 0 0 14px 14px; }
+      .main { margin-left: 0; padding: 16px; }
     }
   </style>
 </head>
@@ -123,7 +57,7 @@
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
         <div class="fw-bold">AutoISO Dashboard</div>
-        <div class="text-muted small">系统每 60 秒自动轮询 qBittorrent 待封装任务</div>
+        <div class="text-muted small">系统按 Cron 表达式自动轮询 qBittorrent 待封装任务</div>
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-sm btn-outline-dark" id="btnViewLogs"><i class="bi bi-journal-text me-1"></i> 系统日志</button>
@@ -133,14 +67,34 @@
 
     <section id="viewDashboard" class="app-view">
       <div class="row g-3 mb-3" id="statsCards">
-        <div class="col-md-6 col-xl-3">
-          <div class="card soft h-100"><div class="card-body">加载中...</div></div>
-        </div>
+        <div class="col-md-6 col-xl-4"><div class="card soft h-100"><div class="card-body">加载中...</div></div></div>
       </div>
-      <div class="card soft">
+
+      <div class="card soft mb-3">
         <div class="card-body">
           <h5 class="card-title mb-3"><i class="bi bi-activity me-2"></i>正在执行</h5>
           <div id="activeTasks"></div>
+        </div>
+      </div>
+
+      <div class="card soft">
+        <div class="card-body">
+          <h5 class="card-title mb-3"><i class="bi bi-list-check me-2"></i>待封装任务</h5>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>任务名</th>
+                  <th>大小(GB)</th>
+                  <th>节点</th>
+                  <th>添加时间</th>
+                </tr>
+              </thead>
+              <tbody id="pendingBody">
+                <tr><td colspan="4" class="text-muted text-center">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -175,6 +129,23 @@
                 <div class="col-12"><input class="form-control mono" name="tg_proxy" placeholder="代理地址 (Proxy)，例如: http://192.168.1.100:7890"></div>
                 <div class="col-md-6 d-grid"><button class="btn btn-success" type="submit"><i class="bi bi-floppy me-1"></i>保存并测试</button></div>
                 <div class="col-md-6 d-grid"><button class="btn btn-outline-danger" type="button" id="btnClearTg"><i class="bi bi-trash me-1"></i>清空设置</button></div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card soft">
+            <div class="card-body">
+              <h5 class="card-title"><i class="bi bi-shield-lock me-2"></i>系统设置</h5>
+              <form id="systemForm" class="row g-2">
+                <div class="col-md-4"><input class="form-control" name="auth_username" placeholder="登录账号" required></div>
+                <div class="col-md-4"><input class="form-control" type="password" name="auth_password" placeholder="新密码（可留空）"></div>
+                <div class="col-md-4"><input class="form-control" type="password" name="auth_password_confirm" placeholder="确认新密码（可留空）"></div>
+                <div class="col-md-8"><input class="form-control mono" name="cron_schedule" placeholder="自动封装时间 (Cron表达式)，例如每天凌晨2点: 0 2 * * *" required></div>
+                <div class="col-md-4 d-grid"><button class="btn btn-warning" type="submit"><i class="bi bi-save me-1"></i>保存系统设置</button></div>
               </form>
             </div>
           </div>
@@ -239,7 +210,7 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-journal-text me-2"></i>系统运行日志</h5>
+          <h5 class="modal-title"><i class="bi bi-journal-text me-2"></i>系统运行日志（最近24小时）</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
@@ -356,9 +327,7 @@
   }
 
   async function fetchHistory(fromPolling = false) {
-    if (fromPolling && document.querySelectorAll('.history-checkbox:checked').length > 0) {
-      return;
-    }
+    if (fromPolling && document.querySelectorAll('.history-checkbox:checked').length > 0) return;
     const list = await api('/api/history?limit=0');
     allHistoryData = list;
     renderHistoryPage();
@@ -371,20 +340,19 @@
       return;
     }
     if (!confirm('确定要删除选中的记录吗？')) return;
-    await api('/api/history/delete', {
-      method: 'POST',
-      body: JSON.stringify({ ids }),
-    });
+    await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) });
     await fetchHistory(false);
   }
 
   async function loadStats() {
     const stats = await api('/api/stats');
     document.getElementById('statsCards').innerHTML = `
-      <div class="col-md-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总封装次数</div><div class="fs-3 fw-bold">${stats.total_count}</div></div><span class="stat-icon" style="background:#0d6efd"><i class="bi bi-stack"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">成功率</div><div class="fs-3 fw-bold">${stats.success_rate}%</div></div><span class="stat-icon" style="background:#198754"><i class="bi bi-check2-circle"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">累计处理数据</div><div class="fs-4 fw-bold">${escapeHtml(stats.total_size_text)}</div></div><span class="stat-icon" style="background:#6f42c1"><i class="bi bi-database-fill"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">平均耗时</div><div class="fs-4 fw-bold">${escapeHtml(stats.avg_duration_text)}</div></div><span class="stat-icon" style="background:#fd7e14"><i class="bi bi-hourglass-split"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总封装次数</div><div class="fs-4 fw-bold">${stats.total_count}</div></div><span class="stat-icon" style="background:#0d6efd"><i class="bi bi-stack"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">成功率</div><div class="fs-4 fw-bold">${stats.success_rate}%</div></div><span class="stat-icon" style="background:#198754"><i class="bi bi-check2-circle"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">累计处理数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.total_size_text)}</div></div><span class="stat-icon" style="background:#6f42c1"><i class="bi bi-database-fill"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">平均耗时</div><div class="fs-6 fw-bold">${escapeHtml(stats.avg_duration_text)}</div></div><span class="stat-icon" style="background:#fd7e14"><i class="bi bi-hourglass-split"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月封装次数</div><div class="fs-4 fw-bold">${stats.month_count}</div></div><span class="stat-icon" style="background:#0dcaf0"><i class="bi bi-calendar2-week"></i></span></div></div></div>
+      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月处理数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.month_size_text)}</div></div><span class="stat-icon" style="background:#20c997"><i class="bi bi-calendar2-check"></i></span></div></div></div>
     `;
   }
 
@@ -406,6 +374,23 @@
         </div>
         <div class="small text-muted mt-2">源: ${escapeHtml(task.source_path)}<br>目标: ${escapeHtml(task.iso_path)}</div>
       </div>
+    `).join('');
+  }
+
+  async function loadPending() {
+    const rows = await api('/api/pending');
+    const tbody = document.getElementById('pendingBody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">暂无待封装任务</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(row => `
+      <tr>
+        <td>${escapeHtml(row.title)}</td>
+        <td>${Number(row.size_gb || 0).toFixed(2)}</td>
+        <td>${escapeHtml(row.node_alias || '')}</td>
+        <td>${escapeHtml(row.added_on || '')}</td>
+      </tr>
     `).join('');
   }
 
@@ -476,17 +461,34 @@
     form.tg_proxy.value = data.tg_proxy || '';
   }
 
+  async function loadSystemSettings() {
+    const data = await api('/api/settings/system');
+    const form = document.getElementById('systemForm');
+    form.auth_username.value = data.auth_username || '';
+    form.auth_password.value = '';
+    form.auth_password_confirm.value = '';
+    form.cron_schedule.value = data.cron_schedule || '* * * * *';
+  }
+
   async function loadLogs() {
     const pre = document.getElementById('logContent');
     pre.textContent = '日志加载中...';
     const data = await api('/api/logs');
-    pre.textContent = data.logs || '';
-    pre.scrollTop = pre.scrollHeight;
+    const lines = Array.isArray(data.logs) ? data.logs : [];
+    pre.textContent = lines.length ? lines.join('\n\n') : '最近24小时暂无日志';
   }
 
   async function refreshAll() {
     try {
-      await Promise.all([loadStats(), loadProgress(), loadServers(), loadTgSettings(), fetchHistory(false)]);
+      await Promise.all([
+        loadStats(),
+        loadProgress(),
+        loadPending(),
+        loadServers(),
+        loadTgSettings(),
+        loadSystemSettings(),
+        fetchHistory(false),
+      ]);
     } catch (err) {
       alert(err.message);
     }
@@ -557,6 +559,30 @@
     await loadTgSettings();
   });
 
+  document.getElementById('systemForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const f = event.target;
+    const password = (f.auth_password.value || '').trim();
+    const confirm = (f.auth_password_confirm.value || '').trim();
+    if ((password || confirm) && password !== confirm) {
+      alert('两次密码输入不一致');
+      return;
+    }
+
+    await api('/api/settings/system', {
+      method: 'POST',
+      body: JSON.stringify({
+        auth_username: f.auth_username.value,
+        auth_password: password,
+        auth_password_confirm: confirm,
+        cron_schedule: f.cron_schedule.value,
+      }),
+    });
+    f.auth_password.value = '';
+    f.auth_password_confirm.value = '';
+    alert('系统设置已保存，Cron 已生效');
+  });
+
   document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
   document.getElementById('btnRefreshHistory').addEventListener('click', () => fetchHistory(false));
   document.getElementById('btnBatchDelete').addEventListener('click', batchDeleteHistory);
@@ -609,6 +635,7 @@
 
   refreshAll();
   setInterval(loadProgress, 3000);
+  setInterval(loadPending, 10000);
   setInterval(loadStats, 10000);
   setInterval(() => fetchHistory(true), 10000);
 </script>
