@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -122,10 +122,13 @@
   <main class="main">
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
-        <div class="fw-bold">AutoISO {{ version }} Dashboard</div>
+        <div class="fw-bold">AutoISO Dashboard</div>
         <div class="text-muted small">系统每 60 秒自动轮询 qBittorrent 待封装任务</div>
       </div>
-      <button class="btn btn-sm btn-outline-primary" id="btnRefreshAll"><i class="bi bi-arrow-clockwise me-1"></i> 刷新</button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-dark" id="btnViewLogs"><i class="bi bi-journal-text me-1"></i> 系统日志</button>
+        <button class="btn btn-sm btn-outline-primary" id="btnRefreshAll"><i class="bi bi-arrow-clockwise me-1"></i> 刷新</button>
+      </div>
     </div>
 
     <section id="viewDashboard" class="app-view">
@@ -149,11 +152,12 @@
             <div class="card-body">
               <h5 class="card-title"><i class="bi bi-hdd-network me-2"></i>qBittorrent 管理</h5>
               <form id="qbForm" class="row g-2 mb-3">
-                <div class="col-md-6"><input class="form-control" name="name" placeholder="节点别名" required></div>
+                <input type="hidden" name="qb_id" value="">
+                <div class="col-md-6"><input class="form-control" name="alias" placeholder="节点别名" required></div>
                 <div class="col-md-6"><input class="form-control" name="url" placeholder="http://qb-host:8080" required></div>
                 <div class="col-md-6"><input class="form-control" name="username" placeholder="账号" required></div>
-                <div class="col-md-6"><input class="form-control" name="password" type="password" placeholder="密码" required></div>
-                <div class="col-md-6 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle me-1"></i>添加节点</button></div>
+                <div class="col-md-6"><input class="form-control" name="password" type="password" placeholder="密码（编辑时留空则不修改）"></div>
+                <div class="col-md-6 d-grid"><button class="btn btn-primary" type="submit" id="qbSubmitBtn"><i class="bi bi-plus-circle me-1"></i><span id="qbSubmitText">添加节点</span></button></div>
                 <div class="col-md-6 d-grid"><button class="btn btn-outline-info" type="button" id="btnTestQb"><i class="bi bi-plug me-1"></i>测试连接</button></div>
               </form>
               <div id="qbList"></div>
@@ -231,10 +235,26 @@
     </section>
   </main>
 
+  <div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-journal-text me-2"></i>系统运行日志</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <pre id="logContent" style="max-height: 500px; overflow-y: auto; background: #212529; color: #20c997; padding: 15px; border-radius: 5px;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   let allHistoryData = [];
   let currentPage = 1;
   let pageSize = 20;
+  let logModal = null;
 
   async function api(url, options = {}) {
     const response = await fetch(url, {
@@ -336,7 +356,6 @@
   }
 
   async function fetchHistory(fromPolling = false) {
-    // 轮询时若用户已经勾选，跳过本次渲染，避免勾选被清空
     if (fromPolling && document.querySelectorAll('.history-checkbox:checked').length > 0) {
       return;
     }
@@ -390,6 +409,30 @@
     `).join('');
   }
 
+  function setQbFormMode(isEdit) {
+    const btn = document.getElementById('qbSubmitBtn');
+    const text = document.getElementById('qbSubmitText');
+    const icon = btn.querySelector('i');
+    if (isEdit) {
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-warning');
+      text.textContent = '保存修改';
+      icon.className = 'bi bi-check2-circle me-1';
+    } else {
+      btn.classList.remove('btn-warning');
+      btn.classList.add('btn-primary');
+      text.textContent = '添加节点';
+      icon.className = 'bi bi-plus-circle me-1';
+    }
+  }
+
+  function resetQbForm() {
+    const form = document.getElementById('qbForm');
+    form.reset();
+    form.qb_id.value = '';
+    setQbFormMode(false);
+  }
+
   async function loadServers() {
     const rows = await api('/api/qbservers');
     const el = document.getElementById('qbList');
@@ -400,15 +443,29 @@
     el.innerHTML = rows.map(row => `
       <div class="border rounded p-2 mb-2 bg-white d-flex justify-content-between align-items-start">
         <div><div class="fw-semibold">${escapeHtml(row.name)}</div><div class="small text-muted mono">${escapeHtml(row.url)}</div><div class="small text-muted">账号: ${escapeHtml(row.username)}</div></div>
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteServer(${row.id})"><i class="bi bi-trash"></i></button>
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-primary" onclick='editServer(${JSON.stringify(row)})'><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteServer(${row.id})"><i class="bi bi-trash"></i></button>
+        </div>
       </div>
     `).join('');
   }
 
+  function editServer(row) {
+    const form = document.getElementById('qbForm');
+    form.qb_id.value = row.id;
+    form.alias.value = row.name || '';
+    form.url.value = row.url || '';
+    form.username.value = row.username || '';
+    form.password.value = '';
+    setQbFormMode(true);
+  }
+
   async function deleteServer(id) {
-    if (!confirm('确认删除该 qB 节点?')) return;
+    if (!confirm('确认删除该 qB 节点？')) return;
     await api(`/api/qbservers/${id}`, { method: 'DELETE' });
     await loadServers();
+    resetQbForm();
   }
 
   async function loadTgSettings() {
@@ -417,6 +474,14 @@
     form.tg_token.value = data.tg_token || '';
     form.tg_chat_id.value = data.tg_chat_id || '';
     form.tg_proxy.value = data.tg_proxy || '';
+  }
+
+  async function loadLogs() {
+    const pre = document.getElementById('logContent');
+    pre.textContent = '日志加载中...';
+    const data = await api('/api/logs');
+    pre.textContent = data.logs || '';
+    pre.scrollTop = pre.scrollHeight;
   }
 
   async function refreshAll() {
@@ -430,13 +495,37 @@
   document.getElementById('qbForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const f = event.target;
-    await api('/api/qbservers', {
-      method: 'POST',
-      body: JSON.stringify({ name: f.name.value, url: f.url.value, username: f.username.value, password: f.password.value }),
-    });
-    f.reset();
+    const qbId = (f.qb_id.value || '').trim();
+    const alias = (f.alias.value || '').trim();
+    const url = (f.url.value || '').trim();
+    const username = (f.username.value || '').trim();
+    const password = (f.password.value || '').trim();
+
+    if (!alias || !url || !username) {
+      alert('请完整填写节点信息');
+      return;
+    }
+
+    if (qbId) {
+      await api('/api/qb/update', {
+        method: 'POST',
+        body: JSON.stringify({ id: Number(qbId), alias, url, username, password }),
+      });
+      alert('节点修改成功');
+    } else {
+      if (!password) {
+        alert('新增节点时密码不能为空');
+        return;
+      }
+      await api('/api/qbservers', {
+        method: 'POST',
+        body: JSON.stringify({ name: alias, url, username, password }),
+      });
+      alert('节点添加成功');
+    }
+
+    resetQbForm();
     await loadServers();
-    alert('节点添加成功');
   });
 
   document.getElementById('btnTestQb').addEventListener('click', async () => {
@@ -463,7 +552,7 @@
   });
 
   document.getElementById('btnClearTg').addEventListener('click', async () => {
-    if (!confirm('确认清空 Telegram 配置?')) return;
+    if (!confirm('确认清空 Telegram 配置？')) return;
     await api('/api/settings/telegram', { method: 'DELETE' });
     await loadTgSettings();
   });
@@ -506,6 +595,17 @@
       switchView(link.dataset.view);
     });
   });
+
+  document.getElementById('btnViewLogs').addEventListener('click', async () => {
+    try {
+      await loadLogs();
+      logModal.show();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  logModal = new bootstrap.Modal(document.getElementById('logModal'));
 
   refreshAll();
   setInterval(loadProgress, 3000);

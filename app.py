@@ -1,4 +1,5 @@
 import atexit
+import logging
 import os
 import re
 import subprocess
@@ -13,7 +14,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.2.4"
+APP_VERSION = "v0.3.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -33,10 +34,38 @@ FAILED_TAG = os.getenv("QB_FAILED_TAG", "封装失败")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
 DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
 GB = 1024**3
+
+
+def setup_logging():
+    log_dir = os.path.dirname(LOG_FILE)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    logger = logging.getLogger("autoiso")
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        return logger
+
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    file_handler.setFormatter(fmt)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(fmt)
+    logger.addHandler(stream_handler)
+
+    return logger
+
+
+logger = setup_logging()
 
 
 class QBServer(db.Model):
@@ -276,7 +305,9 @@ def pack_to_iso(task_name, source_path, vol_id):
         iso_path,
         source_path,
     ]
+    logger.info("xorriso command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
     proc = subprocess.run(cmd, capture_output=True, text=True)
+    logger.info("xorriso command finished, task=%s, returncode=%s", task_name, proc.returncode)
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
 
 
@@ -329,6 +360,7 @@ def process_one_torrent(server: QBServer, client, torrent):
                 f"任务: {torrent.name}\n"
                 f"错误: {history.message}"
             )
+            logger.error("task failed, reason=source not directory, task=%s, path=%s", torrent.name, source_path)
             return
 
         safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
@@ -350,6 +382,7 @@ def process_one_torrent(server: QBServer, client, torrent):
                 f"耗时: {duration}\n"
                 f"输出: {iso_path}"
             )
+            logger.info("task success, node=%s, task=%s, duration=%s", server.name, torrent.name, duration)
         else:
             history.status = "Failed"
             history.end_time = finished
@@ -364,6 +397,13 @@ def process_one_torrent(server: QBServer, client, torrent):
                 f"耗时: {duration}\n"
                 f"错误: {history.message}"
             )
+            logger.error(
+                "task failed, node=%s, task=%s, duration=%s, err=%s",
+                server.name,
+                torrent.name,
+                duration,
+                history.message,
+            )
     finally:
         with ACTIVE_TASKS_LOCK:
             ACTIVE_TASKS.pop(task_key, None)
@@ -376,7 +416,9 @@ def process_all_qbs():
             try:
                 client = make_qb_client(server)
                 torrents = client.torrents_info()
+                logger.info("poll node=%s, torrents=%s", server.name, len(torrents))
             except Exception as exc:
+                logger.exception("qb connect failed, node=%s", server.name)
                 send_tg_notification(f"[AutoISO] 节点连接失败\n节点: {server.name}\n错误: {exc}")
                 continue
 
@@ -390,8 +432,16 @@ def process_all_qbs():
                 try:
                     qb_remove_tags(client, torrent_hash, [WAITING_TAG])
                     qb_add_tags(client, torrent_hash, [PACKING_TAG])
+
+                    send_tg_notification(
+                        "[AutoISO] 开始封装\n"
+                        f"节点: {server.name}\n"
+                        f"任务: {torrent.name}"
+                    )
+                    logger.info("task start, node=%s, task=%s", server.name, getattr(torrent, "name", "unknown"))
                     process_one_torrent(server, client, torrent)
                 except Exception as exc:
+                    logger.exception("task process exception, node=%s, task=%s", server.name, getattr(torrent, "name", "unknown"))
                     qb_remove_tags(client, torrent_hash, [PACKING_TAG, WAITING_TAG])
                     qb_add_tags(client, torrent_hash, [FAILED_TAG])
                     failed_record = PackHistory(
@@ -481,6 +531,43 @@ def add_qbserver():
         return jsonify({"error": "节点别名已存在"}), 400
     db.session.add(QBServer(name=name, url=url, username=username, password=password))
     db.session.commit()
+    logger.info("qb server added, id=%s, name=%s", QBServer.query.order_by(QBServer.id.desc()).first().id, name)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/qb/update", methods=["POST"])
+def update_qbserver():
+    payload = request.get_json(force=True) or {}
+    raw_id = payload.get("id")
+    alias = (payload.get("alias") or "").strip()
+    url = (payload.get("url") or "").strip()
+    username = (payload.get("username") or "").strip()
+    password = (payload.get("password") or "").strip()
+
+    try:
+        server_id = int(raw_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "无效的节点 ID"}), 400
+
+    if not all([alias, url, username]):
+        return jsonify({"error": "alias、url、username 不能为空"}), 400
+
+    server = db.session.get(QBServer, server_id)
+    if not server:
+        return jsonify({"error": "节点不存在"}), 404
+
+    conflict = QBServer.query.filter(QBServer.name == alias, QBServer.id != server_id).first()
+    if conflict:
+        return jsonify({"error": "节点别名已存在"}), 400
+
+    server.name = alias
+    server.url = url
+    server.username = username
+    if password:
+        server.password = password
+
+    db.session.commit()
+    logger.info("qb server updated, id=%s, name=%s", server.id, server.name)
     return jsonify({"ok": True})
 
 
@@ -491,6 +578,7 @@ def delete_qbserver(server_id):
         return jsonify({"error": "节点不存在"}), 404
     db.session.delete(item)
     db.session.commit()
+    logger.info("qb server deleted, id=%s", server_id)
     return jsonify({"ok": True})
 
 
@@ -601,7 +689,22 @@ def delete_history_batch():
 
     PackHistory.query.filter(PackHistory.id.in_(clean_ids)).delete(synchronize_session=False)
     db.session.commit()
+    logger.info("history deleted count=%s", len(clean_ids))
     return jsonify({"ok": True, "deleted": len(clean_ids)})
+
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    try:
+        if not os.path.exists(LOG_FILE):
+            return jsonify({"logs": ""})
+        with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        tail = "".join(lines[-200:])
+        return jsonify({"logs": tail})
+    except Exception as exc:
+        logger.exception("read logs failed")
+        return jsonify({"error": f"读取日志失败: {exc}"}), 500
 
 
 @app.route("/api/progress", methods=["GET"])
