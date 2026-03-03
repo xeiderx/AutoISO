@@ -1,5 +1,6 @@
 import atexit
 import os
+import re
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.2.1"
+APP_VERSION = "v0.2.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -92,13 +93,10 @@ def auth_guard():
 
     if endpoint in public_endpoints:
         return
-
     if session.get("logged_in"):
         return
-
     if request.path.startswith("/api/"):
         return jsonify({"error": "未登录或会话已过期"}), 401
-
     return redirect(url_for("login"))
 
 
@@ -173,11 +171,26 @@ def get_path_size_bytes(path):
     return total
 
 
-def extract_error_tail(stderr, stdout, limit=800):
-    text_msg = (stderr or "").strip() or (stdout or "").strip() or "unknown error"
-    if len(text_msg) <= limit:
-        return text_msg
-    return text_msg[-limit:]
+def extract_error_tail(stderr, stdout):
+    # 过滤 xorriso 启动横幅，保留最后 3-5 行核心报错
+    raw_lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    skip_tokens = ["xorriso 1.5.6", "libburnia", "rockridge", "copyright"]
+    filtered = []
+    for ln in raw_lines:
+        low = ln.lower()
+        if any(token in low for token in skip_tokens):
+            continue
+        filtered.append(ln)
+
+    target = filtered if filtered else raw_lines
+    if target:
+        picked = target[-5:]
+        return "\n".join(picked)
+
+    fallback = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
+    if fallback:
+        return "\n".join(fallback[-3:])
+    return "unknown error"
 
 
 def send_tg_notification(text_msg):
@@ -188,10 +201,7 @@ def send_tg_notification(text_msg):
         return False, "tg_token 或 tg_chat_id 未配置"
 
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
-    request_kwargs = {
-        "json": {"chat_id": chat_id, "text": text_msg},
-        "timeout": 15,
-    }
+    request_kwargs = {"json": {"chat_id": chat_id, "text": text_msg}, "timeout": 15}
     if proxy_url:
         request_kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
 
@@ -254,6 +264,11 @@ def resolve_source_path(torrent):
 def pack_to_iso(task_name, source_path, vol_id):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     iso_path = os.path.join(OUTPUT_DIR, f"{task_name}.iso")
+
+    # 避免 xorriso 因目标文件已存在（残留 0KB）直接退出
+    if os.path.exists(iso_path):
+        os.remove(iso_path)
+
     cmd = [
         "xorriso",
         "-as",
@@ -320,8 +335,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             )
             return
 
-        vol_id = (torrent.name or "AUTOISO")[:30]
-        ok, iso_path, out, err = pack_to_iso(torrent.name, source_path, vol_id)
+        safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
+        ok, iso_path, out, err = pack_to_iso(torrent.name, source_path, safe_vol_id)
         finished = now_local()
         duration = format_seconds((finished - started).total_seconds())
 
@@ -596,6 +611,28 @@ def list_history():
             }
         )
     return jsonify(data)
+
+
+@app.route("/api/history/delete", methods=["POST"])
+def delete_history_batch():
+    payload = request.get_json(force=True) or {}
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        return jsonify({"error": "ids 必须是数组"}), 400
+
+    clean_ids = []
+    for x in ids:
+        try:
+            clean_ids.append(int(x))
+        except (TypeError, ValueError):
+            continue
+
+    if not clean_ids:
+        return jsonify({"error": "未提供有效的历史记录 ID"}), 400
+
+    PackHistory.query.filter(PackHistory.id.in_(clean_ids)).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({"ok": True, "deleted": len(clean_ids)})
 
 
 @app.route("/api/progress", methods=["GET"])
