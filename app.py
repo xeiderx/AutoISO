@@ -12,6 +12,8 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
+APP_VERSION = "v0.2.1"
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
 app.permanent_session_lifetime = timedelta(days=7)
@@ -169,15 +171,23 @@ def get_path_size_bytes(path):
     return total
 
 
-def send_telegram_message(text_msg):
+def send_tg_notification(text_msg):
     token = get_setting("tg_token")
     chat_id = get_setting("tg_chat_id")
+    proxy_url = get_setting("tg_proxy").strip()
     if not token or not chat_id:
         return False, "tg_token 或 tg_chat_id 未配置"
 
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
+    request_kwargs = {
+        "json": {"chat_id": chat_id, "text": text_msg},
+        "timeout": 15,
+    }
+    if proxy_url:
+        request_kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
+
     try:
-        resp = requests.post(api_url, json={"chat_id": chat_id, "text": text_msg}, timeout=15)
+        resp = requests.post(api_url, **request_kwargs)
         resp.raise_for_status()
         data = resp.json()
         if not data.get("ok"):
@@ -291,8 +301,8 @@ def process_one_torrent(server: QBServer, client, torrent):
 
             update_torrent_tags(client, getattr(torrent, "hash", ""))
 
-            send_telegram_message(
-                "[AutoISO V2] 封装成功\n"
+            send_tg_notification(
+                "[AutoISO] 封装成功\n"
                 f"节点: {server.name}\n"
                 f"任务: {torrent.name}\n"
                 f"耗时: {duration}\n"
@@ -304,8 +314,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.message = (err or out or "unknown error")[:3000]
             db.session.commit()
 
-            send_telegram_message(
-                "[AutoISO V2] 封装失败\n"
+            send_tg_notification(
+                "[AutoISO] 封装失败\n"
                 f"节点: {server.name}\n"
                 f"任务: {torrent.name}\n"
                 f"耗时: {duration}\n"
@@ -324,7 +334,7 @@ def poll_and_pack():
                 client = make_qb_client(server)
                 torrents = client.torrents_info()
             except Exception as exc:
-                send_telegram_message(f"[AutoISO V2] 节点连接失败\n节点: {server.name}\n错误: {exc}")
+                send_tg_notification(f"[AutoISO] 节点连接失败\n节点: {server.name}\n错误: {exc}")
                 continue
 
             for torrent in torrents:
@@ -346,8 +356,8 @@ def poll_and_pack():
                     )
                     db.session.add(failed_record)
                     db.session.commit()
-                    send_telegram_message(
-                        "[AutoISO V2] 任务处理异常\n"
+                    send_tg_notification(
+                        "[AutoISO] 任务处理异常\n"
                         f"节点: {server.name}\n"
                         f"任务: {getattr(torrent, 'name', 'unknown')}\n"
                         f"错误: {exc}"
@@ -359,7 +369,7 @@ def login():
     if request.method == "GET":
         if session.get("logged_in"):
             return redirect(url_for("index"))
-        return render_template("login.html", error="")
+        return render_template("login.html", error="", version=APP_VERSION)
 
     input_username = (request.form.get("username") or "").strip()
     input_password = (request.form.get("password") or "").strip()
@@ -369,7 +379,7 @@ def login():
         session.permanent = True
         return redirect(url_for("index"))
 
-    return render_template("login.html", error="账号或密码错误")
+    return render_template("login.html", error="账号或密码错误", version=APP_VERSION)
 
 
 @app.route("/logout")
@@ -381,7 +391,7 @@ def logout():
 @app.route("/")
 @require_login
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=APP_VERSION)
 
 
 @app.route("/api/qb/test", methods=["POST"])
@@ -458,6 +468,7 @@ def get_telegram_settings():
         {
             "tg_token": get_setting("tg_token"),
             "tg_chat_id": get_setting("tg_chat_id"),
+            "tg_proxy": get_setting("tg_proxy"),
         }
     )
 
@@ -467,15 +478,17 @@ def save_telegram_settings():
     payload = request.get_json(force=True)
     tg_token = (payload.get("tg_token") or "").strip()
     tg_chat_id = (payload.get("tg_chat_id") or "").strip()
+    tg_proxy = (payload.get("tg_proxy") or "").strip()
 
     if not tg_token or not tg_chat_id:
         return jsonify({"error": "tg_token 和 tg_chat_id 不能为空"}), 400
 
     set_setting("tg_token", tg_token)
     set_setting("tg_chat_id", tg_chat_id)
+    set_setting("tg_proxy", tg_proxy)
     db.session.commit()
 
-    ok, message = send_telegram_message("[AutoISO V2] Telegram 配置已保存，测试消息发送成功。")
+    ok, message = send_tg_notification("[AutoISO] Telegram 配置已保存，测试消息发送成功。")
     if not ok:
         return jsonify({"error": f"已保存，但测试消息发送失败: {message}"}), 400
 
@@ -486,6 +499,7 @@ def save_telegram_settings():
 def clear_telegram_settings():
     delete_setting("tg_token")
     delete_setting("tg_chat_id")
+    delete_setting("tg_proxy")
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -501,9 +515,12 @@ def save_auth_settings():
     payload = request.get_json(force=True)
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
+    auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
 
-    if not auth_username or not auth_password:
+    if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
+    if auth_password != auth_password_confirm:
+        return jsonify({"error": "两次密码输入不一致"}), 400
 
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)

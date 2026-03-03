@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AutoISO V2 Dashboard</title>
+  <title>AutoISO {{ version }} Dashboard</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
@@ -26,7 +26,7 @@
       background: linear-gradient(180deg, #0b1220, #111a2f);
       color: #e5e7eb;
       padding: 22px 16px;
-      box-shadow: 6px 0 20px rgba(0,0,0,.12);
+      box-shadow: 6px 0 20px rgba(0, 0, 0, .12);
       z-index: 1000;
       overflow-y: auto;
     }
@@ -108,7 +108,7 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><i class="bi bi-collection-play"></i> AutoISO V2</div>
+    <div class="brand"><i class="bi bi-collection-play"></i> AutoISO {{ version }}</div>
     <div class="small text-secondary mb-3">原盘封装中控台</div>
     <nav class="nav flex-column" id="sideNav">
       <a class="nav-link active" data-view="viewDashboard"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
@@ -122,7 +122,7 @@
   <main class="main">
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
-        <div class="fw-bold">AutoISO V2 Dashboard</div>
+        <div class="fw-bold">AutoISO {{ version }} Dashboard</div>
         <div class="text-muted small">系统每 60 秒自动轮询 qBittorrent 待封装任务</div>
       </div>
       <button class="btn btn-sm btn-outline-primary" id="btnRefreshAll"><i class="bi bi-arrow-clockwise me-1"></i> 刷新</button>
@@ -169,6 +169,7 @@
               <form id="tgForm" class="row g-2 mb-3">
                 <div class="col-12"><input class="form-control mono" name="tg_token" placeholder="Bot Token" required></div>
                 <div class="col-12"><input class="form-control mono" name="tg_chat_id" placeholder="Chat ID" required></div>
+                <div class="col-12"><input class="form-control mono" name="tg_proxy" placeholder="代理地址 (Proxy)，例如: http://192.168.1.100:7890"></div>
                 <div class="col-md-6 d-grid"><button class="btn btn-success" type="submit"><i class="bi bi-floppy me-1"></i>保存并测试</button></div>
                 <div class="col-md-6 d-grid"><button class="btn btn-outline-danger" type="button" id="btnClearTg"><i class="bi bi-trash me-1"></i>清空设置</button></div>
               </form>
@@ -188,7 +189,22 @@
                   <input class="form-control" name="auth_username" placeholder="新用户名" required>
                 </div>
                 <div class="col-12">
-                  <input class="form-control" name="auth_password" type="password" placeholder="新密码" required>
+                  <label class="form-label mb-1">新密码</label>
+                  <div class="input-group">
+                    <input class="form-control" name="auth_password" type="password" placeholder="请输入新密码" required>
+                    <button class="btn btn-outline-secondary toggle-password" type="button" data-target="auth_password">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label mb-1">确认新密码</label>
+                  <div class="input-group">
+                    <input class="form-control" name="auth_password_confirm" type="password" placeholder="请再次输入新密码" required>
+                    <button class="btn btn-outline-secondary toggle-password" type="button" data-target="auth_password_confirm">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="col-12 d-grid">
                   <button class="btn btn-warning" type="submit"><i class="bi bi-key me-1"></i>保存账号密码</button>
@@ -278,6 +294,22 @@
     document.querySelectorAll('.app-view').forEach(view => view.classList.add('d-none'));
     const target = document.getElementById(viewId);
     if (target) target.classList.remove('d-none');
+  }
+
+  function togglePassword(inputName, btn) {
+    const form = btn.closest('form');
+    const input = form[inputName];
+    if (!input) return;
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+      input.type = 'text';
+      icon.classList.remove('bi-eye');
+      icon.classList.add('bi-eye-slash');
+    } else {
+      input.type = 'password';
+      icon.classList.remove('bi-eye-slash');
+      icon.classList.add('bi-eye');
+    }
   }
 
   async function loadStats() {
@@ -376,6 +408,7 @@
     const form = document.getElementById('tgForm');
     form.tg_token.value = data.tg_token || '';
     form.tg_chat_id.value = data.tg_chat_id || '';
+    form.tg_proxy.value = data.tg_proxy || '';
   }
 
   async function loadAuthSettings() {
@@ -383,6 +416,7 @@
     const form = document.getElementById('authForm');
     form.auth_username.value = data.auth_username || '';
     form.auth_password.value = '';
+    form.auth_password_confirm.value = '';
   }
 
   async function loadHistory() {
@@ -466,6 +500,7 @@
       body: JSON.stringify({
         tg_token: form.tg_token.value,
         tg_chat_id: form.tg_chat_id.value,
+        tg_proxy: form.tg_proxy.value,
       }),
     });
     alert('Telegram 设置已保存并发送测试消息');
@@ -480,15 +515,25 @@
   document.getElementById('authForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.target;
+    if (form.auth_password.value !== form.auth_password_confirm.value) {
+      alert('两次密码输入不一致');
+      return;
+    }
     await api('/api/settings/auth', {
       method: 'POST',
       body: JSON.stringify({
         auth_username: form.auth_username.value,
         auth_password: form.auth_password.value,
+        auth_password_confirm: form.auth_password_confirm.value,
       }),
     });
     form.auth_password.value = '';
+    form.auth_password_confirm.value = '';
     alert('账号密码已更新');
+  });
+
+  document.querySelectorAll('.toggle-password').forEach(btn => {
+    btn.addEventListener('click', () => togglePassword(btn.dataset.target, btn));
   });
 
   document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
