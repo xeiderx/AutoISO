@@ -338,15 +338,19 @@ def pack_to_iso(task_name, source_path, vol_id):
         "-iso-level",
         "3",
         "-udf",
+        "-overwrite",
+        "on",
+        "-outdev",
+        iso_path,
         "-V",
         vol_id,
-        "-o",
-        iso_path,
         source_path,
     ]
     logger.info("xorriso command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     logger.info("xorriso command finished, task=%s, returncode=%s", task_name, proc.returncode)
+    if proc.returncode != 0 and proc.stderr:
+        logger.error("xorriso full stderr, task=%s:\n%s", task_name, proc.stderr)
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
 
 
