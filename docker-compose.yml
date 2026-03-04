@@ -17,3 +17,5 @@ services:
       - /volume1/Downloads/封装前:/Downloads/封装前:ro 
       # 跨盘输出，极大提升封装 I/O 速度
       - /volume2/Movie/封装后:/output
+      # 映射 cd2 的本地路径
+      - /volume3/CloudNAS:/CloudNAS:rslave
