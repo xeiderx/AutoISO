@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.5"
+APP_VERSION = "v0.4.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -97,6 +97,8 @@ class PackHistory(db.Model):
     file_size_gb = db.Column(db.Float, nullable=True)
     message = db.Column(db.Text, nullable=True)
     info = db.Column(db.Text, nullable=True)
+    upload_start_time = db.Column(db.Text, nullable=True)
+    upload_end_time = db.Column(db.Text, nullable=True)
 
     qb_server = db.relationship("QBServer", backref=db.backref("histories", lazy=True))
 
@@ -116,6 +118,8 @@ class UploadHistory(db.Model):
     filename = db.Column(db.String(512), nullable=False, unique=True, index=True)
     status = db.Column(db.String(32), nullable=False, default="pending")
     uploaded_at = db.Column(db.DateTime, nullable=True)
+    upload_start_time = db.Column(db.Text, nullable=True)
+    upload_end_time = db.Column(db.Text, nullable=True)
     message = db.Column(db.Text, nullable=True)
 
 
@@ -183,6 +187,27 @@ def ensure_schema():
             conn.execute(text("ALTER TABLE pack_history ADD COLUMN file_size_gb FLOAT"))
         if "info" not in columns:
             conn.execute(text("ALTER TABLE pack_history ADD COLUMN info TEXT"))
+        if "upload_start_time" not in columns:
+            conn.execute(text("ALTER TABLE pack_history ADD COLUMN upload_start_time TEXT"))
+        if "upload_end_time" not in columns:
+            conn.execute(text("ALTER TABLE pack_history ADD COLUMN upload_end_time TEXT"))
+
+        upload_result = conn.execute(text("PRAGMA table_info(upload_history)"))
+        upload_columns = {row[1] for row in upload_result.fetchall()}
+        if "upload_start_time" not in upload_columns:
+            conn.execute(text("ALTER TABLE upload_history ADD COLUMN upload_start_time TEXT"))
+        if "upload_end_time" not in upload_columns:
+            conn.execute(text("ALTER TABLE upload_history ADD COLUMN upload_end_time TEXT"))
+
+        # Backward-compatible migration requirement for legacy schema.
+        for sql in (
+            "ALTER TABLE tasks ADD COLUMN upload_start_time TEXT",
+            "ALTER TABLE tasks ADD COLUMN upload_end_time TEXT",
+        ):
+            try:
+                conn.execute(text(sql))
+            except Exception:
+                pass
 
 
 def get_setting(key):
@@ -335,6 +360,23 @@ def get_pending_upload_files():
     return pending
 
 
+def get_upload_list_files():
+    try:
+        names = sorted(os.listdir(OUTPUT_DIR))
+    except FileNotFoundError:
+        return []
+    except Exception:
+        logger.exception("scan output dir failed: %s", OUTPUT_DIR)
+        return []
+
+    rows = []
+    for name in names:
+        if not is_valid_upload_file(name):
+            continue
+        rows.append(name)
+    return rows
+
+
 def mark_upload_status(filename, status, message=""):
     if not filename:
         return
@@ -376,6 +418,9 @@ def finalize_pack_history_after_upload(file_name, dst_path):
         row.end_time = now_local()
         row.message = f"已上传: {dst_path}"
         row.info = ""
+        if not row.upload_start_time:
+            row.upload_start_time = format_db_time(now_local())
+        row.upload_end_time = format_db_time(now_local())
         db.session.commit()
         return
 
@@ -397,6 +442,8 @@ def finalize_pack_history_after_upload(file_name, dst_path):
         file_size_gb=size_gb,
         message=f"已上传: {dst_path}",
         info="外部文件",
+        upload_start_time=format_db_time(now_dt),
+        upload_end_time=format_db_time(now_dt),
     )
     db.session.add(new_row)
     db.session.commit()
@@ -407,6 +454,8 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
     total_bytes = os.path.getsize(src_path)
     bytes_done = 0
     start_ts = time.time()
+    upload_started_at = now_local()
+    update_upload_timestamps(os.path.basename(src_path), start_time=upload_started_at)
 
     update_upload_progress(
         active=True,
@@ -438,7 +487,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                     update_current_upload_status(
                         active=True,
                         file_name=os.path.basename(src_path),
-                        status="已暂停",
+                        status="paused",
                     )
                     time.sleep(1)
                     continue
@@ -447,7 +496,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                 update_current_upload_status(
                     active=True,
                     file_name=os.path.basename(src_path),
-                    status="上传中",
+                    status="uploading",
                 )
 
                 chunk = rf.read(chunk_size)
@@ -476,6 +525,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
         if delete_after:
             os.remove(src_path)
 
+        update_upload_timestamps(os.path.basename(src_path), end_time=now_local())
         finalize_pack_history_after_upload(os.path.basename(src_path), dst_path)
     except Exception:
         try:
@@ -532,6 +582,51 @@ def format_data_size(gb_value):
     if gb_value >= 1024:
         return f"{gb_value / 1024:.2f} TB"
     return f"{gb_value:.2f} GB"
+
+
+def format_db_time(dt):
+    if not dt:
+        return ""
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_db_time(raw):
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(str(raw), "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+def update_upload_timestamps(file_name, start_time=None, end_time=None):
+    if not has_app_context() or not file_name:
+        return
+    safe_name = os.path.basename(file_name)
+    task_name = os.path.splitext(safe_name)[0]
+
+    row = UploadHistory.query.filter_by(filename=safe_name).first()
+    if row:
+        if start_time is not None:
+            row.upload_start_time = format_db_time(start_time)
+            row.upload_end_time = ""
+        if end_time is not None:
+            row.upload_end_time = format_db_time(end_time)
+
+    pack_row = (
+        PackHistory.query.filter(PackHistory.task_name.in_([safe_name, task_name]))
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    if pack_row:
+        if start_time is not None:
+            pack_row.upload_start_time = format_db_time(start_time)
+            pack_row.upload_end_time = ""
+        if end_time is not None:
+            pack_row.upload_end_time = format_db_time(end_time)
+
+    if row or pack_row:
+        db.session.commit()
 
 
 def get_path_size_bytes(path):
@@ -731,7 +826,7 @@ def process_uploads():
 
                     current_uploading_file = file_name
                     set_upload_command("running")
-                    update_current_upload_status(active=True, file_name=file_name, status="上传中")
+                    update_current_upload_status(active=True, file_name=file_name, status="uploading")
                     upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
 
                     if row:
@@ -781,11 +876,6 @@ def process_single_upload(file_name):
                 logger.warning("manual upload file missing: %s", safe_name)
                 return
 
-            already = UploadHistory.query.filter_by(filename=safe_name, status="uploaded").first()
-            if already:
-                logger.info("manual upload skipped, already uploaded: %s", safe_name)
-                return
-
             clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
             delete_after_upload = get_delete_after_upload()
             try:
@@ -811,7 +901,7 @@ def process_single_upload(file_name):
             try:
                 current_uploading_file = safe_name
                 set_upload_command("running")
-                update_current_upload_status(active=True, file_name=safe_name, status="上传中")
+                update_current_upload_status(active=True, file_name=safe_name, status="uploading")
                 upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
                 if row:
                     row.status = STATUS_UPLOADED
@@ -1304,6 +1394,11 @@ def list_history():
         duration_seconds = None
         if row.start_time and row.end_time:
             duration_seconds = int((row.end_time - row.start_time).total_seconds())
+        upload_start_dt = parse_db_time(row.upload_start_time)
+        upload_end_dt = parse_db_time(row.upload_end_time)
+        upload_duration_seconds = None
+        if upload_start_dt and upload_end_dt:
+            upload_duration_seconds = int((upload_end_dt - upload_start_dt).total_seconds())
         data.append(
             {
                 "id": row.id,
@@ -1317,6 +1412,9 @@ def list_history():
                 "duration_seconds": duration_seconds,
                 "message": row.message or "",
                 "info": row.info or "",
+                "upload_start_time": row.upload_start_time or "",
+                "upload_end_time": row.upload_end_time or "",
+                "upload_duration_seconds": upload_duration_seconds,
             }
         )
     return jsonify(data)
@@ -1421,14 +1519,36 @@ def list_pending():
 @app.route("/api/pending_uploads", methods=["GET"])
 def list_pending_uploads():
     rows = []
-    names = get_pending_upload_files()
+    names = get_upload_list_files()
     for name in names:
         file_path = os.path.join(OUTPUT_DIR, name)
         try:
-            size_gb = round(os.path.getsize(file_path) / GB, 3)
+            size_bytes = os.path.getsize(file_path)
         except OSError:
-            size_gb = 0.0
-        rows.append({"file_name": name, "size_gb": size_gb, "status": "pending"})
+            size_bytes = 0
+        size_gb = round(size_bytes / GB, 3)
+
+        upload_row = UploadHistory.query.filter_by(filename=name).first()
+        upload_status = (upload_row.status if upload_row else "").strip().lower()
+        status_text = "已上传" if upload_status == "uploaded" else "待上传"
+
+        task_name = os.path.splitext(name)[0]
+        history_row = (
+            PackHistory.query.filter(PackHistory.task_name.in_([name, task_name]))
+            .order_by(PackHistory.id.desc())
+            .first()
+        )
+        node_name = history_row.qb_server.name if history_row and history_row.qb_server else "NAS"
+
+        rows.append(
+            {
+                "filename": name,
+                "size": size_gb,
+                "size_gb": size_gb,
+                "node": node_name,
+                "status": status_text,
+            }
+        )
     return jsonify(rows)
 
 
@@ -1441,8 +1561,6 @@ def upload_now(filename):
     with app.app_context():
         if not is_valid_upload_file(safe_name):
             return jsonify({"error": "file not found"}), 404
-        if UploadHistory.query.filter_by(filename=safe_name, status="uploaded").first():
-            return jsonify({"error": "already uploaded"}), 409
 
     thread = threading.Thread(target=process_single_upload, args=(safe_name,), daemon=True)
     thread.start()
@@ -1456,21 +1574,20 @@ def upload_control():
     if action not in {"pause", "resume"}:
         return jsonify({"error": "invalid action"}), 400
 
+    snapshot = get_current_upload_status_snapshot()
     if action == "pause":
         set_upload_command("paused")
-        snapshot = get_current_upload_status_snapshot()
         update_current_upload_status(
             active=snapshot.get("active", False),
             file_name=snapshot.get("file_name", ""),
-            status="已暂停",
+            status="paused",
         )
     else:
         set_upload_command("running")
-        snapshot = get_current_upload_status_snapshot()
         update_current_upload_status(
             active=snapshot.get("active", False),
             file_name=snapshot.get("file_name", ""),
-            status="上传中" if snapshot.get("active") else "idle",
+            status="uploading" if snapshot.get("active") else "idle",
         )
 
     return jsonify({"ok": True, "status": get_current_upload_status_snapshot().get("status", "idle")})
@@ -1479,10 +1596,6 @@ def upload_control():
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
-    success_statuses = [STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING, STATUS_UPLOADED, "Success"]
-    success_count = (
-        db.session.query(func.count(PackHistory.id)).filter(PackHistory.status.in_(success_statuses)).scalar() or 0
-    )
     total_size_gb = (
         db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
         .filter(PackHistory.file_size_gb.isnot(None))
@@ -1492,10 +1605,46 @@ def get_stats():
 
     now_dt = now_local().replace(tzinfo=None)
     month_start = datetime(now_dt.year, now_dt.month, 1)
+    month_start_text = month_start.strftime("%Y-%m-%d %H:%M:%S")
     month_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.start_time >= month_start).scalar() or 0
     month_size_gb = (
         db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
         .filter(PackHistory.start_time >= month_start)
+        .scalar()
+        or 0.0
+    )
+    uploaded_query = PackHistory.query.filter(
+        PackHistory.status == STATUS_UPLOADED,
+        PackHistory.upload_end_time.isnot(None),
+        PackHistory.upload_end_time != "",
+    )
+    total_upload_count = uploaded_query.count()
+    total_upload_size_gb = (
+        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
+        .filter(
+            PackHistory.status == STATUS_UPLOADED,
+            PackHistory.upload_end_time.isnot(None),
+            PackHistory.upload_end_time != "",
+        )
+        .scalar()
+        or 0.0
+    )
+    month_upload_count = (
+        PackHistory.query.filter(
+            PackHistory.status == STATUS_UPLOADED,
+            PackHistory.upload_end_time.isnot(None),
+            PackHistory.upload_end_time != "",
+            PackHistory.upload_end_time >= month_start_text,
+        ).count()
+    )
+    month_upload_size_gb = (
+        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
+        .filter(
+            PackHistory.status == STATUS_UPLOADED,
+            PackHistory.upload_end_time.isnot(None),
+            PackHistory.upload_end_time != "",
+            PackHistory.upload_end_time >= month_start_text,
+        )
         .scalar()
         or 0.0
     )
@@ -1507,11 +1656,9 @@ def get_stats():
     if finished_rows:
         total_seconds = sum((row.end_time - row.start_time).total_seconds() for row in finished_rows)
         avg_seconds = int(total_seconds / len(finished_rows))
-    success_rate = (success_count / total_count * 100) if total_count else 0
     return jsonify(
         {
             "total_count": total_count,
-            "success_rate": round(success_rate, 2),
             "total_size_gb": round(float(total_size_gb), 2),
             "total_size_text": format_data_size(float(total_size_gb)),
             "avg_duration_seconds": avg_seconds,
@@ -1519,6 +1666,12 @@ def get_stats():
             "month_count": month_count,
             "month_size_gb": round(float(month_size_gb), 2),
             "month_size_text": format_data_size(float(month_size_gb)),
+            "total_upload_count": int(total_upload_count or 0),
+            "total_upload_size_gb": round(float(total_upload_size_gb), 2),
+            "total_upload_size_text": format_data_size(float(total_upload_size_gb)),
+            "month_upload_count": int(month_upload_count or 0),
+            "month_upload_size_gb": round(float(month_upload_size_gb), 2),
+            "month_upload_size_text": format_data_size(float(month_upload_size_gb)),
             "current_uploading_file": current_uploading_file,
             "current_upload_status": get_current_upload_status_snapshot(),
             "upload_progress": get_upload_progress_snapshot(),

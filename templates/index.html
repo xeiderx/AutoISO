@@ -113,20 +113,21 @@
 
       <div class="card soft mt-3">
         <div class="card-body">
-          <h5 class="card-title mb-3"><i class="bi bi-cloud-arrow-up me-2"></i>待上传任务 (本地已就绪)</h5>
+          <h5 class="card-title mb-3"><i class="bi bi-cloud-arrow-up me-2"></i>待上传任务</h5>
           <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
               <thead class="table-light">
                 <tr>
                   <th>序号</th>
-                  <th>ISO 文件名</th>
+                  <th>文件名</th>
+                  <th>节点</th>
                   <th>大小(GB)</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody id="pendingUploadsBody">
-                <tr><td colspan="5" class="text-muted text-center">加载中...</td></tr>
+                <tr><td colspan="6" class="text-muted text-center">加载中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -252,10 +253,11 @@
                   <th>节点</th>
                   <th>状态</th>
                   <th>大小(GB)</th>
-                  <th>耗时</th>
+                  <th>封装耗时</th>
                   <th>开始时间</th>
                   <th>结束时间</th>
-                  <th>信息</th>
+                  <th>上传时间</th>
+                  <th>上传耗时</th>
                 </tr>
               </thead>
               <tbody id="historyBody"></tbody>
@@ -364,6 +366,14 @@
     return `${s}s`;
   }
 
+  function formatDateTimeCell(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '<span class="text-muted">-</span>';
+    const [datePart, timePart = ''] = raw.split(' ');
+    const shortDate = datePart.length >= 10 ? datePart.slice(5) : datePart;
+    return `<div class="small">${escapeHtml(shortDate)}</div><div class="small text-muted mono">${escapeHtml(timePart || '-')}</div>`;
+  }
+
   function statusBadge(status) {
     if (status === '封装完成，待上传' || status === '待上传') {
       return '<span class="badge text-bg-info">待上传</span>';
@@ -417,7 +427,7 @@
     document.getElementById('historyCheckAll').indeterminate = false;
 
     if (!pageRows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">暂无历史记录</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">暂无历史记录</td></tr>';
     } else {
       tbody.innerHTML = pageRows.map(row => `
         <tr>
@@ -428,9 +438,10 @@
           <td>${statusBadge(row.status)}</td>
           <td>${Number(row.file_size_gb || 0).toFixed(2)}</td>
           <td>${formatSeconds(row.duration_seconds)}</td>
-          <td>${escapeHtml(row.start_time || '-')}</td>
-          <td>${escapeHtml(row.end_time || '-')}</td>
-          <td class="text-wrap text-break" style="max-width: 350px; word-wrap: break-word; white-space: normal;" title="${escapeHtml(row.message || '')}">${escapeHtml(row.message || '')}</td>
+          <td>${formatDateTimeCell(row.start_time || '')}</td>
+          <td>${formatDateTimeCell(row.end_time || '')}</td>
+          <td>${formatDateTimeCell(row.upload_end_time || '')}</td>
+          <td>${formatSeconds(row.upload_duration_seconds)}</td>
         </tr>
       `).join('');
       document.querySelectorAll('.history-checkbox').forEach(cb => cb.addEventListener('change', syncHistoryCheckAllState));
@@ -462,12 +473,22 @@
   async function loadStats() {
     const stats = await api('/api/stats');
     document.getElementById('statsCards').innerHTML = `
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总封装次数</div><div class="fs-4 fw-bold">${stats.total_count}</div></div><span class="stat-icon" style="background:#0d6efd"><i class="bi bi-stack"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">成功率</div><div class="fs-4 fw-bold">${stats.success_rate}%</div></div><span class="stat-icon" style="background:#198754"><i class="bi bi-check2-circle"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">累计处理数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.total_size_text)}</div></div><span class="stat-icon" style="background:#6f42c1"><i class="bi bi-database-fill"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">平均耗时</div><div class="fs-6 fw-bold">${escapeHtml(stats.avg_duration_text)}</div></div><span class="stat-icon" style="background:#fd7e14"><i class="bi bi-hourglass-split"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月封装次数</div><div class="fs-4 fw-bold">${stats.month_count}</div></div><span class="stat-icon" style="background:#0dcaf0"><i class="bi bi-calendar2-week"></i></span></div></div></div>
-      <div class="col-md-6 col-xl-2"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月处理数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.month_size_text)}</div></div><span class="stat-icon" style="background:#20c997"><i class="bi bi-calendar2-check"></i></span></div></div></div>
+      <div class="col-12">
+        <div class="row g-3">
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总封装次数</div><div class="fs-4 fw-bold">${stats.total_count}</div></div><span class="stat-icon" style="background:#2563eb"><i class="bi bi-box-seam"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">累计处理数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.total_size_text)}</div></div><span class="stat-icon" style="background:#0f766e"><i class="bi bi-hdd-stack"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">平均耗时</div><div class="fs-6 fw-bold">${escapeHtml(stats.avg_duration_text)}</div></div><span class="stat-icon" style="background:#d97706"><i class="bi bi-stopwatch"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月封装次数</div><div class="fs-4 fw-bold">${stats.month_count}</div></div><span class="stat-icon" style="background:#0ea5e9"><i class="bi bi-calendar2-week"></i></span></div></div></div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="row g-3">
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总上传次数</div><div class="fs-4 fw-bold">${stats.total_upload_count || 0}</div></div><span class="stat-icon" style="background:#16a34a"><i class="bi bi-cloud-upload"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">总上传数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.total_upload_size_text || '0.00 GB')}</div></div><span class="stat-icon" style="background:#0284c7"><i class="bi bi-database-up"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月上传次数</div><div class="fs-4 fw-bold">${stats.month_upload_count || 0}</div></div><span class="stat-icon" style="background:#7c3aed"><i class="bi bi-calendar2-check"></i></span></div></div></div>
+          <div class="col-sm-6 col-xl-3"><div class="card soft h-100"><div class="card-body d-flex justify-content-between align-items-center"><div><div class="text-muted small">本月上传数据</div><div class="fs-6 fw-bold">${escapeHtml(stats.month_upload_size_text || '0.00 GB')}</div></div><span class="stat-icon" style="background:#be185d"><i class="bi bi-bar-chart-line"></i></span></div></div></div>
+        </div>
+      </div>
     `;
   }
 
@@ -501,7 +522,7 @@
     }
 
     const pct = Number(up.percentage || 0).toFixed(2);
-    const uploadPaused = currentUploadStatus.status === '已暂停' || up.status === 'paused';
+    const uploadPaused = currentUploadStatus.status === 'paused' || up.status === 'paused';
     const action = uploadPaused ? 'resume' : 'pause';
     const actionText = uploadPaused ? 'Resume' : 'Pause';
     const cardTone = uploadPaused ? 'bg-secondary-subtle' : 'bg-warning-subtle';
@@ -550,19 +571,28 @@
     const currentUploading = stats.current_uploading_file || '';
     const tbody = document.getElementById('pendingUploadsBody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">暂无待上传任务</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">暂无待上传任务</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map((row, index) => `
       <tr>
         <td>${index + 1}</td>
-        <td>${escapeHtml(row.file_name || '')}</td>
-        <td>${Number(row.size_gb || 0).toFixed(2)}</td>
-        <td>${(row.file_name || '') === currentUploading
-          ? '<span class="badge bg-warning text-dark">正在上传</span>'
+        <td>${escapeHtml(row.filename || '')}</td>
+        <td>${escapeHtml(row.node || 'NAS')}</td>
+        <td>${Number(row.size || row.size_gb || 0).toFixed(2)}</td>
+        <td>${(row.status || '') === '已上传'
+          ? '<span class="badge bg-success">已上传</span>'
           : '<span class="badge bg-secondary">待上传</span>'
         }</td>
-        <td><button class="btn btn-sm btn-outline-primary" ${(row.file_name || '') === currentUploading ? 'disabled' : ''} onclick="uploadNow('${encodeURIComponent(row.file_name || '')}')">${(row.file_name || '') === currentUploading ? '上传中' : '立即上传'}</button></td>
+        <td>
+          <button
+            class="btn btn-sm ${(row.status || '') === '已上传' ? 'btn-warning' : 'btn-outline-primary'}"
+            ${(row.filename || '') === currentUploading ? 'disabled' : ''}
+            onclick="uploadNow('${encodeURIComponent(row.filename || '')}')"
+          >
+            ${(row.filename || '') === currentUploading ? '上传中' : ((row.status || '') === '已上传' ? '重新上传' : '立即上传')}
+          </button>
+        </td>
       </tr>
     `).join('');
   }
