@@ -70,10 +70,22 @@
         <div class="col-md-6 col-xl-4"><div class="card soft h-100"><div class="card-body">加载中...</div></div></div>
       </div>
 
-      <div class="card soft mb-3">
-        <div class="card-body">
-          <h5 class="card-title mb-3"><i class="bi bi-activity me-2"></i>正在执行</h5>
-          <div id="activeTasks"></div>
+      <div class="row g-3 mb-3">
+        <div class="col-xl-6">
+          <div class="card soft h-100">
+            <div class="card-body">
+              <h5 class="card-title mb-3"><i class="bi bi-box-seam me-2"></i>封装状态</h5>
+              <div id="packingTasks"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-6">
+          <div class="card soft h-100">
+            <div class="card-body">
+              <h5 class="card-title mb-3"><i class="bi bi-cloud-upload me-2"></i>上传状态</h5>
+              <div id="uploadTaskStatus"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -109,10 +121,11 @@
                   <th>序号</th>
                   <th>ISO 文件名</th>
                   <th>大小(GB)</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody id="pendingUploadsBody">
-                <tr><td colspan="3" class="text-muted text-center">加载中...</td></tr>
+                <tr><td colspan="4" class="text-muted text-center">加载中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -430,23 +443,13 @@
   }
 
   async function loadProgress() {
-    const [progressData, stats] = await Promise.all([api('/api/progress'), api('/api/stats')]);
-    const box = document.getElementById('activeTasks');
-    const parts = [];
+    const [packData, stats] = await Promise.all([api('/api/progress'), api('/api/stats')]);
 
-    if (stats.current_uploading_file) {
-      parts.push(`
-        <div class="border rounded p-3 mb-2 bg-warning-subtle">
-          <div class="d-flex align-items-center gap-2 fw-semibold">
-            <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
-            <span>正在转移至网盘：${escapeHtml(stats.current_uploading_file)}</span>
-          </div>
-        </div>
-      `);
-    }
-
-    if (progressData.active && progressData.tasks.length) {
-      parts.push(progressData.tasks.map(task => `
+    const packingBox = document.getElementById('packingTasks');
+    if (!packData.active || !packData.tasks.length) {
+      packingBox.innerHTML = '<div class=\"text-muted\">当前无封装任务</div>';
+    } else {
+      packingBox.innerHTML = packData.tasks.map(task => `
         <div class="border rounded p-3 mb-2 bg-light-subtle">
           <div class="d-flex justify-content-between mb-2">
             <div><div class="fw-semibold">正在封装：${escapeHtml(task.task_name)}</div><div class="small text-muted">节点: ${escapeHtml(task.server_name)} | 已运行 ${formatSeconds(task.elapsed_seconds)}</div></div>
@@ -457,15 +460,35 @@
           </div>
           <div class="small text-muted mt-2">源: ${escapeHtml(task.source_path)}<br>目标: ${escapeHtml(task.iso_path)}</div>
         </div>
-      `).join(''));
+      `).join('');
     }
 
-    if (!parts.length) {
-      box.innerHTML = '<div class="text-muted">当前无任务</div>';
+    const up = stats.upload_progress || {};
+    const uploadBox = document.getElementById('uploadTaskStatus');
+    if (!up.active) {
+      uploadBox.innerHTML = '<div class=\"text-muted\">当前无上传任务</div>';
       return;
     }
 
-    box.innerHTML = parts.join('');
+    const pct = Number(up.percentage || 0).toFixed(2);
+    uploadBox.innerHTML = `
+      <div class="border rounded p-3 bg-warning-subtle">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold d-flex align-items-center gap-2">
+            <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
+            <span>正在上传：${escapeHtml(up.file_name || '')}</span>
+          </div>
+          <div class="small mono">${pct}%</div>
+        </div>
+        <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
+          <div class="progress-bar bg-warning" style="width:${pct}%"></div>
+        </div>
+        <div class="small text-muted mt-2 d-flex gap-3">
+          <span>Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s</span>
+          <span>ETA: ${escapeHtml(up.eta || '-')}</span>
+        </div>
+      </div>
+    `;
   }
 
   async function loadPending() {
@@ -490,7 +513,7 @@
     const rows = await api('/api/pending_uploads');
     const tbody = document.getElementById('pendingUploadsBody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">暂无待上传任务</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=\"4\" class=\"text-muted text-center\">暂无待上传任务</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map((row, index) => `
@@ -498,8 +521,21 @@
         <td>${index + 1}</td>
         <td>${escapeHtml(row.file_name || '')}</td>
         <td>${Number(row.size_gb || 0).toFixed(2)}</td>
+        <td><button class="btn btn-sm btn-outline-primary" onclick="uploadNow('${encodeURIComponent(row.file_name || '')}')">立即上传</button></td>
       </tr>
     `).join('');
+  }
+
+  async function uploadNow(encodedName) {
+    try {
+      const name = decodeURIComponent(encodedName || '');
+      if (!name) return;
+      await api(`/api/upload_now/${encodeURIComponent(name)}`, { method: 'POST' });
+      await loadProgress();
+      alert('上传任务已触发');
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   function setQbFormMode(isEdit) {
