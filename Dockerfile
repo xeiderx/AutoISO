@@ -3,9 +3,9 @@ FROM python:3.9-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装 Debian 版本的满血 xorriso 和时区工具
+# 安装 Debian 版本的 genisoimage 和时区工具
 RUN apt-get update && apt-get install -y \
-    xorriso \
+    genisoimage \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 

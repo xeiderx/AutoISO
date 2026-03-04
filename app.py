@@ -245,7 +245,7 @@ def extract_error_tail(stderr, stdout):
     filtered = []
     for ln in lines:
         low = ln.lower()
-        if low.startswith("xorriso ") or "libburnia" in low:
+        if low.startswith("genisoimage "):
             continue
         filtered.append(ln)
 
@@ -335,25 +335,22 @@ def pack_to_iso(task_name, source_path, vol_id):
         os.remove(iso_path)
 
     cmd = [
-        "xorriso",
-        "-as",
-        "mkisofs",
+        "genisoimage",
+        "-udf",
         "-iso-level",
         "3",
-        "-udf",
-        "-overwrite",
-        "on",
-        "-outdev",
-        iso_path,
+        "-allow-limited-size",
         "-V",
         vol_id,
+        "-o",
+        iso_path,
         source_path,
     ]
-    logger.info("xorriso command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
+    logger.info("genisoimage command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
     proc = subprocess.run(cmd, capture_output=True, text=True)
-    logger.info("xorriso command finished, task=%s, returncode=%s", task_name, proc.returncode)
+    logger.info("genisoimage command finished, task=%s, returncode=%s", task_name, proc.returncode)
     if proc.returncode != 0 and proc.stderr:
-        logger.error("xorriso full stderr, task=%s:\n%s", task_name, proc.stderr)
+        logger.error("genisoimage full stderr, task=%s:\n%s", task_name, proc.stderr)
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
 
 
@@ -435,7 +432,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.message = extract_error_tail(err, out)
             history.info = (err or "").strip()
             if history.info:
-                logger.error("xorriso full stderr, node=%s, task=%s:\n%s", server.name, torrent.name, history.info)
+                logger.error("genisoimage full stderr, node=%s, task=%s:\n%s", server.name, torrent.name, history.info)
             db.session.commit()
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
