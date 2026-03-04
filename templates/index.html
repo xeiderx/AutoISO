@@ -57,7 +57,7 @@
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
         <div class="fw-bold">AutoISO Dashboard</div>
-        <div class="text-muted small">封装任务每 2 分钟轮询，上传任务按夜间 Cron 自动执行</div>
+        <div class="text-muted small">封装任务每 2 分钟轮询，上传任务按设定的 Cron 定时执行</div>
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-sm btn-outline-dark" id="btnViewLogs"><i class="bi bi-journal-text me-1"></i> 系统日志</button>
@@ -93,6 +93,26 @@
               </thead>
               <tbody id="pendingBody">
                 <tr><td colspan="5" class="text-muted text-center">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card soft mt-3">
+        <div class="card-body">
+          <h5 class="card-title mb-3"><i class="bi bi-cloud-arrow-up me-2"></i>待上传任务 (本地已就绪)</h5>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>序号</th>
+                  <th>ISO 文件名</th>
+                  <th>大小(GB)</th>
+                </tr>
+              </thead>
+              <tbody id="pendingUploadsBody">
+                <tr><td colspan="3" class="text-muted text-center">加载中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -141,13 +161,42 @@
           <div class="card soft">
             <div class="card-body">
               <h5 class="card-title"><i class="bi bi-shield-lock me-2"></i>系统设置</h5>
-              <form id="systemForm" class="row g-2">
-                <div class="col-md-4"><input class="form-control" name="auth_username" placeholder="登录账号" required></div>
-                <div class="col-md-4"><input class="form-control" type="password" name="auth_password" placeholder="新密码（可留空）"></div>
-                <div class="col-md-4"><input class="form-control" type="password" name="auth_password_confirm" placeholder="确认新密码（可留空）"></div>
-                <div class="col-md-6"><input class="form-control mono" name="upload_cron" placeholder="夜间自动上传时间 (Cron)，例如: 0 2 * * *" required></div>
-                <div class="col-md-6"><input class="form-control mono" name="clouddrive_path" placeholder="CloudDrive 挂载路径，例如: /CloudNAS/115/电影备份" required></div>
-                <div class="col-md-4 d-grid"><button class="btn btn-warning" type="submit"><i class="bi bi-save me-1"></i>保存系统设置</button></div>
+              <form id="systemForm">
+                <div class="row">
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label for="auth_username" class="form-label">用户名</label>
+                      <input id="auth_username" class="form-control" name="auth_username" placeholder="请输入登录用户名" required>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label for="auth_password" class="form-label">新密码</label>
+                      <input id="auth_password" class="form-control" type="password" name="auth_password" placeholder="可留空，不修改密码">
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label for="auth_password_confirm" class="form-label">确认新密码</label>
+                      <input id="auth_password_confirm" class="form-control" type="password" name="auth_password_confirm" placeholder="再次输入新密码">
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label for="upload_cron" class="form-label">自动上传时间 (Cron表达式)</label>
+                      <input id="upload_cron" class="form-control mono" name="upload_cron" placeholder="例如: 0 2 * * *" required>
+                    </div>
+                  </div>
+                  <div class="col-12">
+                    <div class="mb-3">
+                      <label for="clouddrive_path" class="form-label">CloudDrive 挂载路径</label>
+                      <input id="clouddrive_path" class="form-control mono" name="clouddrive_path" placeholder="例如: /CloudNAS/115/电影备份" required>
+                    </div>
+                  </div>
+                  <div class="col-md-4 d-grid">
+                    <button class="btn btn-warning" type="submit"><i class="bi bi-save me-1"></i>保存系统设置</button>
+                  </div>
+                </div>
               </form>
             </div>
           </div>
@@ -368,24 +417,42 @@
   }
 
   async function loadProgress() {
-    const data = await api('/api/progress');
+    const [progressData, stats] = await Promise.all([api('/api/progress'), api('/api/stats')]);
     const box = document.getElementById('activeTasks');
-    if (!data.active || !data.tasks.length) {
+    const parts = [];
+
+    if (stats.current_uploading_file) {
+      parts.push(`
+        <div class="border rounded p-3 mb-2 bg-warning-subtle">
+          <div class="d-flex align-items-center gap-2 fw-semibold">
+            <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
+            <span>正在转移至网盘：${escapeHtml(stats.current_uploading_file)}</span>
+          </div>
+        </div>
+      `);
+    }
+
+    if (progressData.active && progressData.tasks.length) {
+      parts.push(progressData.tasks.map(task => `
+        <div class="border rounded p-3 mb-2 bg-light-subtle">
+          <div class="d-flex justify-content-between mb-2">
+            <div><div class="fw-semibold">正在封装：${escapeHtml(task.task_name)}</div><div class="small text-muted">节点: ${escapeHtml(task.server_name)} | 已运行 ${formatSeconds(task.elapsed_seconds)}</div></div>
+            <div class="small mono">${task.progress}%</div>
+          </div>
+          <div class="progress" role="progressbar" aria-valuenow="${task.progress}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${task.progress}%"></div>
+          </div>
+          <div class="small text-muted mt-2">源: ${escapeHtml(task.source_path)}<br>目标: ${escapeHtml(task.iso_path)}</div>
+        </div>
+      `).join(''));
+    }
+
+    if (!parts.length) {
       box.innerHTML = '<div class="text-muted">当前无任务</div>';
       return;
     }
-    box.innerHTML = data.tasks.map(task => `
-      <div class="border rounded p-3 mb-2 bg-light-subtle">
-        <div class="d-flex justify-content-between mb-2">
-          <div><div class="fw-semibold">${escapeHtml(task.task_name)}</div><div class="small text-muted">节点: ${escapeHtml(task.server_name)} | 已运行 ${formatSeconds(task.elapsed_seconds)}</div></div>
-          <div class="small mono">${task.progress}%</div>
-        </div>
-        <div class="progress" role="progressbar" aria-valuenow="${task.progress}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
-          <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${task.progress}%"></div>
-        </div>
-        <div class="small text-muted mt-2">源: ${escapeHtml(task.source_path)}<br>目标: ${escapeHtml(task.iso_path)}</div>
-      </div>
-    `).join('');
+
+    box.innerHTML = parts.join('');
   }
 
   async function loadPending() {
@@ -402,6 +469,22 @@
         <td>${escapeHtml(row.title)}</td>
         <td>${Number(row.size_gb || 0).toFixed(2)}</td>
         <td>${escapeHtml(row.added_on || '')}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadPendingUploads() {
+    const rows = await api('/api/pending_uploads');
+    const tbody = document.getElementById('pendingUploadsBody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">暂无待上传任务</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((row, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(row.file_name || '')}</td>
+        <td>${Number(row.size_gb || 0).toFixed(2)}</td>
       </tr>
     `).join('');
   }
@@ -497,6 +580,7 @@
         loadStats(),
         loadProgress(),
         loadPending(),
+        loadPendingUploads(),
         loadServers(),
         loadTgSettings(),
         loadSystemSettings(),
@@ -594,7 +678,7 @@
     });
     f.auth_password.value = '';
     f.auth_password_confirm.value = '';
-    alert('系统设置已保存，夜间上传 Cron 已生效');
+    alert('系统设置已保存，Cron 调度已生效');
   });
 
   document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
@@ -650,6 +734,7 @@
   refreshAll();
   setInterval(loadProgress, 3000);
   setInterval(loadPending, 10000);
+  setInterval(loadPendingUploads, 10000);
   setInterval(loadStats, 10000);
   setInterval(() => fetchHistory(true), 10000);
 </script>

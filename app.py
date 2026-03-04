@@ -17,7 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.0"
+APP_VERSION = "v0.4.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -49,6 +49,7 @@ STATUS_FAILED = "Failed"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
+current_uploading_file = None
 GB = 1024**3
 LOG_TS_RE = re.compile(r"^(?P<dt>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,\d{3})?\s")
 
@@ -375,6 +376,7 @@ def get_iso_path_for_history(row: PackHistory):
 
 
 def process_uploads():
+    global current_uploading_file
     with app.app_context():
         clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
         try:
@@ -408,6 +410,7 @@ def process_uploads():
                 if os.path.exists(target_path):
                     os.remove(target_path)
 
+                current_uploading_file = file_name
                 shutil.move(iso_path, target_path)
                 row.status = STATUS_UPLOADED
                 row.end_time = now_local()
@@ -426,6 +429,8 @@ def process_uploads():
                 row.info = f"upload unexpected error: {exc}"
                 db.session.commit()
                 logger.exception("upload unexpected error, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+            finally:
+                current_uploading_file = None
 
 
 def process_one_torrent(server: QBServer, client, torrent):
@@ -984,6 +989,31 @@ def list_pending():
     return jsonify(rows)
 
 
+@app.route("/api/pending_uploads", methods=["GET"])
+def list_pending_uploads():
+    rows = []
+    try:
+        names = sorted(os.listdir(OUTPUT_DIR))
+    except FileNotFoundError:
+        return jsonify(rows)
+    except Exception as exc:
+        logger.exception("pending uploads scan failed, output=%s", OUTPUT_DIR)
+        return jsonify({"error": f"scan output failed: {exc}"}), 500
+
+    for name in names:
+        if not name.lower().endswith(".iso"):
+            continue
+        iso_path = os.path.join(OUTPUT_DIR, name)
+        if not os.path.isfile(iso_path):
+            continue
+        try:
+            size_gb = round(os.path.getsize(iso_path) / GB, 3)
+        except OSError:
+            size_gb = 0.0
+        rows.append({"file_name": name, "size_gb": size_gb})
+    return jsonify(rows)
+
+
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
@@ -1027,6 +1057,7 @@ def get_stats():
             "month_count": month_count,
             "month_size_gb": round(float(month_size_gb), 2),
             "month_size_text": format_data_size(float(month_size_gb)),
+            "current_uploading_file": current_uploading_file,
         }
     )
 
