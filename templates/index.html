@@ -163,12 +163,13 @@
               <h5 class="card-title"><i class="bi bi-shield-lock me-2"></i>系统设置</h5>
               <form id="systemForm">
                 <div class="row">
-                  <div class="col-md-6">
+                  <div class="col-12">
                     <div class="mb-3">
                       <label for="auth_username" class="form-label">用户名</label>
                       <input id="auth_username" class="form-control" name="auth_username" placeholder="请输入登录用户名" required>
                     </div>
                   </div>
+
                   <div class="col-md-6">
                     <div class="mb-3">
                       <label for="auth_password" class="form-label">新密码</label>
@@ -181,18 +182,30 @@
                       <input id="auth_password_confirm" class="form-control" type="password" name="auth_password_confirm" placeholder="再次输入新密码">
                     </div>
                   </div>
+
                   <div class="col-md-6">
                     <div class="mb-3">
                       <label for="upload_cron" class="form-label">自动上传时间 (Cron表达式)</label>
                       <input id="upload_cron" class="form-control mono" name="upload_cron" placeholder="例如: 0 2 * * *" required>
                     </div>
                   </div>
+                  <div class="col-md-6">
+                    <div class="mb-3">
+                      <label class="form-label d-block">上传后删除原文件</label>
+                      <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" role="switch" id="delete_after_upload" name="delete_after_upload">
+                        <label class="form-check-label" for="delete_after_upload">上传后删除原文件</label>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="col-12">
                     <div class="mb-3">
                       <label for="clouddrive_path" class="form-label">CloudDrive 挂载路径</label>
                       <input id="clouddrive_path" class="form-control mono" name="clouddrive_path" placeholder="例如: /CloudNAS/115/电影备份" required>
                     </div>
                   </div>
+
                   <div class="col-md-4 d-grid">
                     <button class="btn btn-warning" type="submit"><i class="bi bi-save me-1"></i>保存系统设置</button>
                   </div>
@@ -564,6 +577,7 @@
     form.auth_password_confirm.value = '';
     form.upload_cron.value = data.upload_cron || '0 2 * * *';
     form.clouddrive_path.value = data.clouddrive_path || '/CloudNAS/115/电影备份';
+    form.delete_after_upload.checked = !!data.delete_after_upload;
   }
 
   async function loadLogs() {
@@ -674,6 +688,7 @@
         auth_password_confirm: confirm,
         upload_cron: f.upload_cron.value,
         clouddrive_path: f.clouddrive_path.value,
+        delete_after_upload: !!f.delete_after_upload.checked,
       }),
     });
     f.auth_password.value = '';

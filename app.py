@@ -17,7 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.1"
+APP_VERSION = "v0.4.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -185,6 +185,19 @@ def get_upload_cron():
 
 def get_clouddrive_path():
     return get_setting("clouddrive_path") or DEFAULT_CLOUDDRIVE_PATH
+
+
+def get_delete_after_upload():
+    value = (get_setting("delete_after_upload") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def parse_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def build_cron_trigger(cron_expr):
@@ -379,56 +392,85 @@ def process_uploads():
     global current_uploading_file
     with app.app_context():
         clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
+        delete_after_upload = get_delete_after_upload()
         try:
             os.makedirs(clouddrive_path, exist_ok=True)
         except Exception:
             logger.exception("prepare clouddrive path failed: %s", clouddrive_path)
             return
 
-        rows = (
-            PackHistory.query.filter(
-                PackHistory.status.in_([STATUS_PACKED_PENDING_UPLOAD, "待上传", STATUS_UPLOADING])
-            )
-            .order_by(PackHistory.id.asc())
-            .all()
+        try:
+            names = sorted(os.listdir(OUTPUT_DIR))
+            iso_names = [name for name in names if name.lower().endswith(".iso")]
+        except FileNotFoundError:
+            iso_names = []
+        except Exception:
+            logger.exception("scan output dir failed: %s", OUTPUT_DIR)
+            return
+
+        logger.info(
+            "upload poll start, pending=%s, target=%s, mode=%s",
+            len(iso_names),
+            clouddrive_path,
+            "move" if delete_after_upload else "copy",
         )
-        logger.info("upload poll start, pending=%s, target=%s", len(rows), clouddrive_path)
 
-        for row in rows:
-            iso_path = get_iso_path_for_history(row)
-            file_name = os.path.basename(iso_path) if iso_path else f"{row.task_name}.iso"
+        for file_name in iso_names:
+            iso_path = os.path.join(OUTPUT_DIR, file_name)
             target_path = os.path.join(clouddrive_path, file_name)
+            task_name = os.path.splitext(file_name)[0]
+            row = (
+                PackHistory.query.filter_by(task_name=task_name)
+                .order_by(PackHistory.id.desc())
+                .first()
+            )
 
-            row.status = STATUS_UPLOADING
-            row.info = f"uploading: {iso_path}"
-            db.session.commit()
+            if row and row.status == STATUS_UPLOADED and not delete_after_upload:
+                continue
+
+            if row:
+                row.status = STATUS_UPLOADING
+                row.info = f"uploading: {iso_path}"
+                db.session.commit()
 
             try:
                 if not os.path.exists(iso_path):
                     raise FileNotFoundError(f"ISO not found: {iso_path}")
 
                 if os.path.exists(target_path):
-                    os.remove(target_path)
+                    if os.path.isdir(target_path):
+                        shutil.rmtree(target_path)
+                    else:
+                        os.remove(target_path)
 
                 current_uploading_file = file_name
-                shutil.move(iso_path, target_path)
-                row.status = STATUS_UPLOADED
-                row.end_time = now_local()
-                row.message = f"已上传: {target_path}"
-                row.info = ""
-                db.session.commit()
-                send_tg_notification(f"[AutoISO] 转移成功：{file_name} 已成功存入 115 网盘，本地已清理。")
-                logger.info("upload success, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+                if delete_after_upload:
+                    shutil.move(iso_path, target_path)
+                else:
+                    shutil.copy2(iso_path, target_path)
+
+                if row:
+                    row.status = STATUS_UPLOADED
+                    row.end_time = now_local()
+                    row.message = f"已上传: {target_path}"
+                    row.info = ""
+                    db.session.commit()
+                send_tg_notification(
+                    f"[AutoISO] 上传成功：{file_name} -> {target_path}，模式: {'移动并删除本地' if delete_after_upload else '复制保留本地'}。"
+                )
+                logger.info("upload success, task=%s, src=%s, dst=%s", task_name, iso_path, target_path)
             except (FileNotFoundError, PermissionError, OSError) as exc:
-                row.status = STATUS_PACKED_PENDING_UPLOAD
-                row.info = f"upload failed: {exc}"
-                db.session.commit()
-                logger.exception("upload failed, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+                if row:
+                    row.status = STATUS_PACKED_PENDING_UPLOAD
+                    row.info = f"upload failed: {exc}"
+                    db.session.commit()
+                logger.exception("upload failed, task=%s, src=%s, dst=%s", task_name, iso_path, target_path)
             except Exception as exc:
-                row.status = STATUS_PACKED_PENDING_UPLOAD
-                row.info = f"upload unexpected error: {exc}"
-                db.session.commit()
-                logger.exception("upload unexpected error, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+                if row:
+                    row.status = STATUS_PACKED_PENDING_UPLOAD
+                    row.info = f"upload unexpected error: {exc}"
+                    db.session.commit()
+                logger.exception("upload unexpected error, task=%s, src=%s, dst=%s", task_name, iso_path, target_path)
             finally:
                 current_uploading_file = None
 
@@ -774,6 +816,7 @@ def clear_telegram_settings():
 
 
 @app.route("/api/settings/system", methods=["GET"])
+@app.route("/api/config", methods=["GET"])
 def get_system_settings():
     auth_username, _ = get_auth_credentials()
     return jsonify(
@@ -781,11 +824,13 @@ def get_system_settings():
             "auth_username": auth_username,
             "upload_cron": get_upload_cron(),
             "clouddrive_path": get_clouddrive_path(),
+            "delete_after_upload": get_delete_after_upload(),
         }
     )
 
 
 @app.route("/api/settings/system", methods=["POST"])
+@app.route("/api/config/update", methods=["POST"])
 def save_system_settings():
     payload = request.get_json(force=True) or {}
     auth_username = (payload.get("auth_username") or "").strip()
@@ -793,6 +838,7 @@ def save_system_settings():
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
     upload_cron_expr = (payload.get("upload_cron") or "").strip()
     clouddrive_path = (payload.get("clouddrive_path") or "").strip()
+    delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=False)
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -819,8 +865,16 @@ def save_system_settings():
 
     set_setting("auth_username", auth_username)
     set_setting("clouddrive_path", clouddrive_path)
+    set_setting("delete_after_upload", "1" if delete_after_upload else "0")
     normalized = apply_upload_scheduler(upload_cron_expr)
-    return jsonify({"ok": True, "upload_cron": normalized, "clouddrive_path": clouddrive_path})
+    return jsonify(
+        {
+            "ok": True,
+            "upload_cron": normalized,
+            "clouddrive_path": clouddrive_path,
+            "delete_after_upload": delete_after_upload,
+        }
+    )
 
 
 @app.route("/api/settings/auth", methods=["GET"])
@@ -831,6 +885,7 @@ def get_auth_settings():
             "auth_username": auth_username,
             "upload_cron": get_upload_cron(),
             "clouddrive_path": get_clouddrive_path(),
+            "delete_after_upload": get_delete_after_upload(),
         }
     )
 
@@ -843,6 +898,7 @@ def save_auth_settings():
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
     upload_cron_expr = (payload.get("upload_cron") or "").strip() or get_upload_cron()
     clouddrive_path = (payload.get("clouddrive_path") or "").strip() or get_clouddrive_path()
+    delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=get_delete_after_upload())
 
     if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
@@ -857,9 +913,15 @@ def save_auth_settings():
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)
     set_setting("clouddrive_path", clouddrive_path or DEFAULT_CLOUDDRIVE_PATH)
+    set_setting("delete_after_upload", "1" if delete_after_upload else "0")
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
-        {"ok": True, "upload_cron": normalized, "clouddrive_path": clouddrive_path or DEFAULT_CLOUDDRIVE_PATH}
+        {
+            "ok": True,
+            "upload_cron": normalized,
+            "clouddrive_path": clouddrive_path or DEFAULT_CLOUDDRIVE_PATH,
+            "delete_after_upload": delete_after_upload,
+        }
     )
 
 
@@ -1070,6 +1132,8 @@ with app.app_context():
         set_setting("upload_cron", DEFAULT_UPLOAD_CRON)
     if not get_setting("clouddrive_path"):
         set_setting("clouddrive_path", DEFAULT_CLOUDDRIVE_PATH)
+    if not get_setting("delete_after_upload"):
+        set_setting("delete_after_upload", "0")
     db.session.commit()
 
     init_upload_cron = get_upload_cron()
