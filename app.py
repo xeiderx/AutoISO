@@ -14,11 +14,11 @@ import qbittorrentapi
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, has_app_context, jsonify, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.3"
+APP_VERSION = "v0.4.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -310,6 +310,58 @@ def mark_upload_status(filename, status, message=""):
     db.session.commit()
 
 
+def get_or_create_external_server_id():
+    server = QBServer.query.filter_by(name="NAS").first()
+    if server:
+        return server.id
+    server = QBServer(name="NAS", url="local://nas", username="-", password="-")
+    db.session.add(server)
+    db.session.commit()
+    return server.id
+
+
+def finalize_pack_history_after_upload(file_name, dst_path):
+    if not has_app_context():
+        return
+    if not file_name:
+        return
+    task_name = os.path.splitext(file_name)[0]
+    row = (
+        PackHistory.query.filter(PackHistory.task_name.in_([file_name, task_name]))
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    if row:
+        row.status = STATUS_UPLOADED
+        row.end_time = now_local()
+        row.message = f"已上传: {dst_path}"
+        row.info = ""
+        db.session.commit()
+        return
+
+    # 外部文件补录，确保历史页面可见
+    ext_server_id = get_or_create_external_server_id()
+    now_dt = now_local()
+    safe_task_name = file_name[:255]
+    size_gb = 0.0
+    try:
+        size_gb = round(os.path.getsize(dst_path) / GB, 3)
+    except OSError:
+        size_gb = 0.0
+    new_row = PackHistory(
+        task_name=safe_task_name,
+        qb_server_id=ext_server_id,
+        status=STATUS_UPLOADED,
+        start_time=now_dt,
+        end_time=now_dt,
+        file_size_gb=size_gb,
+        message=f"已上传: {dst_path}",
+        info="外部文件",
+    )
+    db.session.add(new_row)
+    db.session.commit()
+
+
 def upload_file_with_progress(src_path, dst_path, delete_after=False):
     chunk_size = 10 * 1024 * 1024
     total_bytes = os.path.getsize(src_path)
@@ -353,6 +405,8 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
 
         if delete_after:
             os.remove(src_path)
+
+        finalize_pack_history_after_upload(os.path.basename(src_path), dst_path)
     except Exception:
         try:
             if os.path.isfile(dst_path):
@@ -1351,6 +1405,14 @@ with app.app_context():
         set_setting("clouddrive_path", DEFAULT_CLOUDDRIVE_PATH)
     if not get_setting("delete_after_upload"):
         set_setting("delete_after_upload", "0")
+    # 启动时清理僵尸上传状态，避免历史记录卡死
+    PackHistory.query.filter_by(status=STATUS_UPLOADING).update(
+        {
+            "status": STATUS_PACKED_PENDING_UPLOAD,
+            "info": "recovered on startup",
+        },
+        synchronize_session=False,
+    )
     db.session.commit()
 
     init_upload_cron = get_upload_cron()

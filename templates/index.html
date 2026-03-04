@@ -121,11 +121,12 @@
                   <th>序号</th>
                   <th>ISO 文件名</th>
                   <th>大小(GB)</th>
+                  <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody id="pendingUploadsBody">
-                <tr><td colspan="4" class="text-muted text-center">加载中...</td></tr>
+                <tr><td colspan="5" class="text-muted text-center">加载中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -297,6 +298,8 @@
     </div>
   </div>
 
+  <div id="toastContainer" class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   let allHistoryData = [];
@@ -322,6 +325,32 @@
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[ch]);
+  }
+
+  function showNotification(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const tone = {
+      success: 'text-bg-success',
+      error: 'text-bg-danger',
+      warning: 'text-bg-warning',
+      info: 'text-bg-primary',
+    }[type] || 'text-bg-primary';
+
+    const node = document.createElement('div');
+    node.className = `toast align-items-center border-0 ${tone}`;
+    node.role = 'alert';
+    node.ariaLive = 'assertive';
+    node.ariaAtomic = 'true';
+    node.innerHTML = `
+      <div class="d-flex">
+        <div class="toast-body">${escapeHtml(message)}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    `;
+    container.appendChild(node);
+    const inst = bootstrap.Toast.getOrCreateInstance(node, { delay: 2600 });
+    inst.show();
+    node.addEventListener('hidden.bs.toast', () => node.remove());
   }
 
   function formatSeconds(sec) {
@@ -422,7 +451,7 @@
   async function batchDeleteHistory() {
     const ids = [...document.querySelectorAll('.history-checkbox:checked')].map(x => Number(x.value));
     if (!ids.length) {
-      alert('请先选择要删除的记录');
+      showNotification('请先选择要删除的记录');
       return;
     }
     if (!confirm('确定要删除选中的记录吗？')) return;
@@ -447,7 +476,7 @@
 
     const packingBox = document.getElementById('packingTasks');
     if (!packData.active || !packData.tasks.length) {
-      packingBox.innerHTML = '<div class=\"text-muted\">当前无封装任务</div>';
+      packingBox.innerHTML = '<div class="text-muted">当前无封装任务</div>';
     } else {
       packingBox.innerHTML = packData.tasks.map(task => `
         <div class="border rounded p-3 mb-2 bg-light-subtle">
@@ -466,26 +495,24 @@
     const up = stats.upload_progress || {};
     const uploadBox = document.getElementById('uploadTaskStatus');
     if (!up.active) {
-      uploadBox.innerHTML = '<div class=\"text-muted\">当前无上传任务</div>';
+      uploadBox.innerHTML = '<div class="text-muted">当前无上传任务</div>';
       return;
     }
 
     const pct = Number(up.percentage || 0).toFixed(2);
     uploadBox.innerHTML = `
       <div class="border rounded p-3 bg-warning-subtle">
-        <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="mb-2">
           <div class="fw-semibold d-flex align-items-center gap-2">
             <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
             <span>正在上传：${escapeHtml(up.file_name || '')}</span>
           </div>
-          <div class="small mono">${pct}%</div>
         </div>
         <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
           <div class="progress-bar bg-warning" style="width:${pct}%"></div>
         </div>
-        <div class="small text-muted mt-2 d-flex gap-3">
-          <span>Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s</span>
-          <span>ETA: ${escapeHtml(up.eta || '-')}</span>
+        <div class="small text-muted mt-2">
+          Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s | ETA: ${escapeHtml(up.eta || '-')} | 进度: ${pct}%
         </div>
       </div>
     `;
@@ -510,10 +537,11 @@
   }
 
   async function loadPendingUploads() {
-    const rows = await api('/api/pending_uploads');
+    const [rows, stats] = await Promise.all([api('/api/pending_uploads'), api('/api/stats')]);
+    const currentUploading = stats.current_uploading_file || '';
     const tbody = document.getElementById('pendingUploadsBody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan=\"4\" class=\"text-muted text-center\">暂无待上传任务</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">暂无待上传任务</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map((row, index) => `
@@ -521,7 +549,11 @@
         <td>${index + 1}</td>
         <td>${escapeHtml(row.file_name || '')}</td>
         <td>${Number(row.size_gb || 0).toFixed(2)}</td>
-        <td><button class="btn btn-sm btn-outline-primary" onclick="uploadNow('${encodeURIComponent(row.file_name || '')}')">立即上传</button></td>
+        <td>${(row.file_name || '') === currentUploading
+          ? '<span class="badge bg-warning text-dark">正在上传</span>'
+          : '<span class="badge bg-secondary">待上传</span>'
+        }</td>
+        <td><button class="btn btn-sm btn-outline-primary" ${(row.file_name || '') === currentUploading ? 'disabled' : ''} onclick="uploadNow('${encodeURIComponent(row.file_name || '')}')">${(row.file_name || '') === currentUploading ? '上传中' : '立即上传'}</button></td>
       </tr>
     `).join('');
   }
@@ -532,9 +564,9 @@
       if (!name) return;
       await api(`/api/upload_now/${encodeURIComponent(name)}`, { method: 'POST' });
       await loadProgress();
-      alert('上传任务已触发');
+      showNotification('上传任务已触发', 'success');
     } catch (err) {
-      alert(err.message);
+      showNotification(err.message, 'error');
     }
   }
 
@@ -637,7 +669,7 @@
         fetchHistory(false),
       ]);
     } catch (err) {
-      alert(err.message);
+      showNotification(err.message);
     }
   }
 
@@ -651,7 +683,7 @@
     const password = (f.password.value || '').trim();
 
     if (!alias || !url || !username) {
-      alert('请完整填写节点信息');
+      showNotification('请完整填写节点信息');
       return;
     }
 
@@ -660,17 +692,17 @@
         method: 'POST',
         body: JSON.stringify({ id: Number(qbId), alias, url, username, password }),
       });
-      alert('节点修改成功');
+      showNotification('节点修改成功');
     } else {
       if (!password) {
-        alert('新增节点时密码不能为空');
+        showNotification('新增节点时密码不能为空');
         return;
       }
       await api('/api/qbservers', {
         method: 'POST',
         body: JSON.stringify({ name: alias, url, username, password }),
       });
-      alert('节点添加成功');
+      showNotification('节点添加成功');
     }
 
     resetQbForm();
@@ -684,9 +716,9 @@
         method: 'POST',
         body: JSON.stringify({ url: f.url.value, username: f.username.value, password: f.password.value }),
       });
-      alert(data.message || '连接成功');
+      showNotification(data.message || '连接成功');
     } catch (err) {
-      alert(err.message);
+      showNotification(err.message);
     }
   });
 
@@ -697,7 +729,7 @@
       method: 'POST',
       body: JSON.stringify({ tg_token: f.tg_token.value, tg_chat_id: f.tg_chat_id.value, tg_proxy: f.tg_proxy.value }),
     });
-    alert('Telegram 设置已保存并发送测试消息');
+    showNotification('Telegram 设置已保存并发送测试消息');
   });
 
   document.getElementById('btnClearTg').addEventListener('click', async () => {
@@ -712,7 +744,7 @@
     const password = (f.auth_password.value || '').trim();
     const confirm = (f.auth_password_confirm.value || '').trim();
     if ((password || confirm) && password !== confirm) {
-      alert('两次密码输入不一致');
+      showNotification('两次密码输入不一致');
       return;
     }
 
@@ -729,7 +761,7 @@
     });
     f.auth_password.value = '';
     f.auth_password_confirm.value = '';
-    alert('系统设置已保存，Cron 调度已生效');
+    showNotification('系统设置已保存，Cron 调度已生效');
   });
 
   document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
@@ -776,7 +808,7 @@
       await loadLogs();
       logModal.show();
     } catch (err) {
-      alert(err.message);
+      showNotification(err.message);
     }
   });
 
