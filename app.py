@@ -3,6 +3,7 @@ import atexit
 import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.3.5"
+APP_VERSION = "v0.4.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -35,8 +36,16 @@ FAILED_TAG = os.getenv("QB_FAILED_TAG", "封装失败")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
 DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
-DEFAULT_CRON_SCHEDULE = os.getenv("DEFAULT_CRON_SCHEDULE", "* * * * *")
+DEFAULT_UPLOAD_CRON = os.getenv("DEFAULT_UPLOAD_CRON", "0 2 * * *")
+DEFAULT_CLOUDDRIVE_PATH = os.getenv("DEFAULT_CLOUDDRIVE_PATH", "/CloudNAS/115/电影备份")
+PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
+
+STATUS_PROCESSING = "Processing"
+STATUS_PACKED_PENDING_UPLOAD = "封装完成，待上传"
+STATUS_UPLOADING = "上传中"
+STATUS_UPLOADED = "已上传至网盘"
+STATUS_FAILED = "Failed"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
@@ -169,38 +178,42 @@ def get_auth_credentials():
     return username, password
 
 
-def get_cron_schedule():
-    return get_setting("cron_schedule") or DEFAULT_CRON_SCHEDULE
+def get_upload_cron():
+    return get_setting("upload_cron") or DEFAULT_UPLOAD_CRON
+
+
+def get_clouddrive_path():
+    return get_setting("clouddrive_path") or DEFAULT_CLOUDDRIVE_PATH
 
 
 def build_cron_trigger(cron_expr):
-    expr = (cron_expr or "").strip() or DEFAULT_CRON_SCHEDULE
+    expr = (cron_expr or "").strip() or DEFAULT_UPLOAD_CRON
     try:
         return CronTrigger.from_crontab(expr), expr
     except Exception:
         logger.exception("invalid cron expression: %s, fallback to default", expr)
-        fallback = DEFAULT_CRON_SCHEDULE
+        fallback = DEFAULT_UPLOAD_CRON
         return CronTrigger.from_crontab(fallback), fallback
 
 
-def apply_scheduler_cron(cron_expr):
+def apply_upload_scheduler(cron_expr):
     trigger, normalized = build_cron_trigger(cron_expr)
-    set_setting("cron_schedule", normalized)
+    set_setting("upload_cron", normalized)
     db.session.commit()
 
-    job = scheduler.get_job("pack_job")
+    job = scheduler.get_job("upload_job")
     if job:
-        scheduler.reschedule_job("pack_job", trigger=trigger)
+        scheduler.reschedule_job("upload_job", trigger=trigger)
     else:
         scheduler.add_job(
-            func=process_all_qbs,
+            func=process_uploads,
             trigger=trigger,
-            id="pack_job",
+            id="upload_job",
             max_instances=1,
             coalesce=True,
             replace_existing=True,
         )
-    logger.info("scheduler cron applied: %s", normalized)
+    logger.info("upload scheduler cron applied: %s", normalized)
     return normalized
 
 
@@ -354,11 +367,72 @@ def pack_to_iso(task_name, source_path, vol_id):
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
 
 
+def get_iso_path_for_history(row: PackHistory):
+    message = (row.message or "").strip()
+    if message.startswith("ISO:"):
+        return message.split("ISO:", 1)[1].strip()
+    return os.path.join(OUTPUT_DIR, f"{row.task_name}.iso")
+
+
+def process_uploads():
+    with app.app_context():
+        clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
+        try:
+            os.makedirs(clouddrive_path, exist_ok=True)
+        except Exception:
+            logger.exception("prepare clouddrive path failed: %s", clouddrive_path)
+            return
+
+        rows = (
+            PackHistory.query.filter(
+                PackHistory.status.in_([STATUS_PACKED_PENDING_UPLOAD, "待上传", STATUS_UPLOADING])
+            )
+            .order_by(PackHistory.id.asc())
+            .all()
+        )
+        logger.info("upload poll start, pending=%s, target=%s", len(rows), clouddrive_path)
+
+        for row in rows:
+            iso_path = get_iso_path_for_history(row)
+            file_name = os.path.basename(iso_path) if iso_path else f"{row.task_name}.iso"
+            target_path = os.path.join(clouddrive_path, file_name)
+
+            row.status = STATUS_UPLOADING
+            row.info = f"uploading: {iso_path}"
+            db.session.commit()
+
+            try:
+                if not os.path.exists(iso_path):
+                    raise FileNotFoundError(f"ISO not found: {iso_path}")
+
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+
+                shutil.move(iso_path, target_path)
+                row.status = STATUS_UPLOADED
+                row.end_time = now_local()
+                row.message = f"已上传: {target_path}"
+                row.info = ""
+                db.session.commit()
+                send_tg_notification(f"[AutoISO] 转移成功：{file_name} 已成功存入 115 网盘，本地已清理。")
+                logger.info("upload success, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+            except (FileNotFoundError, PermissionError, OSError) as exc:
+                row.status = STATUS_PACKED_PENDING_UPLOAD
+                row.info = f"upload failed: {exc}"
+                db.session.commit()
+                logger.exception("upload failed, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+            except Exception as exc:
+                row.status = STATUS_PACKED_PENDING_UPLOAD
+                row.info = f"upload unexpected error: {exc}"
+                db.session.commit()
+                logger.exception("upload unexpected error, task=%s, src=%s, dst=%s", row.task_name, iso_path, target_path)
+
+
 def process_one_torrent(server: QBServer, client, torrent):
     existing = PackHistory.query.filter_by(
         task_name=torrent.name,
         qb_server_id=server.id,
-        status="Processing",
+        status=STATUS_PROCESSING,
     ).first()
     if existing:
         return
@@ -369,7 +443,7 @@ def process_one_torrent(server: QBServer, client, torrent):
     history = PackHistory(
         task_name=torrent.name,
         qb_server_id=server.id,
-        status="Processing",
+        status=STATUS_PROCESSING,
         start_time=now_local(),
         file_size_gb=round(source_size_bytes / GB, 3),
     )
@@ -391,7 +465,7 @@ def process_one_torrent(server: QBServer, client, torrent):
 
     try:
         if not os.path.isdir(source_path):
-            history.status = "Failed"
+            history.status = STATUS_FAILED
             history.end_time = now_local()
             history.message = f"源路径不是文件夹: {source_path}"
             db.session.commit()
@@ -412,9 +486,10 @@ def process_one_torrent(server: QBServer, client, torrent):
         duration = format_seconds((finished - started).total_seconds())
 
         if ok:
-            history.status = "Success"
+            history.status = STATUS_PACKED_PENDING_UPLOAD
             history.end_time = finished
             history.message = f"ISO: {iso_path}"
+            history.info = ""
             db.session.commit()
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
@@ -427,7 +502,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             )
             logger.info("task success, node=%s, task=%s, duration=%s", server.name, torrent.name, duration)
         else:
-            history.status = "Failed"
+            history.status = STATUS_FAILED
             history.end_time = finished
             history.message = extract_error_tail(err, out)
             history.info = (err or "").strip()
@@ -491,7 +566,7 @@ def process_all_qbs():
                     failed_record = PackHistory(
                         task_name=getattr(torrent, "name", "unknown"),
                         qb_server_id=server.id,
-                        status="Failed",
+                        status=STATUS_FAILED,
                         start_time=now_local(),
                         end_time=now_local(),
                         message=f"Unhandled error: {exc}",
@@ -696,7 +771,13 @@ def clear_telegram_settings():
 @app.route("/api/settings/system", methods=["GET"])
 def get_system_settings():
     auth_username, _ = get_auth_credentials()
-    return jsonify({"auth_username": auth_username, "cron_schedule": get_cron_schedule()})
+    return jsonify(
+        {
+            "auth_username": auth_username,
+            "upload_cron": get_upload_cron(),
+            "clouddrive_path": get_clouddrive_path(),
+        }
+    )
 
 
 @app.route("/api/settings/system", methods=["POST"])
@@ -705,18 +786,24 @@ def save_system_settings():
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
-    cron_expr = (payload.get("cron_schedule") or "").strip()
+    upload_cron_expr = (payload.get("upload_cron") or "").strip()
+    clouddrive_path = (payload.get("clouddrive_path") or "").strip()
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
 
-    if cron_expr:
+    if upload_cron_expr:
         try:
-            CronTrigger.from_crontab(cron_expr)
+            CronTrigger.from_crontab(upload_cron_expr)
         except Exception as exc:
             return jsonify({"error": f"Cron 表达式无效: {exc}"}), 400
     else:
-        cron_expr = get_cron_schedule()
+        upload_cron_expr = get_upload_cron()
+
+    if not clouddrive_path:
+        clouddrive_path = get_clouddrive_path()
+    if not clouddrive_path:
+        clouddrive_path = DEFAULT_CLOUDDRIVE_PATH
 
     if auth_password or auth_password_confirm:
         if not auth_password or not auth_password_confirm:
@@ -726,14 +813,21 @@ def save_system_settings():
         set_setting("auth_password", auth_password)
 
     set_setting("auth_username", auth_username)
-    normalized = apply_scheduler_cron(cron_expr)
-    return jsonify({"ok": True, "cron_schedule": normalized})
+    set_setting("clouddrive_path", clouddrive_path)
+    normalized = apply_upload_scheduler(upload_cron_expr)
+    return jsonify({"ok": True, "upload_cron": normalized, "clouddrive_path": clouddrive_path})
 
 
 @app.route("/api/settings/auth", methods=["GET"])
 def get_auth_settings():
     auth_username, _ = get_auth_credentials()
-    return jsonify({"auth_username": auth_username, "cron_schedule": get_cron_schedule()})
+    return jsonify(
+        {
+            "auth_username": auth_username,
+            "upload_cron": get_upload_cron(),
+            "clouddrive_path": get_clouddrive_path(),
+        }
+    )
 
 
 @app.route("/api/settings/auth", methods=["POST"])
@@ -742,7 +836,8 @@ def save_auth_settings():
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
-    cron_expr = (payload.get("cron_schedule") or "").strip() or get_cron_schedule()
+    upload_cron_expr = (payload.get("upload_cron") or "").strip() or get_upload_cron()
+    clouddrive_path = (payload.get("clouddrive_path") or "").strip() or get_clouddrive_path()
 
     if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
@@ -750,14 +845,17 @@ def save_auth_settings():
         return jsonify({"error": "两次密码输入不一致"}), 400
 
     try:
-        CronTrigger.from_crontab(cron_expr)
+        CronTrigger.from_crontab(upload_cron_expr)
     except Exception as exc:
         return jsonify({"error": f"Cron 表达式无效: {exc}"}), 400
 
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)
-    normalized = apply_scheduler_cron(cron_expr)
-    return jsonify({"ok": True, "cron_schedule": normalized})
+    set_setting("clouddrive_path", clouddrive_path or DEFAULT_CLOUDDRIVE_PATH)
+    normalized = apply_upload_scheduler(upload_cron_expr)
+    return jsonify(
+        {"ok": True, "upload_cron": normalized, "clouddrive_path": clouddrive_path or DEFAULT_CLOUDDRIVE_PATH}
+    )
 
 
 @app.route("/api/history", methods=["GET"])
@@ -784,6 +882,7 @@ def list_history():
                 "file_size_gb": row.file_size_gb or 0,
                 "duration_seconds": duration_seconds,
                 "message": row.message or "",
+                "info": row.info or "",
             }
         )
     return jsonify(data)
@@ -888,7 +987,10 @@ def list_pending():
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
-    success_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.status == "Success").scalar() or 0
+    success_statuses = [STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING, STATUS_UPLOADED, "Success"]
+    success_count = (
+        db.session.query(func.count(PackHistory.id)).filter(PackHistory.status.in_(success_statuses)).scalar() or 0
+    )
     total_size_gb = (
         db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
         .filter(PackHistory.file_size_gb.isnot(None))
@@ -933,20 +1035,32 @@ with app.app_context():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     ensure_schema()
 
-    if not get_setting("cron_schedule"):
-        set_setting("cron_schedule", DEFAULT_CRON_SCHEDULE)
-        db.session.commit()
+    if not get_setting("upload_cron"):
+        set_setting("upload_cron", DEFAULT_UPLOAD_CRON)
+    if not get_setting("clouddrive_path"):
+        set_setting("clouddrive_path", DEFAULT_CLOUDDRIVE_PATH)
+    db.session.commit()
 
-    init_cron = get_cron_schedule()
-    trigger, normalized = build_cron_trigger(init_cron)
-    if normalized != init_cron:
-        set_setting("cron_schedule", normalized)
+    init_upload_cron = get_upload_cron()
+    upload_trigger, normalized = build_cron_trigger(init_upload_cron)
+    if normalized != init_upload_cron:
+        set_setting("upload_cron", normalized)
         db.session.commit()
 
 scheduler.add_job(
     func=process_all_qbs,
-    trigger=trigger,
-    id="pack_job",
+    trigger="interval",
+    minutes=PACK_POLL_INTERVAL_MINUTES,
+    id="pack_poll_job",
+    max_instances=1,
+    coalesce=True,
+    replace_existing=True,
+)
+
+scheduler.add_job(
+    func=process_uploads,
+    trigger=upload_trigger,
+    id="upload_job",
     max_instances=1,
     coalesce=True,
     replace_existing=True,

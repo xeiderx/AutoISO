@@ -57,7 +57,7 @@
     <div class="topbar d-flex justify-content-between align-items-center">
       <div>
         <div class="fw-bold">AutoISO Dashboard</div>
-        <div class="text-muted small">系统按 Cron 表达式自动轮询 qBittorrent 待封装任务</div>
+        <div class="text-muted small">封装任务每 2 分钟轮询，上传任务按夜间 Cron 自动执行</div>
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-sm btn-outline-dark" id="btnViewLogs"><i class="bi bi-journal-text me-1"></i> 系统日志</button>
@@ -145,7 +145,8 @@
                 <div class="col-md-4"><input class="form-control" name="auth_username" placeholder="登录账号" required></div>
                 <div class="col-md-4"><input class="form-control" type="password" name="auth_password" placeholder="新密码（可留空）"></div>
                 <div class="col-md-4"><input class="form-control" type="password" name="auth_password_confirm" placeholder="确认新密码（可留空）"></div>
-                <div class="col-md-8"><input class="form-control mono" name="cron_schedule" placeholder="自动封装时间 (Cron表达式)，例如每天凌晨2点: 0 2 * * *" required></div>
+                <div class="col-md-6"><input class="form-control mono" name="upload_cron" placeholder="夜间自动上传时间 (Cron)，例如: 0 2 * * *" required></div>
+                <div class="col-md-6"><input class="form-control mono" name="clouddrive_path" placeholder="CloudDrive 挂载路径，例如: /CloudNAS/115/电影备份" required></div>
                 <div class="col-md-4 d-grid"><button class="btn btn-warning" type="submit"><i class="bi bi-save me-1"></i>保存系统设置</button></div>
               </form>
             </div>
@@ -260,6 +261,15 @@
   }
 
   function statusBadge(status) {
+    if (status === '封装完成，待上传' || status === '待上传') {
+      return '<span class="badge text-bg-info">待上传</span>';
+    }
+    if (status === '上传中') {
+      return '<span class="badge text-bg-warning">上传中</span>';
+    }
+    if (status === '已上传至网盘') {
+      return '<span class="badge text-bg-success">已上传</span>';
+    }
     if (status === 'Success') return '<span class="badge text-bg-success">Success</span>';
     if (status === 'Failed') return '<span class="badge text-bg-danger">Failed</span>';
     return '<span class="badge text-bg-warning">Processing</span>';
@@ -469,7 +479,8 @@
     form.auth_username.value = data.auth_username || '';
     form.auth_password.value = '';
     form.auth_password_confirm.value = '';
-    form.cron_schedule.value = data.cron_schedule || '* * * * *';
+    form.upload_cron.value = data.upload_cron || '0 2 * * *';
+    form.clouddrive_path.value = data.clouddrive_path || '/CloudNAS/115/电影备份';
   }
 
   async function loadLogs() {
@@ -577,12 +588,13 @@
         auth_username: f.auth_username.value,
         auth_password: password,
         auth_password_confirm: confirm,
-        cron_schedule: f.cron_schedule.value,
+        upload_cron: f.upload_cron.value,
+        clouddrive_path: f.clouddrive_path.value,
       }),
     });
     f.auth_password.value = '';
     f.auth_password_confirm.value = '';
-    alert('系统设置已保存，Cron 已生效');
+    alert('系统设置已保存，夜间上传 Cron 已生效');
   });
 
   document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
