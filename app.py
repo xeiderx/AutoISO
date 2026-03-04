@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.4"
+APP_VERSION = "v0.4.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -47,13 +47,22 @@ STATUS_PACKED_PENDING_UPLOAD = "封装完成，待上传"
 STATUS_UPLOADING = "上传中"
 STATUS_UPLOADED = "已上传至网盘"
 STATUS_FAILED = "Failed"
+PACKING_SUFFIX = ".packing"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
 current_uploading_file = None
+upload_command = "running"
+UPLOAD_COMMAND_LOCK = threading.Lock()
+current_upload_status = {
+    "active": False,
+    "file_name": "",
+    "status": "idle",
+}
 UPLOAD_PROGRESS = {
     "active": False,
     "file_name": "",
+    "status": "uploading",
     "percentage": 0.0,
     "speed_mbps": 0.0,
     "eta": "-",
@@ -238,6 +247,7 @@ def format_eta(seconds):
 def update_upload_progress(
     active=False,
     file_name="",
+    status="uploading",
     percentage=0.0,
     speed_mbps=0.0,
     eta="-",
@@ -249,6 +259,7 @@ def update_upload_progress(
             {
                 "active": bool(active),
                 "file_name": file_name or "",
+                "status": status or "uploading",
                 "percentage": round(float(percentage), 2),
                 "speed_mbps": round(float(speed_mbps), 2),
                 "eta": eta or "-",
@@ -263,10 +274,37 @@ def get_upload_progress_snapshot():
         return dict(UPLOAD_PROGRESS)
 
 
+def set_upload_command(command):
+    global upload_command
+    with UPLOAD_COMMAND_LOCK:
+        upload_command = command
+
+
+def get_upload_command():
+    with UPLOAD_COMMAND_LOCK:
+        return upload_command
+
+
+def update_current_upload_status(active=False, file_name="", status="idle"):
+    current_upload_status.update(
+        {
+            "active": bool(active),
+            "file_name": file_name or "",
+            "status": status or "idle",
+        }
+    )
+
+
+def get_current_upload_status_snapshot():
+    return dict(current_upload_status)
+
+
 def is_valid_upload_file(name):
     if not name:
         return False
     if name.startswith("."):
+        return False
+    if name.endswith(PACKING_SUFFIX):
         return False
     file_path = os.path.join(OUTPUT_DIR, name)
     return os.path.isfile(file_path)
@@ -287,6 +325,8 @@ def get_pending_upload_files():
     }
     pending = []
     for name in names:
+        if name.endswith(PACKING_SUFFIX):
+            continue
         if not is_valid_upload_file(name):
             continue
         if name in uploaded_names:
@@ -371,6 +411,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
     update_upload_progress(
         active=True,
         file_name=os.path.basename(src_path),
+        status="uploading",
         percentage=0.0,
         speed_mbps=0.0,
         eta="-",
@@ -381,6 +422,34 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
     try:
         with open(src_path, "rb") as rf, open(dst_path, "wb") as wf:
             while True:
+                command = get_upload_command()
+                if command == "paused":
+                    percent = (bytes_done / total_bytes * 100) if total_bytes > 0 else 0.0
+                    update_upload_progress(
+                        active=True,
+                        file_name=os.path.basename(src_path),
+                        status="paused",
+                        percentage=percent,
+                        speed_mbps=0.0,
+                        eta="paused",
+                        bytes_done=bytes_done,
+                        total_bytes=total_bytes,
+                    )
+                    update_current_upload_status(
+                        active=True,
+                        file_name=os.path.basename(src_path),
+                        status="已暂停",
+                    )
+                    time.sleep(1)
+                    continue
+                if command == "stopped":
+                    raise RuntimeError("upload stopped by control command")
+                update_current_upload_status(
+                    active=True,
+                    file_name=os.path.basename(src_path),
+                    status="上传中",
+                )
+
                 chunk = rf.read(chunk_size)
                 if not chunk:
                     break
@@ -395,6 +464,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                 update_upload_progress(
                     active=True,
                     file_name=os.path.basename(src_path),
+                    status="uploading",
                     percentage=percent,
                     speed_mbps=speed_mbps,
                     eta=format_eta(eta_seconds),
@@ -573,9 +643,12 @@ def resolve_source_path(torrent):
 def pack_to_iso(task_name, source_path, vol_id):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     iso_path = os.path.join(OUTPUT_DIR, f"{task_name}.iso")
+    temp_iso_path = f"{iso_path}{PACKING_SUFFIX}"
 
     if os.path.exists(iso_path):
         os.remove(iso_path)
+    if os.path.exists(temp_iso_path):
+        os.remove(temp_iso_path)
 
     cmd = [
         "genisoimage",
@@ -586,12 +659,20 @@ def pack_to_iso(task_name, source_path, vol_id):
         "-V",
         vol_id,
         "-o",
-        iso_path,
+        temp_iso_path,
         source_path,
     ]
     logger.info("genisoimage command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     logger.info("genisoimage command finished, task=%s, returncode=%s", task_name, proc.returncode)
+    if proc.returncode == 0:
+        os.rename(temp_iso_path, iso_path)
+    else:
+        try:
+            if os.path.exists(temp_iso_path):
+                os.remove(temp_iso_path)
+        except OSError:
+            logger.warning("cleanup temp iso failed: %s", temp_iso_path)
     if proc.returncode != 0 and proc.stderr:
         logger.error("genisoimage full stderr, task=%s:\n%s", task_name, proc.stderr)
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
@@ -649,6 +730,8 @@ def process_uploads():
                         raise FileNotFoundError(f"file not found: {src_path}")
 
                     current_uploading_file = file_name
+                    set_upload_command("running")
+                    update_current_upload_status(active=True, file_name=file_name, status="上传中")
                     upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
 
                     if row:
@@ -671,7 +754,16 @@ def process_uploads():
                     logger.exception("upload failed, task=%s, src=%s, dst=%s", task_name, src_path, dst_path)
                 finally:
                     current_uploading_file = None
-                    update_upload_progress(active=False, file_name="", percentage=0.0, speed_mbps=0.0, eta="-")
+                    set_upload_command("running")
+                    update_current_upload_status(active=False, file_name="", status="idle")
+                    update_upload_progress(
+                        active=False,
+                        file_name="",
+                        status="uploading",
+                        percentage=0.0,
+                        speed_mbps=0.0,
+                        eta="-",
+                    )
         finally:
             UPLOAD_ENGINE_LOCK.release()
 
@@ -718,6 +810,8 @@ def process_single_upload(file_name):
 
             try:
                 current_uploading_file = safe_name
+                set_upload_command("running")
+                update_current_upload_status(active=True, file_name=safe_name, status="上传中")
                 upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
                 if row:
                     row.status = STATUS_UPLOADED
@@ -736,7 +830,16 @@ def process_single_upload(file_name):
                 logger.exception("manual upload failed, file=%s", safe_name)
             finally:
                 current_uploading_file = None
-                update_upload_progress(active=False, file_name="", percentage=0.0, speed_mbps=0.0, eta="-")
+                set_upload_command("running")
+                update_current_upload_status(active=False, file_name="", status="idle")
+                update_upload_progress(
+                    active=False,
+                    file_name="",
+                    status="uploading",
+                    percentage=0.0,
+                    speed_mbps=0.0,
+                    eta="-",
+                )
 
 
 def process_one_torrent(server: QBServer, client, torrent):
@@ -770,7 +873,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             "server_name": server.name,
             "source_path": source_path,
             "source_size_bytes": source_size_bytes,
-            "iso_path": os.path.join(OUTPUT_DIR, f"{torrent.name}.iso"),
+            "iso_path": os.path.join(OUTPUT_DIR, f"{torrent.name}.iso{PACKING_SUFFIX}"),
             "start_time": started,
         }
 
@@ -1346,6 +1449,33 @@ def upload_now(filename):
     return jsonify({"ok": True, "message": "upload started", "file_name": safe_name})
 
 
+@app.route("/api/upload/control", methods=["POST"])
+def upload_control():
+    payload = request.get_json(force=True) or {}
+    action = (payload.get("action") or "").strip().lower()
+    if action not in {"pause", "resume"}:
+        return jsonify({"error": "invalid action"}), 400
+
+    if action == "pause":
+        set_upload_command("paused")
+        snapshot = get_current_upload_status_snapshot()
+        update_current_upload_status(
+            active=snapshot.get("active", False),
+            file_name=snapshot.get("file_name", ""),
+            status="已暂停",
+        )
+    else:
+        set_upload_command("running")
+        snapshot = get_current_upload_status_snapshot()
+        update_current_upload_status(
+            active=snapshot.get("active", False),
+            file_name=snapshot.get("file_name", ""),
+            status="上传中" if snapshot.get("active") else "idle",
+        )
+
+    return jsonify({"ok": True, "status": get_current_upload_status_snapshot().get("status", "idle")})
+
+
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
@@ -1390,6 +1520,7 @@ def get_stats():
             "month_size_gb": round(float(month_size_gb), 2),
             "month_size_text": format_data_size(float(month_size_gb)),
             "current_uploading_file": current_uploading_file,
+            "current_upload_status": get_current_upload_status_snapshot(),
             "upload_progress": get_upload_progress_snapshot(),
         }
     )

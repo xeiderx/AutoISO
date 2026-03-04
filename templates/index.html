@@ -476,43 +476,52 @@
 
     const packingBox = document.getElementById('packingTasks');
     if (!packData.active || !packData.tasks.length) {
-      packingBox.innerHTML = '<div class="text-muted">当前无封装任务</div>';
+      packingBox.innerHTML = '<div class="text-muted">No active packing task</div>';
     } else {
       packingBox.innerHTML = packData.tasks.map(task => `
         <div class="border rounded p-3 mb-2 bg-light-subtle">
-          <div class="d-flex justify-content-between mb-2">
-            <div><div class="fw-semibold">正在封装：${escapeHtml(task.task_name)}</div><div class="small text-muted">节点: ${escapeHtml(task.server_name)} | 已运行 ${formatSeconds(task.elapsed_seconds)}</div></div>
-            <div class="small mono">${task.progress}%</div>
+          <div class="mb-2">
+            <div class="fw-semibold">Packing: ${escapeHtml(task.task_name)}</div>
+            <div class="small text-muted">Node: ${escapeHtml(task.server_name)} | Elapsed: ${formatSeconds(task.elapsed_seconds)}</div>
           </div>
           <div class="progress" role="progressbar" aria-valuenow="${task.progress}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
             <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${task.progress}%"></div>
           </div>
-          <div class="small text-muted mt-2">源: ${escapeHtml(task.source_path)}<br>目标: ${escapeHtml(task.iso_path)}</div>
+          <div class="small text-muted mt-2">Speed: - MB/s | ETA: - | Progress: ${Number(task.progress || 0).toFixed(2)}%</div>
         </div>
       `).join('');
     }
 
     const up = stats.upload_progress || {};
+    const currentUploadStatus = stats.current_upload_status || {};
     const uploadBox = document.getElementById('uploadTaskStatus');
     if (!up.active) {
-      uploadBox.innerHTML = '<div class="text-muted">当前无上传任务</div>';
+      uploadBox.innerHTML = '<div class="text-muted">No active upload task</div>';
       return;
     }
 
     const pct = Number(up.percentage || 0).toFixed(2);
+    const uploadPaused = currentUploadStatus.status === '已暂停' || up.status === 'paused';
+    const action = uploadPaused ? 'resume' : 'pause';
+    const actionText = uploadPaused ? 'Resume' : 'Pause';
+    const cardTone = uploadPaused ? 'bg-secondary-subtle' : 'bg-warning-subtle';
+    const barTone = uploadPaused ? 'bg-secondary' : 'bg-warning';
+    const statusText = uploadPaused ? 'Paused' : 'Uploading';
+    const spinner = uploadPaused ? '' : '<span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>';
     uploadBox.innerHTML = `
-      <div class="border rounded p-3 bg-warning-subtle">
+      <div class="border rounded p-3 ${cardTone}">
         <div class="mb-2">
           <div class="fw-semibold d-flex align-items-center gap-2">
-            <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
-            <span>正在上传：${escapeHtml(up.file_name || '')}</span>
+            ${spinner}
+            <span>${statusText}: ${escapeHtml(up.file_name || '')}</span>
           </div>
         </div>
         <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" style="height: 12px;">
-          <div class="progress-bar bg-warning" style="width:${pct}%"></div>
+          <div class="progress-bar ${barTone}" style="width:${pct}%"></div>
         </div>
-        <div class="small text-muted mt-2">
-          Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s | ETA: ${escapeHtml(up.eta || '-')} | 进度: ${pct}%
+        <div class="small text-muted mt-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+          <span>Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s | ETA: ${escapeHtml(up.eta || '-')} | Progress: ${pct}%</span>
+          <button type="button" class="btn btn-sm ${uploadPaused ? 'btn-success' : 'btn-outline-warning'}" onclick="toggleUploadControl('${action}')">${actionText}</button>
         </div>
       </div>
     `;
@@ -565,6 +574,19 @@
       await api(`/api/upload_now/${encodeURIComponent(name)}`, { method: 'POST' });
       await loadProgress();
       showNotification('上传任务已触发', 'success');
+    } catch (err) {
+      showNotification(err.message, 'error');
+    }
+  }
+
+  async function toggleUploadControl(action) {
+    try {
+      await api('/api/upload/control', {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      });
+      showNotification(action === 'pause' ? 'Upload paused' : 'Upload resumed', 'success');
+      await loadProgress();
     } catch (err) {
       showNotification(err.message, 'error');
     }
