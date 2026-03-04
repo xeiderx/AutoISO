@@ -16,7 +16,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.3.1"
+APP_VERSION = "v0.3.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -337,6 +337,7 @@ def pack_to_iso(task_name, source_path, vol_id):
         "mkisofs",
         "-iso-level",
         "3",
+        "-udf",
         "-V",
         vol_id,
         "-o",
