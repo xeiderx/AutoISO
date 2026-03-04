@@ -65,6 +65,7 @@ class PackHistory(db.Model):
     end_time = db.Column(db.DateTime, nullable=True)
     file_size_gb = db.Column(db.Float, nullable=True)
     message = db.Column(db.Text, nullable=True)
+    info = db.Column(db.Text, nullable=True)
 
     qb_server = db.relationship("QBServer", backref=db.backref("histories", lazy=True))
 
@@ -139,6 +140,8 @@ def ensure_schema():
         columns = {row[1] for row in result.fetchall()}
         if "file_size_gb" not in columns:
             conn.execute(text("ALTER TABLE pack_history ADD COLUMN file_size_gb FLOAT"))
+        if "info" not in columns:
+            conn.execute(text("ALTER TABLE pack_history ADD COLUMN info TEXT"))
 
 
 def get_setting(key):
@@ -430,6 +433,9 @@ def process_one_torrent(server: QBServer, client, torrent):
             history.status = "Failed"
             history.end_time = finished
             history.message = extract_error_tail(err, out)
+            history.info = (err or "").strip()
+            if history.info:
+                logger.error("xorriso full stderr, node=%s, task=%s:\n%s", server.name, torrent.name, history.info)
             db.session.commit()
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
