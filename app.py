@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.6"
+APP_VERSION = "v0.4.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1147,6 +1147,12 @@ def index():
     return render_template("index.html", version=APP_VERSION)
 
 
+@app.route("/history")
+@require_login
+def history_page():
+    return render_template("history.html", version=APP_VERSION)
+
+
 @app.route("/api/qb/test", methods=["POST"])
 def test_qb_connection():
     payload = request.get_json(force=True)
@@ -1464,6 +1470,20 @@ def get_progress():
         if source_size > 0:
             percent = min(100.0, max(0.0, (iso_size / source_size) * 100))
         started = task.get("start_time")
+        elapsed_seconds = int((now_local() - started).total_seconds()) if started else 0
+        speed_mbps = 0.0
+        eta_seconds = None
+        try:
+            if elapsed_seconds > 0 and percent > 0:
+                ratio = percent / 100.0
+                estimated_total_seconds = elapsed_seconds / ratio
+                eta_seconds = max(0, int(estimated_total_seconds - elapsed_seconds))
+                estimated_total_mb = (source_size / (1024 * 1024)) if source_size > 0 else 0.0
+                if estimated_total_mb > 0:
+                    speed_mbps = (estimated_total_mb * ratio) / elapsed_seconds
+        except ZeroDivisionError:
+            speed_mbps = 0.0
+            eta_seconds = None
         tasks.append(
             {
                 "id": key,
@@ -1474,7 +1494,10 @@ def get_progress():
                 "source_size_bytes": source_size,
                 "iso_size_bytes": iso_size,
                 "progress": round(percent, 2),
-                "elapsed_seconds": int((now_local() - started).total_seconds()) if started else 0,
+                "elapsed_seconds": elapsed_seconds,
+                "speed_mbps": round(float(speed_mbps), 2),
+                "eta_seconds": eta_seconds,
+                "eta_text": format_eta(eta_seconds) if eta_seconds is not None else "-",
             }
         )
     return jsonify({"active": len(tasks) > 0, "tasks": tasks})
@@ -1530,7 +1553,7 @@ def list_pending_uploads():
 
         upload_row = UploadHistory.query.filter_by(filename=name).first()
         upload_status = (upload_row.status if upload_row else "").strip().lower()
-        status_text = "已上传" if upload_status == "uploaded" else "待上传"
+        status_text = "uploaded" if upload_status == "uploaded" else "pending"
 
         task_name = os.path.splitext(name)[0]
         history_row = (
@@ -1606,6 +1629,7 @@ def get_stats():
     now_dt = now_local().replace(tzinfo=None)
     month_start = datetime(now_dt.year, now_dt.month, 1)
     month_start_text = month_start.strftime("%Y-%m-%d %H:%M:%S")
+
     month_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.start_time >= month_start).scalar() or 0
     month_size_gb = (
         db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
@@ -1613,70 +1637,94 @@ def get_stats():
         .scalar()
         or 0.0
     )
-    uploaded_query = PackHistory.query.filter(
-        PackHistory.status == STATUS_UPLOADED,
-        PackHistory.upload_end_time.isnot(None),
-        PackHistory.upload_end_time != "",
-    )
-    total_upload_count = uploaded_query.count()
-    total_upload_size_gb = (
-        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
-        .filter(
-            PackHistory.status == STATUS_UPLOADED,
-            PackHistory.upload_end_time.isnot(None),
-            PackHistory.upload_end_time != "",
-        )
-        .scalar()
-        or 0.0
-    )
-    month_upload_count = (
-        PackHistory.query.filter(
-            PackHistory.status == STATUS_UPLOADED,
-            PackHistory.upload_end_time.isnot(None),
-            PackHistory.upload_end_time != "",
-            PackHistory.upload_end_time >= month_start_text,
-        ).count()
-    )
-    month_upload_size_gb = (
-        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
-        .filter(
-            PackHistory.status == STATUS_UPLOADED,
-            PackHistory.upload_end_time.isnot(None),
-            PackHistory.upload_end_time != "",
-            PackHistory.upload_end_time >= month_start_text,
-        )
-        .scalar()
-        or 0.0
-    )
 
-    finished_rows = PackHistory.query.filter(
+    finished_pack_rows = PackHistory.query.filter(
         PackHistory.start_time.isnot(None), PackHistory.end_time.isnot(None)
     ).all()
-    avg_seconds = 0
-    if finished_rows:
-        total_seconds = sum((row.end_time - row.start_time).total_seconds() for row in finished_rows)
-        avg_seconds = int(total_seconds / len(finished_rows))
+    pack_total_seconds = 0.0
+    pack_total_mb = 0.0
+    valid_pack_count = 0
+    for row in finished_pack_rows:
+        delta = (row.end_time - row.start_time).total_seconds()
+        if delta <= 0:
+            continue
+        valid_pack_count += 1
+        pack_total_seconds += delta
+        pack_total_mb += float((row.file_size_gb or 0.0) * 1024.0)
+
+    pack_avg_seconds = int(pack_total_seconds / valid_pack_count) if valid_pack_count > 0 else 0
+    try:
+        pack_avg_rate_mbps = (pack_total_mb / pack_total_seconds) if pack_total_seconds > 0 else 0.0
+    except ZeroDivisionError:
+        pack_avg_rate_mbps = 0.0
+
+    uploaded_rows = PackHistory.query.filter(
+        PackHistory.status == STATUS_UPLOADED,
+        PackHistory.upload_start_time.isnot(None),
+        PackHistory.upload_start_time != "",
+        PackHistory.upload_end_time.isnot(None),
+        PackHistory.upload_end_time != "",
+    ).all()
+
+    total_upload_count = len(uploaded_rows)
+    total_upload_size_gb = sum(float(r.file_size_gb or 0.0) for r in uploaded_rows)
+    month_upload_rows = [r for r in uploaded_rows if (r.upload_end_time or "") >= month_start_text]
+    month_upload_count = len(month_upload_rows)
+    month_upload_size_gb = sum(float(r.file_size_gb or 0.0) for r in month_upload_rows)
+
+    upload_total_seconds = 0.0
+    upload_total_mb = 0.0
+    valid_upload_count = 0
+    for row in uploaded_rows:
+        start_dt = parse_db_time(row.upload_start_time)
+        end_dt = parse_db_time(row.upload_end_time)
+        if not start_dt or not end_dt:
+            continue
+        delta = (end_dt - start_dt).total_seconds()
+        if delta <= 0:
+            continue
+        valid_upload_count += 1
+        upload_total_seconds += delta
+        upload_total_mb += float((row.file_size_gb or 0.0) * 1024.0)
+
+    upload_avg_seconds = int(upload_total_seconds / valid_upload_count) if valid_upload_count > 0 else 0
+    try:
+        upload_avg_rate_mbps = (upload_total_mb / upload_total_seconds) if upload_total_seconds > 0 else 0.0
+    except ZeroDivisionError:
+        upload_avg_rate_mbps = 0.0
+
     return jsonify(
         {
-            "total_count": total_count,
-            "total_size_gb": round(float(total_size_gb), 2),
-            "total_size_text": format_data_size(float(total_size_gb)),
-            "avg_duration_seconds": avg_seconds,
-            "avg_duration_text": format_seconds(avg_seconds),
-            "month_count": month_count,
-            "month_size_gb": round(float(month_size_gb), 2),
-            "month_size_text": format_data_size(float(month_size_gb)),
-            "total_upload_count": int(total_upload_count or 0),
-            "total_upload_size_gb": round(float(total_upload_size_gb), 2),
-            "total_upload_size_text": format_data_size(float(total_upload_size_gb)),
-            "month_upload_count": int(month_upload_count or 0),
-            "month_upload_size_gb": round(float(month_upload_size_gb), 2),
-            "month_upload_size_text": format_data_size(float(month_upload_size_gb)),
+            "pack": {
+                "total_count": int(total_count or 0),
+                "total_size_gb": round(float(total_size_gb), 2),
+                "total_size_text": format_data_size(float(total_size_gb)),
+                "avg_duration_seconds": pack_avg_seconds,
+                "avg_duration_text": format_seconds(pack_avg_seconds),
+                "avg_rate_mbps": round(float(pack_avg_rate_mbps), 2),
+                "avg_rate_text": f"{pack_avg_rate_mbps:.0f} MB/s",
+                "month_count": int(month_count or 0),
+                "month_size_gb": round(float(month_size_gb), 2),
+                "month_size_text": format_data_size(float(month_size_gb)),
+            },
+            "upload": {
+                "total_count": int(total_upload_count or 0),
+                "total_size_gb": round(float(total_upload_size_gb), 2),
+                "total_size_text": format_data_size(float(total_upload_size_gb)),
+                "avg_duration_seconds": upload_avg_seconds,
+                "avg_duration_text": format_seconds(upload_avg_seconds),
+                "avg_rate_mbps": round(float(upload_avg_rate_mbps), 2),
+                "avg_rate_text": f"{upload_avg_rate_mbps:.0f} MB/s",
+                "month_count": int(month_upload_count or 0),
+                "month_size_gb": round(float(month_upload_size_gb), 2),
+                "month_size_text": format_data_size(float(month_upload_size_gb)),
+            },
             "current_uploading_file": current_uploading_file,
             "current_upload_status": get_current_upload_status_snapshot(),
             "upload_progress": get_upload_progress_snapshot(),
         }
     )
+
 
 with app.app_context():
     os.makedirs("/data", exist_ok=True)

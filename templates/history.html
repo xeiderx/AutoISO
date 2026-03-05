@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoISO {{ version }} History</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f3f6fb; }
+    .wrap { max-width: 1400px; margin: 24px auto; padding: 0 12px; }
+    .card { border: 0; border-radius: 14px; box-shadow: 0 8px 30px rgba(17,24,39,.08); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="mb-0">封装历史</h4>
+      <a href="/" class="btn btn-outline-secondary btn-sm">返回 Dashboard</a>
+    </div>
+    <div class="card">
+      <div class="card-body table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>ID</th>
+              <th>任务名</th>
+              <th>节点</th>
+              <th>状态</th>
+              <th>大小(GB)</th>
+              <th>封装耗时</th>
+              <th>封装开始</th>
+              <th>封装结束</th>
+              <th>上传开始</th>
+              <th>上传结束</th>
+              <th>上传耗时</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="11" class="text-center text-muted">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+  }
+
+  function formatSeconds(sec) {
+    if (sec === null || sec === undefined) return '-';
+    const total = Math.max(0, Number(sec));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = Math.floor(total % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  function formatDateTimeCell(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '<span class="text-muted">-</span>';
+    const [datePart, timePart = ''] = raw.split(' ');
+    return `<div class="small">${escapeHtml(datePart || '-')}</div><div class="small text-muted mono">${escapeHtml(timePart || '-')}</div>`;
+  }
+
+  function statusBadge(status) {
+    if (status === '封装完成，待上传' || status === '待上传') return '<span class="badge rounded-pill text-bg-info px-3 py-2">待上传</span>';
+    if (status === '上传中') return '<span class="badge rounded-pill text-bg-warning px-3 py-2">上传中</span>';
+    if (status === '已上传至网盘') return '<span class="badge rounded-pill text-bg-success px-3 py-2">已上传</span>';
+    if (status === 'Success') return '<span class="badge rounded-pill text-bg-success px-3 py-2">Success</span>';
+    if (status === 'Failed') return '<span class="badge rounded-pill text-bg-danger px-3 py-2">Failed</span>';
+    return '<span class="badge rounded-pill text-bg-secondary px-3 py-2">Processing</span>';
+  }
+
+  async function loadHistory() {
+    const resp = await fetch('/api/history?limit=0');
+    const rows = await resp.json().catch(() => []);
+    const tbody = document.getElementById('historyBody');
+    if (!Array.isArray(rows) || rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">暂无历史记录</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(row => `
+      <tr>
+        <td>${row.id}</td>
+        <td>${escapeHtml(row.task_name || '')}</td>
+        <td>${escapeHtml(row.qb_server_name || '')}</td>
+        <td class="text-center">${statusBadge(row.status)}</td>
+        <td>${Number(row.file_size_gb || 0).toFixed(2)}</td>
+        <td>${formatSeconds(row.duration_seconds)}</td>
+        <td>${formatDateTimeCell(row.start_time || '')}</td>
+        <td>${formatDateTimeCell(row.end_time || '')}</td>
+        <td>${formatDateTimeCell(row.upload_start_time || '')}</td>
+        <td>${formatDateTimeCell(row.upload_end_time || '')}</td>
+        <td>${formatSeconds(row.upload_duration_seconds)}</td>
+      </tr>
+    `).join('');
+  }
+
+  loadHistory();
+</script>
+</body>
+</html>
