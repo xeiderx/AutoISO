@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.5.4"
+APP_VERSION = "v0.5.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1864,8 +1864,11 @@ def get_stats():
         or 0.0
     )
 
+    pack_success_statuses = {STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING, STATUS_UPLOADED}
     finished_pack_rows = PackHistory.query.filter(
-        PackHistory.start_time.isnot(None), PackHistory.end_time.isnot(None)
+        PackHistory.start_time.isnot(None),
+        PackHistory.end_time.isnot(None),
+        PackHistory.status.in_(pack_success_statuses),
     ).all()
     pack_total_seconds = 0.0
     pack_total_mb = 0.0
