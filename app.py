@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.5.2"
+APP_VERSION = "v0.5.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -423,11 +423,12 @@ def find_pack_row_for_upload(file_name):
     task_name = os.path.splitext(safe_name)[0]
     iso_path = os.path.join(OUTPUT_DIR, safe_name)
     iso_msg = f"ISO: {iso_path}"
+    file_msg = f"FILE: {iso_path}"
 
     row = (
         PackHistory.query.filter(
-            PackHistory.task_name == task_name,
-            PackHistory.message == iso_msg,
+            PackHistory.task_name.in_([safe_name, task_name]),
+            PackHistory.message.in_([iso_msg, file_msg]),
             PackHistory.status.in_([STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING]),
         )
         .order_by(PackHistory.id.desc())
@@ -438,8 +439,8 @@ def find_pack_row_for_upload(file_name):
 
     return (
         PackHistory.query.filter(
-            PackHistory.task_name == task_name,
-            PackHistory.message == iso_msg,
+            PackHistory.task_name.in_([safe_name, task_name]),
+            PackHistory.message.in_([iso_msg, file_msg]),
         )
         .order_by(PackHistory.id.desc())
         .first()
@@ -1066,6 +1067,47 @@ def process_one_torrent(server: QBServer, client, torrent):
         }
 
     try:
+        if os.path.isfile(source_path):
+            output_file = os.path.join(OUTPUT_DIR, os.path.basename(source_path))
+            logger.info(
+                "[节点:%s] 检测到单文件任务，跳过 ISO 封装，直接复制到待上传区：%s",
+                server.name,
+                os.path.basename(source_path),
+            )
+            try:
+                if os.path.abspath(source_path) != os.path.abspath(output_file):
+                    shutil.copy2(source_path, output_file)
+            except Exception as exc:
+                history.status = STATUS_FAILED
+                history.end_time = now_local()
+                history.message = f"single file copy failed: {exc}"
+                history.info = str(exc)
+                db.session.commit()
+                qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+                qb_add_tags(client, torrent_hash, [FAILED_TAG])
+                if get_notify_flag("notify_pack_end", True):
+                    send_tg_notification(
+                        f"[AutoISO] 单文件转存失败 | 节点: {server.name} | 任务: {torrent.name} | 原因: {exc}"
+                    )
+                logger.exception("单文件任务处理失败，[节点:%s] 任务=%s", server.name, torrent.name)
+                return
+            finished = now_local()
+            duration = format_seconds((finished - started).total_seconds())
+            history.status = STATUS_PACKED_PENDING_UPLOAD
+            history.end_time = finished
+            history.message = f"FILE: {output_file}"
+            history.info = "single file copied to output"
+            history.file_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
+            db.session.commit()
+            qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+            qb_add_tags(client, torrent_hash, [DONE_TAG])
+            if get_notify_flag("notify_pack_end", True):
+                send_tg_notification(
+                    f"[AutoISO] 单文件转存成功 | 节点: {server.name} | 任务: {torrent.name} | 耗时: {duration} | 输出: {output_file}"
+                )
+            logger.info("单文件任务处理完成，[节点:%s] 任务=%s，耗时=%s", server.name, torrent.name, duration)
+            return
+
         if not os.path.isdir(source_path):
             history.status = STATUS_FAILED
             history.end_time = now_local()
