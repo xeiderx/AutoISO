@@ -14,11 +14,11 @@ import qbittorrentapi
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from flask import Flask, has_app_context, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, has_app_context, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.5.0"
+APP_VERSION = "v0.5.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -34,6 +34,7 @@ WAITING_TAG = os.getenv("QB_WAITING_TAG", "待封装")
 PACKING_TAG = os.getenv("QB_PACKING_TAG", "封装中")
 DONE_TAG = os.getenv("QB_DONE_TAG", "已封装")
 FAILED_TAG = os.getenv("QB_FAILED_TAG", "封装失败")
+DEFAULT_QB_MONITOR_TAG = os.getenv("QB_MONITOR_TAG", WAITING_TAG)
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output")
 DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
@@ -247,6 +248,10 @@ def get_clouddrive_path():
     return get_setting("clouddrive_path") or DEFAULT_CLOUDDRIVE_PATH
 
 
+def get_qb_monitor_tag():
+    return (get_setting("qb_monitor_tag") or DEFAULT_QB_MONITOR_TAG).strip() or DEFAULT_QB_MONITOR_TAG
+
+
 def get_delete_after_upload():
     value = (get_setting("delete_after_upload") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
@@ -352,7 +357,7 @@ def get_pending_upload_files():
     except FileNotFoundError:
         return []
     except Exception:
-        logger.exception("scan output dir failed: %s", OUTPUT_DIR)
+        logger.exception("扫描输出目录失败: %s", OUTPUT_DIR)
         return []
 
     uploaded_names = {
@@ -377,7 +382,7 @@ def get_upload_list_files():
     except FileNotFoundError:
         return []
     except Exception:
-        logger.exception("scan output dir failed: %s", OUTPUT_DIR)
+        logger.exception("扫描输出目录失败: %s", OUTPUT_DIR)
         return []
 
     rows = []
@@ -411,6 +416,36 @@ def mark_upload_status(filename, status, message="", task_id=None):
     db.session.commit()
 
 
+def find_pack_row_for_upload(file_name):
+    safe_name = os.path.basename(file_name or "")
+    if not safe_name:
+        return None
+    task_name = os.path.splitext(safe_name)[0]
+    iso_path = os.path.join(OUTPUT_DIR, safe_name)
+    iso_msg = f"ISO: {iso_path}"
+
+    row = (
+        PackHistory.query.filter(
+            PackHistory.task_name == task_name,
+            PackHistory.message == iso_msg,
+            PackHistory.status.in_([STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING]),
+        )
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    if row:
+        return row
+
+    return (
+        PackHistory.query.filter(
+            PackHistory.task_name == task_name,
+            PackHistory.message == iso_msg,
+        )
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+
+
 def get_or_create_external_server_id():
     server = QBServer.query.filter_by(name="NAS").first()
     if server:
@@ -426,14 +461,7 @@ def finalize_pack_history_after_upload(file_name, dst_path, task_id=None):
         return
     if not file_name:
         return
-    task_name = os.path.splitext(file_name)[0]
     row = db.session.get(PackHistory, task_id) if task_id else None
-    if not row:
-        row = (
-            PackHistory.query.filter(PackHistory.task_name.in_([file_name, task_name]))
-            .order_by(PackHistory.id.desc())
-            .first()
-        )
     if row:
         row.status = STATUS_UPLOADED
         row.end_time = now_local()
@@ -480,12 +508,13 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
     update_upload_timestamps(os.path.basename(src_path), start_time=upload_started_at, task_id=task_id)
     temp_dst_path = f"{dst_path}{UPLOADING_SUFFIX}"
     aborted = False
+    paused_logged = False
 
     try:
         if os.path.exists(temp_dst_path):
             os.remove(temp_dst_path)
     except OSError:
-        logger.warning("cleanup old temp upload file failed: %s", temp_dst_path)
+        logger.warning("清理旧上传临时文件失败: %s", temp_dst_path)
 
     update_upload_progress(
         active=True,
@@ -503,9 +532,13 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
             while True:
                 command = get_upload_command()
                 if command == "aborted":
+                    logger.warning("上传收到中止指令，文件=%s", os.path.basename(src_path))
                     aborted = True
                     break
                 if command == "paused":
+                    if not paused_logged:
+                        logger.info("上传已暂停，文件=%s", os.path.basename(src_path))
+                        paused_logged = True
                     percent = (bytes_done / total_bytes * 100) if total_bytes > 0 else 0.0
                     update_upload_progress(
                         active=True,
@@ -525,6 +558,9 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
                     time.sleep(1)
                     continue
 
+                if paused_logged:
+                    logger.info("上传已恢复，文件=%s", os.path.basename(src_path))
+                    paused_logged = False
                 update_current_upload_status(
                     active=True,
                     file_name=os.path.basename(src_path),
@@ -560,8 +596,9 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
                 if os.path.isfile(temp_dst_path):
                     os.remove(temp_dst_path)
             except OSError:
-                logger.warning("cleanup aborted temp upload failed: %s", temp_dst_path)
+                logger.warning("中止上传后清理临时文件失败: %s", temp_dst_path)
             current_uploading_file = None
+            logger.info("上传已中止并清理临时文件，文件=%s", os.path.basename(src_path))
             return False
 
         os.rename(temp_dst_path, dst_path)
@@ -585,7 +622,7 @@ def build_cron_trigger(cron_expr):
     try:
         return CronTrigger.from_crontab(expr), expr
     except Exception:
-        logger.exception("invalid cron expression: %s, fallback to default", expr)
+        logger.exception("Cron 表达式无效，回退默认值: %s", expr)
         fallback = DEFAULT_UPLOAD_CRON
         return CronTrigger.from_crontab(fallback), fallback
 
@@ -607,7 +644,7 @@ def apply_upload_scheduler(cron_expr):
             coalesce=True,
             replace_existing=True,
         )
-    logger.info("upload scheduler cron applied: %s", normalized)
+    logger.info("上传调度 Cron 已应用: %s", normalized)
     return normalized
 
 
@@ -647,7 +684,6 @@ def update_upload_timestamps(file_name, start_time=None, end_time=None, task_id=
     if not has_app_context() or not file_name:
         return
     safe_name = os.path.basename(file_name)
-    task_name = os.path.splitext(safe_name)[0]
 
     row = UploadHistory.query.filter_by(task_id=task_id).first() if task_id else None
     if not row and task_id is None:
@@ -660,12 +696,6 @@ def update_upload_timestamps(file_name, start_time=None, end_time=None, task_id=
             row.upload_end_time = format_db_time(end_time)
 
     pack_row = db.session.get(PackHistory, task_id) if task_id else None
-    if not pack_row and task_id is None:
-        pack_row = (
-            PackHistory.query.filter(PackHistory.task_name.in_([safe_name, task_name]))
-            .order_by(PackHistory.id.desc())
-            .first()
-        )
     if pack_row:
         if start_time is not None:
             pack_row.upload_start_time = format_db_time(start_time)
@@ -750,8 +780,9 @@ def make_qb_client(server: QBServer):
 
 
 def has_waiting_tag(tags_str):
+    monitor_tag = get_qb_monitor_tag()
     tags = [tag.strip() for tag in (tags_str or "").split(",") if tag.strip()]
-    return WAITING_TAG in tags
+    return monitor_tag in tags
 
 
 def qb_remove_tags(client, torrent_hash, tags):
@@ -805,9 +836,9 @@ def pack_to_iso(task_name, source_path, vol_id):
         temp_iso_path,
         source_path,
     ]
-    logger.info("genisoimage command start, task=%s, source=%s, iso=%s", task_name, source_path, iso_path)
+    logger.info("开始封装 ISO，任务=%s，源目录=%s，目标文件=%s", task_name, source_path, iso_path)
     proc = subprocess.run(cmd, capture_output=True, text=True)
-    logger.info("genisoimage command finished, task=%s, returncode=%s", task_name, proc.returncode)
+    logger.info("封装命令结束，任务=%s，返回码=%s", task_name, proc.returncode)
     if proc.returncode == 0:
         os.rename(temp_iso_path, iso_path)
     else:
@@ -815,9 +846,9 @@ def pack_to_iso(task_name, source_path, vol_id):
             if os.path.exists(temp_iso_path):
                 os.remove(temp_iso_path)
         except OSError:
-            logger.warning("cleanup temp iso failed: %s", temp_iso_path)
+            logger.warning("清理封装临时文件失败: %s", temp_iso_path)
     if proc.returncode != 0 and proc.stderr:
-        logger.error("genisoimage full stderr, task=%s:\n%s", task_name, proc.stderr)
+        logger.error("封装命令错误输出，任务=%s:\n%s", task_name, proc.stderr)
     return proc.returncode == 0, iso_path, proc.stdout, proc.stderr
 
 
@@ -831,7 +862,7 @@ def get_iso_path_for_history(row: PackHistory):
 def process_uploads():
     global current_uploading_file
     if not UPLOAD_ENGINE_LOCK.acquire(blocking=False):
-        logger.info("upload engine busy, skip this round")
+        logger.info("上传引擎忙碌，本轮跳过")
         return
 
     with app.app_context():
@@ -841,26 +872,17 @@ def process_uploads():
             try:
                 os.makedirs(clouddrive_path, exist_ok=True)
             except Exception:
-                logger.exception("prepare clouddrive path failed: %s", clouddrive_path)
+                logger.exception("准备 CloudDrive 路径失败: %s", clouddrive_path)
                 return
 
             pending_names = get_pending_upload_files()
-            logger.info(
-                "upload poll start, pending=%s, target=%s, mode=%s",
-                len(pending_names),
-                clouddrive_path,
-                "delete" if delete_after_upload else "keep",
-            )
+            logger.info("开始检查待上传队列，待处理=%s，目标路径=%s，模式=%s", len(pending_names), clouddrive_path, "上传后删除" if delete_after_upload else "上传后保留")
 
             for file_name in pending_names:
                 src_path = os.path.join(OUTPUT_DIR, file_name)
                 dst_path = os.path.join(clouddrive_path, file_name)
                 task_name = os.path.splitext(file_name)[0]
-                row = (
-                    PackHistory.query.filter(PackHistory.task_name.in_([file_name, task_name]))
-                    .order_by(PackHistory.id.desc())
-                    .first()
-                )
+                row = find_pack_row_for_upload(file_name)
                 task_id = row.id if row else None
 
                 if row:
@@ -902,14 +924,14 @@ def process_uploads():
                     mark_upload_status(file_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                     if get_notify_flag("notify_upload_end", True):
                         send_tg_notification(f"[AutoISO] 🎉 转移成功：{file_name} 已入库 115。")
-                    logger.info("upload success, task=%s, src=%s, dst=%s", task_name, src_path, dst_path)
+                    logger.info("上传成功，任务=%s，源=%s，目标=%s", task_name, src_path, dst_path)
                 except Exception as exc:
                     mark_upload_status(file_name, "failed", str(exc), task_id=task_id)
                     if row:
                         row.status = STATUS_PACKED_PENDING_UPLOAD
                         row.info = f"upload failed: {exc}"
                         db.session.commit()
-                    logger.exception("upload failed, task=%s, src=%s, dst=%s", task_name, src_path, dst_path)
+                    logger.exception("上传失败，任务=%s，源=%s，目标=%s", task_name, src_path, dst_path)
                 finally:
                     current_uploading_file = None
                     set_upload_command("running")
@@ -929,13 +951,13 @@ def process_single_upload(file_name):
     global current_uploading_file
     safe_name = os.path.basename(file_name or "")
     if not safe_name or safe_name.startswith(".") or safe_name != file_name:
-        logger.warning("manual upload invalid filename: %s", file_name)
+        logger.warning("手动上传参数非法: %s", file_name)
         return
 
     with UPLOAD_ENGINE_LOCK:
         with app.app_context():
             if not is_valid_upload_file(safe_name):
-                logger.warning("manual upload file missing: %s", safe_name)
+                logger.warning("手动上传文件不存在: %s", safe_name)
                 return
 
             clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
@@ -943,17 +965,12 @@ def process_single_upload(file_name):
             try:
                 os.makedirs(clouddrive_path, exist_ok=True)
             except Exception:
-                logger.exception("prepare clouddrive path failed: %s", clouddrive_path)
+                logger.exception("准备 CloudDrive 路径失败: %s", clouddrive_path)
                 return
 
             src_path = os.path.join(OUTPUT_DIR, safe_name)
             dst_path = os.path.join(clouddrive_path, safe_name)
-            task_name = os.path.splitext(safe_name)[0]
-            row = (
-                PackHistory.query.filter(PackHistory.task_name.in_([safe_name, task_name]))
-                .order_by(PackHistory.id.desc())
-                .first()
-            )
+            row = find_pack_row_for_upload(safe_name)
             task_id = row.id if row else None
             if row:
                 row.status = STATUS_UPLOADING
@@ -991,14 +1008,14 @@ def process_single_upload(file_name):
                 mark_upload_status(safe_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                 if get_notify_flag("notify_upload_end", True):
                     send_tg_notification(f"[AutoISO] 🎉 转移成功：{safe_name} 已入库 115。")
-                logger.info("manual upload success, file=%s", safe_name)
+                logger.info("手动上传成功: %s", safe_name)
             except Exception as exc:
                 mark_upload_status(safe_name, "failed", str(exc), task_id=task_id)
                 if row:
                     row.status = STATUS_PACKED_PENDING_UPLOAD
                     row.info = f"upload failed: {exc}"
                     db.session.commit()
-                logger.exception("manual upload failed, file=%s", safe_name)
+                logger.exception("手动上传失败: %s", safe_name)
             finally:
                 current_uploading_file = None
                 set_upload_command("running")
@@ -1057,8 +1074,8 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
             if get_notify_flag("notify_pack_end", True):
-                send_tg_notification(f"[AutoISO] ???? | ??: {server.name} | ??: {torrent.name} | ??: {history.message}")
-            logger.error("task failed, reason=source not directory, task=%s, path=%s", torrent.name, source_path)
+                send_tg_notification(f"[AutoISO] 封装失败 | 节点: {server.name} | 任务: {torrent.name} | 原因: {history.message}")
+            logger.error("封装失败：源目录不存在，任务=%s，路径=%s", torrent.name, source_path)
             return
 
         safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
@@ -1075,27 +1092,21 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
-                send_tg_notification(f"[AutoISO] ???? | ??: {server.name} | ??: {torrent.name} | ??: {duration} | ??: {iso_path}")
-            logger.info("task success, node=%s, task=%s, duration=%s", server.name, torrent.name, duration)
+                send_tg_notification(f"[AutoISO] 封装成功 | 节点: {server.name} | 任务: {torrent.name} | 耗时: {duration} | 输出: {iso_path}")
+            logger.info("封装成功，[节点:%s] 任务=%s，耗时=%s", server.name, torrent.name, duration)
         else:
             history.status = STATUS_FAILED
             history.end_time = finished
             history.message = extract_error_tail(err, out)
             history.info = (err or "").strip()
             if history.info:
-                logger.error("genisoimage full stderr, node=%s, task=%s: %s", server.name, torrent.name, history.info)
+                logger.error("封装错误详情，[节点:%s] 任务=%s，stderr=%s", server.name, torrent.name, history.info)
             db.session.commit()
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
             if get_notify_flag("notify_pack_end", True):
-                send_tg_notification(f"[AutoISO] ???? | ??: {server.name} | ??: {torrent.name} | ??: {duration} | ??: {history.message}")
-            logger.error(
-                "task failed, node=%s, task=%s, duration=%s, err=%s",
-                server.name,
-                torrent.name,
-                duration,
-                history.message,
-            )
+                send_tg_notification(f"[AutoISO] 封装失败 | 节点: {server.name} | 任务: {torrent.name} | 耗时: {duration} | 原因: {history.message}")
+            logger.error("封装失败，[节点:%s] 任务=%s，耗时=%s，原因=%s", server.name, torrent.name, duration, history.message)
     finally:
         with ACTIVE_TASKS_LOCK:
             ACTIVE_TASKS.pop(task_key, None)
@@ -1103,14 +1114,16 @@ def process_one_torrent(server: QBServer, client, torrent):
 def process_all_qbs():
     with app.app_context():
         servers = QBServer.query.all()
+        monitor_tag = get_qb_monitor_tag()
+        logger.info("开始轮询 qB 节点，监控标签=%s", monitor_tag)
         for server in servers:
             try:
                 client = make_qb_client(server)
                 torrents = client.torrents_info()
-                logger.info("poll node=%s, torrents=%s", server.name, len(torrents))
+                logger.info("[节点:%s] 扫描 qB 任务完成，发现 %s 个种子", server.name, len(torrents))
             except Exception as exc:
-                logger.exception("qb connect failed, node=%s", server.name)
-                send_tg_notification(f"[AutoISO] ?????? | ??: {server.name} | ??: {exc}")
+                logger.exception("qB 节点连接失败，节点=%s", server.name)
+                send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
                 continue
 
             for torrent in torrents:
@@ -1121,15 +1134,15 @@ def process_all_qbs():
 
                 torrent_hash = getattr(torrent, "hash", "")
                 try:
-                    qb_remove_tags(client, torrent_hash, [WAITING_TAG])
+                    qb_remove_tags(client, torrent_hash, [monitor_tag])
                     qb_add_tags(client, torrent_hash, [PACKING_TAG])
                     if get_notify_flag("notify_pack_start", True):
-                        send_tg_notification(f"[AutoISO] ???? | ??: {server.name} | ??: {torrent.name}")
-                    logger.info("task start, node=%s, task=%s", server.name, getattr(torrent, "name", "unknown"))
+                        send_tg_notification(f"[AutoISO] 开始封装 | 节点: {server.name} | 任务: {torrent.name}")
+                    logger.info("开始封装任务，[节点:%s] 任务=%s", server.name, getattr(torrent, "name", "unknown"))
                     process_one_torrent(server, client, torrent)
                 except Exception as exc:
-                    logger.exception("task process exception, node=%s, task=%s", server.name, getattr(torrent, "name", "unknown"))
-                    qb_remove_tags(client, torrent_hash, [PACKING_TAG, WAITING_TAG])
+                    logger.exception("任务处理异常，[节点:%s] 任务=%s", server.name, getattr(torrent, "name", "unknown"))
+                    qb_remove_tags(client, torrent_hash, [PACKING_TAG, monitor_tag])
                     qb_add_tags(client, torrent_hash, [FAILED_TAG])
                     failed_record = PackHistory(
                         task_name=getattr(torrent, "name", "unknown"),
@@ -1141,7 +1154,7 @@ def process_all_qbs():
                     )
                     db.session.add(failed_record)
                     db.session.commit()
-                    send_tg_notification(f"[AutoISO] ?????? | ??: {server.name} | ??: {getattr(torrent, 'name', 'unknown')} | ??: {exc}")
+                    send_tg_notification(f"[AutoISO] 任务处理异常 | 节点: {server.name} | 任务: {getattr(torrent, 'name', 'unknown')} | 错误: {exc}")
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
@@ -1345,6 +1358,7 @@ def get_system_settings():
             "auth_username": auth_username,
             "upload_cron": get_upload_cron(),
             "clouddrive_path": get_clouddrive_path(),
+            "qb_monitor_tag": get_qb_monitor_tag(),
             "delete_after_upload": get_delete_after_upload(),
             "notify_pack_start": get_notify_flag("notify_pack_start", True),
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
@@ -1363,6 +1377,7 @@ def save_system_settings():
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
     upload_cron_expr = (payload.get("upload_cron") or "").strip()
     clouddrive_path = (payload.get("clouddrive_path") or "").strip()
+    qb_monitor_tag = (payload.get("qb_monitor_tag") or "").strip()
     delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=False)
     notify_pack_start = parse_bool(payload.get("notify_pack_start"), default=get_notify_flag("notify_pack_start", True))
     notify_pack_end = parse_bool(payload.get("notify_pack_end"), default=get_notify_flag("notify_pack_end", True))
@@ -1387,6 +1402,9 @@ def save_system_settings():
     if not clouddrive_path:
         clouddrive_path = DEFAULT_CLOUDDRIVE_PATH
 
+    if not qb_monitor_tag:
+        qb_monitor_tag = get_qb_monitor_tag()
+
     if auth_password or auth_password_confirm:
         if not auth_password or not auth_password_confirm:
             return jsonify({"error": "修改密码时必须填写并确认新密码"}), 400
@@ -1396,6 +1414,7 @@ def save_system_settings():
 
     set_setting("auth_username", auth_username)
     set_setting("clouddrive_path", clouddrive_path)
+    set_setting("qb_monitor_tag", qb_monitor_tag)
     set_setting("delete_after_upload", "1" if delete_after_upload else "0")
     set_setting("notify_pack_start", "1" if notify_pack_start else "0")
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
@@ -1407,6 +1426,7 @@ def save_system_settings():
             "ok": True,
             "upload_cron": normalized,
             "clouddrive_path": clouddrive_path,
+            "qb_monitor_tag": qb_monitor_tag,
             "delete_after_upload": delete_after_upload,
             "notify_pack_start": notify_pack_start,
             "notify_pack_end": notify_pack_end,
@@ -1424,6 +1444,7 @@ def get_auth_settings():
             "auth_username": auth_username,
             "upload_cron": get_upload_cron(),
             "clouddrive_path": get_clouddrive_path(),
+            "qb_monitor_tag": get_qb_monitor_tag(),
             "delete_after_upload": get_delete_after_upload(),
             "notify_pack_start": get_notify_flag("notify_pack_start", True),
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
@@ -1441,6 +1462,7 @@ def save_auth_settings():
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
     upload_cron_expr = (payload.get("upload_cron") or "").strip() or get_upload_cron()
     clouddrive_path = (payload.get("clouddrive_path") or "").strip() or get_clouddrive_path()
+    qb_monitor_tag = (payload.get("qb_monitor_tag") or "").strip() or get_qb_monitor_tag()
     delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=get_delete_after_upload())
     notify_pack_start = parse_bool(payload.get("notify_pack_start"), default=get_notify_flag("notify_pack_start", True))
     notify_pack_end = parse_bool(payload.get("notify_pack_end"), default=get_notify_flag("notify_pack_end", True))
@@ -1462,6 +1484,7 @@ def save_auth_settings():
     set_setting("auth_username", auth_username)
     set_setting("auth_password", auth_password)
     set_setting("clouddrive_path", clouddrive_path or DEFAULT_CLOUDDRIVE_PATH)
+    set_setting("qb_monitor_tag", qb_monitor_tag)
     set_setting("delete_after_upload", "1" if delete_after_upload else "0")
     set_setting("notify_pack_start", "1" if notify_pack_start else "0")
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
@@ -1473,6 +1496,7 @@ def save_auth_settings():
             "ok": True,
             "upload_cron": normalized,
             "clouddrive_path": clouddrive_path or DEFAULT_CLOUDDRIVE_PATH,
+            "qb_monitor_tag": qb_monitor_tag,
             "delete_after_upload": delete_after_upload,
             "notify_pack_start": notify_pack_start,
             "notify_pack_end": notify_pack_end,
@@ -1544,11 +1568,41 @@ def delete_history_batch():
 @app.route("/api/logs", methods=["GET"])
 def get_logs():
     try:
+        if not os.path.exists(LOG_FILE):
+            return jsonify({"logs": [], "message": "日志文件不存在，已返回空结果"})
         logs = parse_recent_log_entries(hours=24)
         return jsonify({"logs": logs})
+    except (OSError, PermissionError) as exc:
+        logger.exception("读取日志文件失败")
+        return jsonify({"logs": [], "message": f"日志接口异常: {exc}"})
     except Exception as exc:
-        logger.exception("read logs failed")
-        return jsonify({"error": f"读取日志失败: {exc}"}), 500
+        logger.exception("日志接口异常")
+        return jsonify({"logs": [], "message": f"日志接口异常: {exc}"})
+
+
+@app.route("/api/logs/clear", methods=["POST"])
+def clear_logs():
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE) or ".", exist_ok=True)
+        with open(LOG_FILE, "w", encoding="utf-8"):
+            pass
+        logger.info("日志已清空")
+        return jsonify({"ok": True})
+    except Exception as exc:
+        logger.exception("日志接口异常")
+        return jsonify({"error": f"清空日志失败: {exc}"}), 500
+
+
+@app.route("/api/logs/export", methods=["GET"])
+def export_logs():
+    try:
+        if not os.path.exists(LOG_FILE):
+            with open(LOG_FILE, "w", encoding="utf-8"):
+                pass
+        return send_file(LOG_FILE, as_attachment=True, download_name="autoiso.log", mimetype="text/plain; charset=utf-8")
+    except Exception as exc:
+        logger.exception("日志接口异常")
+        return jsonify({"error": f"导出日志失败: {exc}"}), 500
 
 
 @app.route("/api/progress", methods=["GET"])
@@ -1600,13 +1654,15 @@ def get_progress():
 @app.route("/api/pending", methods=["GET"])
 def list_pending():
     rows = []
+    monitor_tag = get_qb_monitor_tag()
+    logger.info("拉取待封装列表，监控标签=%s", monitor_tag)
     servers = QBServer.query.order_by(QBServer.id.asc()).all()
     for server in servers:
         try:
             client = make_qb_client(server)
             torrents = client.torrents_info()
         except Exception:
-            logger.exception("pending fetch failed, node=%s", server.name)
+            logger.exception("获取待封装任务失败，节点=%s", server.name)
             continue
 
         for torrent in torrents:
@@ -1673,38 +1729,33 @@ def list_pending_uploads():
 def upload_now(filename):
     safe_name = os.path.basename((filename or "").strip())
     if not safe_name or safe_name != filename or safe_name.startswith("."):
-        return jsonify({"error": "invalid filename"}), 400
+        return jsonify({"error": "文件名不合法"}), 400
 
     with app.app_context():
         if not is_valid_upload_file(safe_name):
-            return jsonify({"error": "file not found"}), 404
+            return jsonify({"error": "文件不存在"}), 404
 
     thread = threading.Thread(target=process_single_upload, args=(safe_name,), daemon=True)
     thread.start()
-    return jsonify({"ok": True, "message": "upload started", "file_name": safe_name})
+    return jsonify({"ok": True, "message": "上传任务已启动", "file_name": safe_name})
 
 
 @app.route("/api/delete_local/<path:filename>", methods=["POST"])
 def delete_local_file(filename):
     safe_name = os.path.basename((filename or "").strip())
     if not safe_name or safe_name != filename or safe_name.startswith("."):
-        return jsonify({"error": "invalid filename"}), 400
+        return jsonify({"error": "文件名不合法"}), 400
 
     file_path = os.path.join(OUTPUT_DIR, safe_name)
     try:
         os.remove(file_path)
     except FileNotFoundError:
-        return jsonify({"error": "file not found"}), 404
+        return jsonify({"error": "文件不存在"}), 404
     except OSError as exc:
-        return jsonify({"error": f"delete failed: {exc}"}), 500
+        return jsonify({"error": f"删除失败: {exc}"}), 500
 
     mark_upload_status(safe_name, "deleted_local", "local file deleted")
-    task_name = os.path.splitext(safe_name)[0]
-    row = (
-        PackHistory.query.filter(PackHistory.task_name.in_([safe_name, task_name]))
-        .order_by(PackHistory.id.desc())
-        .first()
-    )
+    row = find_pack_row_for_upload(safe_name)
     if row:
         row.status = "本地已删除"
         row.info = "local source deleted"
@@ -1718,10 +1769,11 @@ def upload_control():
     payload = request.get_json(force=True) or {}
     action = (payload.get("action") or "").strip().lower()
     if action not in {"pause", "resume", "abort"}:
-        return jsonify({"error": "invalid action"}), 400
+        return jsonify({"error": "无效的控制动作"}), 400
 
     snapshot = get_current_upload_status_snapshot()
     if action == "pause":
+        logger.info("收到上传控制指令：暂停")
         set_upload_command("paused")
         update_current_upload_status(
             active=snapshot.get("active", False),
@@ -1729,6 +1781,7 @@ def upload_control():
             status="paused",
         )
     elif action == "abort":
+        logger.info("收到上传控制指令：中止")
         set_upload_command("aborted")
         update_current_upload_status(
             active=snapshot.get("active", False),
@@ -1736,6 +1789,7 @@ def upload_control():
             status="aborted",
         )
     else:
+        logger.info("收到上传控制指令：继续")
         set_upload_command("running")
         update_current_upload_status(
             active=snapshot.get("active", False),
@@ -1867,6 +1921,8 @@ with app.app_context():
         set_setting("clouddrive_path", DEFAULT_CLOUDDRIVE_PATH)
     if not get_setting("delete_after_upload"):
         set_setting("delete_after_upload", "0")
+    if not get_setting("qb_monitor_tag"):
+        set_setting("qb_monitor_tag", DEFAULT_QB_MONITOR_TAG)
     if not get_setting("notify_pack_start"):
         set_setting("notify_pack_start", "1")
     if not get_setting("notify_pack_end"):
