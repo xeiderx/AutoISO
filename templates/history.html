@@ -10,11 +10,8 @@
     .wrap { max-width: 1600px; margin: 18px auto; padding: 0 12px; }
     .card { border: 0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
     .table { table-layout: fixed; width: 100%; }
-    .table-responsive { overflow-x: auto; }
+    .table-responsive { overflow-x: hidden; }
     .table th, .table td { white-space: normal; word-break: break-all; overflow-wrap: anywhere; vertical-align: middle; }
-    .table thead th { position: relative; }
-    .resizer { position: absolute; top: 0; right: -5px; width: 10px; height: 100%; cursor: col-resize; border-right: 2px solid transparent; z-index: 20; }
-    .resizer:hover, .resizer.dragging { border-right-color: #0d6efd; }
   </style>
 </head>
 <body>
@@ -27,19 +24,8 @@
       <div class="card-body table-responsive">
         <table id="historyTable" class="table table-sm table-hover resizable-table align-middle">
           <thead>
-            <tr>
-              <th style="width:70px;">ID</th>
-              <th>任务</th>
-              <th style="width:120px;">节点</th>
-              <th style="width:110px;">状态</th>
-              <th style="width:100px;">大小(GB)</th>
-              <th style="width:110px;">封装耗时</th>
-              <th style="width:150px;">封装开始</th>
-              <th style="width:150px;">封装结束</th>
-              <th style="width:150px;">上传开始</th>
-              <th style="width:150px;">上传结束</th>
-              <th style="width:110px;">上传耗时</th>
-            </tr>
+            <colgroup><col style="width:5%"><col style="width:39%"><col style="width:8%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:7%"></colgroup>
+            <tr><th>ID</th><th>任务</th><th>节点</th><th>状态</th><th>大小(GB)</th><th>封装耗时</th><th>封装开始</th><th>封装结束</th><th>上传开始</th><th>上传结束</th><th>上传耗时</th></tr>
           </thead>
           <tbody id="historyBody"></tbody>
         </table>
@@ -50,11 +36,9 @@
     const $ = (id) => document.getElementById(id);
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
-    function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="text-muted">-</span>';const p=txt.split(' ');return `<div>${esc(p[0]||'-')}</div><div class="text-secondary small">${esc(p[1]||'-')}</div>`;}
+    function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary">${esc(p[0]||'-')}<br>${esc(p[1]||'-')}</div>`;}
     function badge(s){s=String(s||'').trim();if(s==='已上传至网盘')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='中止上传')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed')return '<span class="badge rounded-pill text-bg-danger">失败</span>';return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
-    function initResizableTables(){const MIN_COL_WIDTH=50;const applyWidths=(headers,widths)=>{headers.forEach((th,i)=>{const w=Math.max(MIN_COL_WIDTH,Math.round(widths[i]));th.style.width=`${w}px`;th.style.minWidth=`${w}px`;});};document.querySelectorAll('table.resizable-table').forEach(table=>{if(table.dataset.resizerReady==='1')return;table.dataset.resizerReady='1';const headers=[...table.querySelectorAll('thead th')];const tid=table.id||'table';let widths=headers.map((th,idx)=>{const key=`autoiso-col-width:${tid}:${idx}`;const s=localStorage.getItem(key);return s?Math.max(MIN_COL_WIDTH,Number(s)):Math.max(MIN_COL_WIDTH,th.getBoundingClientRect().width);});applyWidths(headers,widths);headers.forEach((th,idx)=>{if(idx>=headers.length-1)return;const h=document.createElement('div');h.className='resizer';th.appendChild(h);h.addEventListener('mousedown',(e)=>{e.preventDefault();e.stopPropagation();const startX=e.clientX;const startA=widths[idx];const startB=widths[idx+1];h.classList.add('dragging');const mm=(ev)=>{const delta=ev.clientX-startX;const total=startA+startB;const maxA=total-MIN_COL_WIDTH;const newA=Math.min(maxA,Math.max(MIN_COL_WIDTH,startA+delta));const newB=total-newA;widths[idx]=newA;widths[idx+1]=newB;applyWidths(headers,widths);};const mu=()=>{h.classList.remove('dragging');document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);widths.forEach((w,i)=>localStorage.setItem(`autoiso-col-width:${tid}:${i}`,String(Math.round(w))));};document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);});});});}
     async function loadHistory(){const r=await fetch('/api/history?limit=0');const rows=await r.json().catch(()=>[]);$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td>${x.id}</td><td title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td>${esc(x.qb_server_name||'-')}</td><td>${badge(x.status)}</td><td>${Number(x.file_size_gb||0).toFixed(2)}</td><td>${fmtSec(x.duration_seconds)}</td><td>${fmtDt(x.start_time)}</td><td>${fmtDt(x.end_time)}</td><td>${fmtDt(x.upload_start_time)}</td><td>${fmtDt(x.upload_end_time)}</td><td>${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="11" class="text-center text-muted">暂无数据</td></tr>';}
-    initResizableTables();
     loadHistory();
   </script>
 </body>
