@@ -567,7 +567,10 @@
         </div>
         <div class="small text-muted mt-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
           <span>Speed: ${Number(up.speed_mbps || 0).toFixed(2)} MB/s | ETA: ${escapeHtml(up.eta || '-')} | Progress: ${pct}%</span>
-          <button type="button" class="btn btn-sm ${uploadPaused ? 'btn-success' : 'btn-outline-warning'}" onclick="toggleUploadControl('${action}')">${actionText}</button>
+          <span class="d-flex gap-2">
+            <button type="button" class="btn btn-sm ${uploadPaused ? 'btn-success' : 'btn-outline-warning'}" onclick="toggleUploadControl('${action}')">${actionText}</button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="toggleUploadControl('abort')">Abort</button>
+          </span>
         </div>
       </div>
     `;
@@ -610,13 +613,22 @@
           : '<span class="badge rounded-pill bg-secondary px-3 py-2">待上传</span>'
         }</td>
         <td>
-          <button
-            class="btn btn-sm ${(row.status || '') === 'uploaded' ? 'btn-warning' : 'btn-outline-primary'}"
-            ${(row.filename || '') === currentUploading ? 'disabled' : ''}
-            onclick="uploadNow('${encodeURIComponent(row.filename || '')}')"
-          >
-            ${(row.filename || '') === currentUploading ? '上传中' : ((row.status || '') === 'uploaded' ? '重新上传' : '立即上传')}
-          </button>
+          <div class="d-flex gap-2">
+            <button
+              class="btn btn-sm ${(row.status || '') === 'uploaded' ? 'btn-warning' : 'btn-outline-primary'}"
+              ${(row.filename || '') === currentUploading ? 'disabled' : ''}
+              onclick="uploadNow('${encodeURIComponent(row.filename || '')}')"
+            >
+              ${(row.filename || '') === currentUploading ? '上传中' : ((row.status || '') === 'uploaded' ? '重新上传' : '立即上传')}
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              ${(row.filename || '') === currentUploading ? 'disabled' : ''}
+              onclick="deleteLocalFile('${encodeURIComponent(row.filename || '')}')"
+            >
+              删除本地
+            </button>
+          </div>
         </td>
       </tr>
     `).join('');
@@ -640,8 +652,27 @@
         method: 'POST',
         body: JSON.stringify({ action }),
       });
-      showNotification(action === 'pause' ? 'Upload paused' : 'Upload resumed', 'success');
+      if (action === 'abort') {
+        document.getElementById('uploadTaskStatus').innerHTML = '<div class="text-muted">No active upload task</div>';
+        showNotification('Upload aborted', 'warning');
+      } else {
+        showNotification(action === 'pause' ? 'Upload paused' : 'Upload resumed', 'success');
+      }
       await loadProgress();
+      await loadPendingUploads();
+    } catch (err) {
+      showNotification(err.message, 'error');
+    }
+  }
+
+  async function deleteLocalFile(encodedName) {
+    const name = decodeURIComponent(encodedName || '');
+    if (!name) return;
+    if (!confirm('危险操作：确定要彻底删除本地的源文件吗？此操作不可逆！')) return;
+    try {
+      await api(`/api/delete_local/${encodeURIComponent(name)}`, { method: 'POST' });
+      showNotification('本地文件已删除', 'success');
+      await loadPendingUploads();
     } catch (err) {
       showNotification(err.message, 'error');
     }

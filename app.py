@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.4.7"
+APP_VERSION = "v0.4.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -48,6 +48,7 @@ STATUS_UPLOADING = "上传中"
 STATUS_UPLOADED = "已上传至网盘"
 STATUS_FAILED = "Failed"
 PACKING_SUFFIX = ".packing"
+UPLOADING_SUFFIX = ".uploading"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
@@ -450,12 +451,21 @@ def finalize_pack_history_after_upload(file_name, dst_path):
 
 
 def upload_file_with_progress(src_path, dst_path, delete_after=False):
+    global current_uploading_file
     chunk_size = 10 * 1024 * 1024
     total_bytes = os.path.getsize(src_path)
     bytes_done = 0
     start_ts = time.time()
     upload_started_at = now_local()
     update_upload_timestamps(os.path.basename(src_path), start_time=upload_started_at)
+    temp_dst_path = f"{dst_path}{UPLOADING_SUFFIX}"
+    aborted = False
+
+    try:
+        if os.path.exists(temp_dst_path):
+            os.remove(temp_dst_path)
+    except OSError:
+        logger.warning("cleanup old temp upload file failed: %s", temp_dst_path)
 
     update_upload_progress(
         active=True,
@@ -469,9 +479,12 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
     )
 
     try:
-        with open(src_path, "rb") as rf, open(dst_path, "wb") as wf:
+        with open(src_path, "rb") as rf, open(temp_dst_path, "wb") as wf:
             while True:
                 command = get_upload_command()
+                if command == "aborted":
+                    aborted = True
+                    break
                 if command == "paused":
                     percent = (bytes_done / total_bytes * 100) if total_bytes > 0 else 0.0
                     update_upload_progress(
@@ -491,8 +504,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                     )
                     time.sleep(1)
                     continue
-                if command == "stopped":
-                    raise RuntimeError("upload stopped by control command")
+
                 update_current_upload_status(
                     active=True,
                     file_name=os.path.basename(src_path),
@@ -502,6 +514,7 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                 chunk = rf.read(chunk_size)
                 if not chunk:
                     break
+
                 wf.write(chunk)
                 bytes_done += len(chunk)
                 elapsed = max(time.time() - start_ts, 1e-6)
@@ -522,19 +535,30 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False):
                 )
             wf.flush()
 
+        if aborted:
+            try:
+                if os.path.isfile(temp_dst_path):
+                    os.remove(temp_dst_path)
+            except OSError:
+                logger.warning("cleanup aborted temp upload failed: %s", temp_dst_path)
+            current_uploading_file = None
+            return False
+
+        os.rename(temp_dst_path, dst_path)
+
         if delete_after:
             os.remove(src_path)
 
         update_upload_timestamps(os.path.basename(src_path), end_time=now_local())
         finalize_pack_history_after_upload(os.path.basename(src_path), dst_path)
+        return True
     except Exception:
         try:
-            if os.path.isfile(dst_path):
-                os.remove(dst_path)
+            if os.path.isfile(temp_dst_path):
+                os.remove(temp_dst_path)
         except OSError:
             pass
         raise
-
 
 def build_cron_trigger(cron_expr):
     expr = (cron_expr or "").strip() or DEFAULT_UPLOAD_CRON
@@ -827,7 +851,14 @@ def process_uploads():
                     current_uploading_file = file_name
                     set_upload_command("running")
                     update_current_upload_status(active=True, file_name=file_name, status="uploading")
-                    upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
+                    uploaded_ok = upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
+                    if not uploaded_ok:
+                        mark_upload_status(file_name, "aborted", "upload aborted by user")
+                        if row:
+                            row.status = "中止上传"
+                            row.info = "upload aborted by user"
+                            db.session.commit()
+                        continue
 
                     if row:
                         row.status = STATUS_UPLOADED
@@ -902,7 +933,14 @@ def process_single_upload(file_name):
                 current_uploading_file = safe_name
                 set_upload_command("running")
                 update_current_upload_status(active=True, file_name=safe_name, status="uploading")
-                upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
+                uploaded_ok = upload_file_with_progress(src_path, dst_path, delete_after=delete_after_upload)
+                if not uploaded_ok:
+                    mark_upload_status(safe_name, "aborted", "upload aborted by user")
+                    if row:
+                        row.status = "中止上传"
+                        row.info = "upload aborted by user"
+                        db.session.commit()
+                    return
                 if row:
                     row.status = STATUS_UPLOADED
                     row.end_time = now_local()
@@ -1590,11 +1628,40 @@ def upload_now(filename):
     return jsonify({"ok": True, "message": "upload started", "file_name": safe_name})
 
 
+@app.route("/api/delete_local/<path:filename>", methods=["POST"])
+def delete_local_file(filename):
+    safe_name = os.path.basename((filename or "").strip())
+    if not safe_name or safe_name != filename or safe_name.startswith("."):
+        return jsonify({"error": "invalid filename"}), 400
+
+    file_path = os.path.join(OUTPUT_DIR, safe_name)
+    try:
+        os.remove(file_path)
+    except FileNotFoundError:
+        return jsonify({"error": "file not found"}), 404
+    except OSError as exc:
+        return jsonify({"error": f"delete failed: {exc}"}), 500
+
+    mark_upload_status(safe_name, "deleted_local", "local file deleted")
+    task_name = os.path.splitext(safe_name)[0]
+    row = (
+        PackHistory.query.filter(PackHistory.task_name.in_([safe_name, task_name]))
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    if row:
+        row.status = "本地已删除"
+        row.info = "local source deleted"
+        db.session.commit()
+
+    return jsonify({"ok": True, "file_name": safe_name})
+
+
 @app.route("/api/upload/control", methods=["POST"])
 def upload_control():
     payload = request.get_json(force=True) or {}
     action = (payload.get("action") or "").strip().lower()
-    if action not in {"pause", "resume"}:
+    if action not in {"pause", "resume", "abort"}:
         return jsonify({"error": "invalid action"}), 400
 
     snapshot = get_current_upload_status_snapshot()
@@ -1604,6 +1671,13 @@ def upload_control():
             active=snapshot.get("active", False),
             file_name=snapshot.get("file_name", ""),
             status="paused",
+        )
+    elif action == "abort":
+        set_upload_command("aborted")
+        update_current_upload_status(
+            active=snapshot.get("active", False),
+            file_name=snapshot.get("file_name", ""),
+            status="aborted",
         )
     else:
         set_upload_command("running")
