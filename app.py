@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.5.6"
+APP_VERSION = "v0.5.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -924,7 +924,7 @@ def process_uploads():
                         db.session.commit()
                     mark_upload_status(file_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                     if get_notify_flag("notify_upload_end", True):
-                        send_tg_notification(f"[AutoISO] 🎉 转移成功：{file_name} 已入库 115。")
+                        send_tg_notification(f"[AutoISO] 🎉 转移完成：{file_name} 已送达网盘挂载目录 (等待后台同步至云端)。")
                     logger.info("上传成功，任务=%s，源=%s，目标=%s", task_name, src_path, dst_path)
                 except Exception as exc:
                     mark_upload_status(file_name, "failed", str(exc), task_id=task_id)
@@ -1008,7 +1008,7 @@ def process_single_upload(file_name):
                     db.session.commit()
                 mark_upload_status(safe_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                 if get_notify_flag("notify_upload_end", True):
-                    send_tg_notification(f"[AutoISO] 🎉 转移成功：{safe_name} 已入库 115。")
+                    send_tg_notification(f"[AutoISO] 🎉 转移完成：{safe_name} 已送达网盘挂载目录 (等待后台同步至云端)。")
                 logger.info("手动上传成功: %s", safe_name)
             except Exception as exc:
                 mark_upload_status(safe_name, "failed", str(exc), task_id=task_id)
