@@ -13,6 +13,8 @@ services:
       - OUTPUT_DIR=/output
     volumes:
       - ./data:/data
+      #  映射容器里的 templates 
+      - ./templates:/app/templates  
       # 精确挂载具体的子文件夹，并保持与 qB 容器内的绝对路径一致，ro 表示只读保护原盘
       - /volume1/Downloads/封装前:/Downloads/封装前:ro 
       # 跨盘输出，极大提升封装 I/O 速度
