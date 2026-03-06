@@ -21,7 +21,7 @@
     .stat-title { color: #64748b; font-size: .84rem; }
     .stat-value { font-size: 1.08rem; font-weight: 700; color: #0f172a; }
     .resizable-table { table-layout: fixed; width: 100%; }
-    .table-responsive { overflow-x: hidden; }
+    .table-responsive { overflow-x: auto; }
     .table-fixed th, .table-fixed td { white-space: normal; word-break: break-all; overflow-wrap: anywhere; vertical-align: middle; }
     .time-col { white-space: nowrap !important; word-break: normal !important; }
     .time-cell span { white-space: nowrap !important; word-break: normal !important; }
@@ -84,7 +84,7 @@
       <div class="card mt-3"><div class="card-body">
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
-          <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle">
+          <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
             <colgroup><col style="width:5%"><col style="width:8%"><col style="width:55%"><col style="width:12%"><col style="width:20%"></colgroup>
             <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th>添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
@@ -94,7 +94,7 @@
       <div class="card mt-3"><div class="card-body">
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
-          <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle">
+          <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
             <colgroup><col style="width:5%"><col style="width:8%"><col style="width:55%"><col style="width:12%"><col style="width:8%"><col style="width:12%"></colgroup>
             <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
@@ -124,7 +124,7 @@
             </form>
             <hr>
             <div class="table-responsive">
-              <table id="qbTable" class="table table-sm table-hover table-fixed resizable-table align-middle">
+              <table id="qbTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
                 <colgroup><col style="width:8%"><col style="width:16%"><col style="width:46%"><col style="width:12%"><col style="width:18%"></colgroup>
                 <thead><tr><th>ID</th><th>节点</th><th>URL</th><th>账号</th><th>操作</th></tr></thead>
                 <tbody id="qbList"></tbody>
@@ -174,7 +174,7 @@
           </div>
         </div>
         <div class="table-responsive">
-          <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle">
+          <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
             <colgroup><col style="width:5%"><col style="width:3%"><col style="width:45%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:6%"></colgroup>
             <thead><tr><th><input type="checkbox" id="historyCheckAll"></th><th>ID</th><th>任务</th><th>节点</th><th>状态</th><th>大小<br><small>(GB)</small></th><th>封装耗时</th><th class="time-col">封装开始</th><th class="time-col">封装结束</th><th class="time-col">上传开始</th><th class="time-col">上传结束</th><th>上传耗时</th></tr></thead>
             <tbody id="historyBody"></tbody>
