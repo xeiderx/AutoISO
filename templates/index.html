@@ -9,11 +9,15 @@
   <style>
     :root { --sidebar-w: 240px; }
     body { background: #f4f7fb; overflow-anchor: none; }
-    .sidebar { width: var(--sidebar-w); background: linear-gradient(180deg,#0f172a,#111827); color: #fff; z-index: 1045; border: none; }
+    .sidebar { width: var(--sidebar-w); background: #1e293b; color: #f8fafc; z-index: 1045; border: none; box-shadow: 4px 0 15px rgba(0,0,0,0.15); }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 18px 14px; } .main { margin-left: var(--sidebar-w); padding: 18px; } }
-    @media (max-width: 991.98px) { .sidebar { padding: 18px 14px; } .main { margin-left: 0; padding: 14px; } }
-    .nav-pills .nav-link { color: #cbd5e1; text-align: left; cursor: pointer; }
-    .nav-pills .nav-link.active, .nav-pills .nav-link:hover { color: #fff; background: rgba(255,255,255,.12); }
+    @media (max-width: 991.98px) { 
+      .sidebar.offcanvas-start { width: 260px !important; }
+      .sidebar { padding: 14px; } 
+      .main { margin-left: 0; padding: 14px; } 
+    }
+    .sidebar .nav-pills .nav-link { color: #94a3b8; font-weight: 500; border-radius: 8px; margin-bottom: 2px; }
+    .sidebar .nav-pills .nav-link.active, .sidebar .nav-pills .nav-link:hover { color: #fff; background: rgba(255,255,255,0.1); }
     .card { border: 0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
     .stats-line-wrap { overflow-x: auto; padding-bottom: 4px; }
     .stats-line { display: grid; grid-template-columns: 100px 0.8fr 1.1fr 1fr 1fr 0.8fr 1.1fr; gap: 12px; min-width: 980px; }
@@ -47,9 +51,11 @@
     </button>
   </header>
   <aside class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
-    <div class="offcanvas-header d-lg-none">
-      <h5 class="offcanvas-title fw-bold" id="sidebarMenuLabel">AutoISO {{ version }}</h5>
-      <button type="button" class="btn-close btn-close-white text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    <div class="d-flex justify-content-between align-items-center d-lg-none mb-4 pb-2 border-bottom" style="border-color: rgba(255,255,255,0.1) !important;">
+      <h5 class="mb-0 fw-bold text-white fs-5">AutoISO <span class="fs-6 text-secondary fw-normal">{{ version }}</span></h5>
+      <button type="button" class="btn btn-link text-white p-1 shadow-none text-decoration-none" id="btnForceCloseSidebar">
+        <i class="bi bi-x-lg fs-5"></i>
+      </button>
     </div>
     <div class="offcanvas-body d-flex flex-column">
       <div class="fw-bold mb-2 d-none d-lg-block">AutoISO {{ version }}</div>
@@ -231,6 +237,10 @@
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
     sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':'历史记录');if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();});});
+    $('btnForceCloseSidebar')?.addEventListener('click', () => {
+      const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu'));
+      if(bsOffcanvas) bsOffcanvas.hide();
+    });
     $('btnUploadPauseResume').addEventListener('click',async()=>{try{const action=currentUploadStatus==='paused'?'resume':'pause';await api('/api/upload/control',{method:'POST',body:JSON.stringify({action})});notify(action==='pause'?'上传已暂停':'上传已继续','success');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险操作：确定要中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('上传中止指令已发送','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     pendingUploadsBody.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act,name=btn.dataset.name;if(!name)return;if(act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(name)}`,{method:'POST'});notify(`已开始上传：${name}`,'success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}return;}if(act==='delete'){if(!await ask('危险操作：确定要彻底删除本地的源文件吗？此操作不可逆！','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(name)}`,{method:'POST'});notify(`已删除本地文件：${name}`,'success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}});
