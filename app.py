@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.6.1"
+APP_VERSION = "v0.6.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -750,6 +750,10 @@ def send_tg_notification(text_msg):
     token = get_setting("tg_token")
     chat_id = get_setting("tg_chat_id")
     proxy_url = get_setting("tg_proxy").strip()
+    return send_tg_notification_with_config(text_msg, token, chat_id, proxy_url)
+
+
+def send_tg_notification_with_config(text_msg, token, chat_id, proxy_url=""):
     if not token or not chat_id:
         return False, "tg_token 或 tg_chat_id 未配置"
 
@@ -1366,7 +1370,7 @@ def get_telegram_settings():
 
 @app.route("/api/settings/telegram", methods=["POST"])
 def save_telegram_settings():
-    payload = request.get_json(force=True)
+    payload = request.get_json(force=True) or {}
     tg_token = (payload.get("tg_token") or "").strip()
     tg_chat_id = (payload.get("tg_chat_id") or "").strip()
     tg_proxy = (payload.get("tg_proxy") or "").strip()
@@ -1376,9 +1380,18 @@ def save_telegram_settings():
     set_setting("tg_chat_id", tg_chat_id)
     set_setting("tg_proxy", tg_proxy)
     db.session.commit()
-    ok, msg = send_tg_notification("[AutoISO] Telegram 配置已保存，测试消息发送成功。")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/telegram/test", methods=["POST"])
+def test_telegram_settings():
+    payload = request.get_json(force=True) or {}
+    tg_token = (payload.get("tg_token") or "").strip()
+    tg_chat_id = (payload.get("tg_chat_id") or "").strip()
+    tg_proxy = (payload.get("tg_proxy") or "").strip()
+    ok, msg = send_tg_notification_with_config("TG 通知测试成功！", tg_token, tg_chat_id, tg_proxy)
     if not ok:
-        return jsonify({"error": f"已保存，但测试消息发送失败: {msg}"}), 400
+        return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
 
 
@@ -1959,6 +1972,19 @@ with app.app_context():
     os.makedirs("/data", exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     ensure_schema()
+    created_default_admin = False
+
+    auth_username = get_setting("auth_username")
+    auth_password = get_setting("auth_password")
+    if not auth_username and not auth_password:
+        set_setting("auth_username", DEFAULT_ADMIN_USERNAME)
+        set_setting("auth_password", DEFAULT_ADMIN_PASSWORD)
+        created_default_admin = True
+    else:
+        if not auth_username:
+            set_setting("auth_username", DEFAULT_ADMIN_USERNAME)
+        if not auth_password:
+            set_setting("auth_password", DEFAULT_ADMIN_PASSWORD)
 
     if not get_setting("upload_cron"):
         set_setting("upload_cron", DEFAULT_UPLOAD_CRON)
@@ -1985,6 +2011,8 @@ with app.app_context():
         synchronize_session=False,
     )
     db.session.commit()
+    if created_default_admin:
+        print(f"[AutoISO] 默认管理员已初始化: 用户名={DEFAULT_ADMIN_USERNAME} 密码={DEFAULT_ADMIN_PASSWORD}")
 
     init_upload_cron = get_upload_cron()
     upload_trigger, normalized = build_cron_trigger(init_upload_cron)
