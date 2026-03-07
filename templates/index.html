@@ -8,7 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
     :root { --sidebar-w: 240px; }
-    body { background: #f4f7fb; }
+    body { background: #f4f7fb; min-height: 101vh; }
     .sidebar { position: fixed; left: 0; top: 0; width: var(--sidebar-w); height: 100vh; background: linear-gradient(180deg,#0f172a,#111827); color: #fff; padding: 18px 14px; z-index: 1000; }
     .main { margin-left: var(--sidebar-w); padding: 18px; }
     .nav-pills .nav-link { color: #cbd5e1; text-align: left; cursor: pointer; }
@@ -21,7 +21,7 @@
     .stat-title { color: #64748b; font-size: .84rem; }
     .stat-value { font-size: 1.08rem; font-weight: 700; color: #0f172a; }
     .resizable-table { table-layout: fixed; width: 100%; }
-    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    .table-responsive { overflow-x: auto; }
     .table-fixed th, .table-fixed td { vertical-align: middle; }
     .time-col { white-space: nowrap !important; word-break: normal !important; }
     .time-cell span { white-space: nowrap !important; word-break: normal !important; }
@@ -105,7 +105,7 @@
 
     <section id="viewSettings" class="app-view d-none">
       <div class="card"><div class="card-body">
-        <ul class="nav nav-tabs flex-nowrap text-nowrap overflow-x-auto" role="tablist" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+        <ul class="nav nav-tabs flex-nowrap text-nowrap overflow-x-auto" role="tablist" style="scrollbar-width: none;">
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabQb" type="button">qBittorrent 设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUser" type="button">用户设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">上传设置</button></li>
