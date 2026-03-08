@@ -9,13 +9,11 @@
   <style>
     :root { --sidebar-w: 240px; }
     body { background: #f4f7fb; overflow-anchor: none; }
-    .sidebar { width: var(--sidebar-w); background: #1e293b; color: #f8fafc; z-index: 1045; border: none; box-shadow: 4px 0 15px rgba(0,0,0,0.15); }
+    /* 侧边栏修复 */
+    .sidebar { width: var(--sidebar-w); background: #1e293b !important; color: #f8fafc !important; z-index: 1045; border: none !important; box-shadow: 4px 0 15px rgba(0,0,0,0.15); }
+    .sidebar .text-secondary { color: #94a3b8 !important; }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 18px 14px; } .main { margin-left: var(--sidebar-w); padding: 18px; } }
-    @media (max-width: 991.98px) { 
-      .sidebar.offcanvas-start { width: 260px !important; }
-      .sidebar { padding: 14px; } 
-      .main { margin-left: 0; padding: 14px; } 
-    }
+    @media (max-width: 991.98px) { .sidebar.offcanvas-start { width: 260px !important; } .sidebar { padding: 14px; } .main { margin-left: 0; padding: 14px; } }
     .sidebar .nav-pills .nav-link { color: #94a3b8; font-weight: 500; border-radius: 8px; margin-bottom: 2px; }
     .sidebar .nav-pills .nav-link.active, .sidebar .nav-pills .nav-link:hover { color: #fff; background: rgba(255,255,255,0.1); }
     .card { border: 0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
@@ -41,6 +39,17 @@
     .modal-backdrop.confirm-backdrop { z-index: 1990 !important; }
     .toast-container-custom { position: fixed; top: 20px; right: 20px; z-index: 2200; padding-top: 8px; }
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
+    /* 仿 MoviePilot 搜索框定制 */
+    .search-container { width: 300px; max-width: 100%; z-index: 1050; }
+    .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
+    .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
+    .cursor-pointer { cursor: pointer; }
+    .transition-transform { transition: transform 0.3s ease; }
+    .chevron-up { transform: rotate(180deg); }
+    .search-dropdown { display: none; position: absolute; top: calc(100% + 5px); left: 0; width: 100%; max-height: 350px; overflow-y: auto; background: #fff; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #eaedf1; }
+    .search-dropdown.show { display: block; }
+    .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
+    .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
   </style>
 </head>
 <body>
@@ -184,12 +193,23 @@
 
     <section id="viewHistory" class="app-view d-none">
       <div class="card"><div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="mb-0">历史记录</h6>
-          <div class="d-flex align-items-center">
-            <input type="text" id="historySearch" class="form-control form-control-sm d-inline-block w-auto me-2" placeholder="搜索任务名、节点或状态...">
-            <button id="btnDeleteHistory" class="btn btn-outline-danger btn-sm">批量删除</button>
+        <div class="d-flex justify-content-between align-items-center mb-3 position-relative" id="historyToolbar">
+          <div class="search-container position-relative">
+            <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1">
+              <i class="bi bi-search text-muted"></i>
+              <input type="text" id="historySearch" class="form-control border-0 shadow-none bg-transparent ms-1 px-1" placeholder="搜索记录..." autocomplete="off">
+              <i class="bi bi-x-circle-fill text-secondary cursor-pointer d-none fs-6 ms-1" id="btnClearSearch"></i>
+              <i class="bi bi-caret-down-fill text-muted ms-2 transition-transform cursor-pointer" id="searchChevron"></i>
+            </div>
+            <div class="search-dropdown" id="searchDropdown">
+              <div class="dropdown-item cursor-pointer text-success" data-val="已上传"><i class="bi bi-check-circle me-2"></i>成功 (已上传)</div>
+              <div class="dropdown-item cursor-pointer text-danger" data-val="失败"><i class="bi bi-x-circle me-2"></i>失败 (Failed)</div>
+              <hr class="dropdown-divider my-1">
+              <div class="px-3 py-1 small text-muted fw-bold">最近记录</div>
+              <div id="recentRecordsList"></div>
+            </div>
           </div>
+          <button id="btnDeleteHistory" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm">批量删除</button>
         </div>
         <div class="table-responsive">
           <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1200px;">
@@ -230,8 +250,74 @@
       const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
     async function loadPending(){const rows=await api('/api/pending');$('pendingBody').innerHTML=rows.length?rows.map((x,i)=>`<tr><td class="text-center">${i+1}</td><td>${esc(x.node_alias||'-')}</td><td class="ellipsis-cell" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td>${esc(x.added_on||'-')}</td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无数据</td></tr>'}
     async function loadPendingUploads(){const rows=await api('/api/pending_uploads');$('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{const up=String(x.status||'').toLowerCase()==='uploaded';const uploadingNow=String(x.filename||'')===currentUploadingFile;const disabled=uploadingNow?'disabled':'';return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node||'NAS')}</td><td class="ellipsis-cell" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${up?'<span class="badge text-bg-success">已上传</span>':'<span class="badge text-bg-secondary">待上传</span>'}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`}).join(''):'<tr><td colspan="6" class="text-center text-muted">暂无可上传文件</td></tr>';}
-    function filterHistoryRows(){const keyword=String(($('historySearch')?.value)||'').trim().toLowerCase();document.querySelectorAll('#historyBody tr').forEach(tr=>{const txt=String(tr.innerText||'').toLowerCase();tr.style.display=!keyword||txt.includes(keyword)?'':'none';});}
-    async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';filterHistoryRows();}
+    // 高级搜索组件逻辑
+    function bindAdvancedSearch() {
+      const input = $('historySearch');
+      const clearBtn = $('btnClearSearch');
+      const chevron = $('searchChevron');
+      const dropdown = $('searchDropdown');
+      const recentList = $('recentRecordsList');
+      if (!input) return;
+
+      const doSearch = (keyword) => {
+        keyword = (keyword || '').trim();
+        input.value = keyword;
+        // 控制一键清除 X 的显示与隐藏
+        clearBtn.classList.toggle('d-none', keyword.length === 0);
+
+        const kwLower = keyword.toLowerCase();
+        document.querySelectorAll('#historyBody tr').forEach(tr => {
+          if (tr.querySelector('td[colspan]')) return;
+          const txt = tr.textContent.toLowerCase();
+          tr.style.display = (!kwLower || txt.includes(kwLower)) ? '' : 'none';
+        });
+      };
+
+      const populateRecent = () => {
+        const rows = document.querySelectorAll('#historyBody tr');
+        const tasks = [];
+        rows.forEach(tr => {
+          const td = tr.querySelector('.ellipsis-cell');
+          if (td && td.textContent.trim()) {
+            const name = td.textContent.trim();
+            if (!tasks.includes(name) && tasks.length < 5) tasks.push(name);
+          }
+        });
+        recentList.innerHTML = tasks.length ? tasks.map(t => `<div class="dropdown-item cursor-pointer text-truncate" data-val="${esc(t)}" title="${esc(t)}"><i class="bi bi-clock-history me-2 text-muted"></i>${esc(t)}</div>`).join('') : '<div class="px-3 py-2 small text-muted">暂无最近记录</div>';
+      };
+
+      const toggleDrop = (show) => {
+        if (show) populateRecent();
+        dropdown.classList.toggle('show', show);
+        chevron.classList.toggle('chevron-up', show);
+      };
+
+      // 事件绑定
+      input.addEventListener('input', (e) => doSearch(e.target.value));
+      input.addEventListener('focus', () => toggleDrop(true));
+      chevron.addEventListener('click', (e) => { e.stopPropagation(); toggleDrop(!dropdown.classList.contains('show')); });
+
+      // 点击外部关闭下拉菜单
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-container')) toggleDrop(false);
+      });
+
+      // 点击下拉项填入并搜索
+      dropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.dropdown-item');
+        if (item) {
+          doSearch(item.dataset.val);
+          toggleDrop(false);
+        }
+      });
+
+      // 点击 X 清除搜索
+      clearBtn.addEventListener('click', () => {
+        doSearch('');
+        input.focus();
+      });
+    }
+    async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';if(!window.searchBound){ bindAdvancedSearch(); window.searchBound=true; } else { $('historySearch').dispatchEvent(new Event('input')); }}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';tgForm.tg_proxy.value=tg.tg_proxy||'';await loadQbServers();}
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
@@ -253,7 +339,6 @@
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value,tg_proxy:tgForm.tg_proxy.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？','清空 Telegram 配置'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('Telegram 配置已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
-    $('historySearch').addEventListener('input',filterHistoryRows);
     $('btnDeleteHistory').addEventListener('click',async()=>{const ids=Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value));if(!ids.length){notify('请先选择要删除的记录','warning');return;}if(!await ask(`确定删除已选中的 ${ids.length} 条历史记录吗？`,'批量删除历史记录'))return;try{await api('/api/history/delete',{method:'POST',body:JSON.stringify({ids})});notify('历史记录已删除','success');await loadHistory();}catch(err){notify(err.message,'danger');}});
     $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
