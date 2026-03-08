@@ -31,16 +31,9 @@
     .history-cell { font-size: .875rem; color: #6c757d; }
     .status-console { background: #05080f; color: #d1fae5; border: 1px solid #1f2937; border-radius: 10px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 12px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .88rem; line-height: 1.4; }
     
-    /* 高级多行文本截断 */
+    /* 修复表格排版的杀手锏 */
     .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .text-clamp-2 {
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        white-space: normal;
-        word-break: break-all;
-    }
+    .text-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; word-break: break-all; }
     
     .nav-tabs { border-bottom: 1px solid #e5e7eb; }
     .nav-tabs .nav-link { color: #6c757d; border: none; background: transparent; border-bottom: 2px solid transparent; }
@@ -51,7 +44,7 @@
     .toast-container-custom { position: fixed; top: 20px; right: 20px; z-index: 2200; padding-top: 8px; }
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
     
-    /* 搜索框与下拉：将 z-index 降至 10，防止滚动时盖住顶部黑条 */
+    /* 搜索框与下拉 */
     .search-container { width: 100%; max-width: 400px; z-index: 10; }
     .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
     .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
@@ -142,7 +135,7 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
@@ -152,7 +145,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -169,8 +162,39 @@
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabProxy" type="button">代理设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削设置</button></li>
+          <li class="nav-item"><button class="nav-link text-primary fw-bold" data-bs-toggle="tab" data-bs-target="#tabVpsDeploy" type="button"><i class="bi bi-hdd-network me-1"></i>VPS 节点部署</button></li>
         </ul>
         <div class="tab-content pt-3">
+          
+          <div class="tab-pane fade" id="tabVpsDeploy">
+            <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center mb-4">
+              <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+              <div>
+                <strong>Debian 12 边缘节点生成器</strong><br>
+                在此配置您的 VPS 信息，系统将自动生成一段 <b>一键部署代码</b>。直接将其复制到 VPS 的 SSH 终端并回车，即可全自动安装打包环境、CloudDrive2 及 AutoISO 挂机程序！
+              </div>
+            </div>
+            <div class="row g-4">
+              <div class="col-lg-5">
+                <form id="deployForm" class="row g-3 bg-light p-3 rounded border">
+                  <h6 class="fw-bold mb-0 text-dark border-bottom pb-2"><i class="bi bi-1-circle-fill text-primary me-2"></i>填写 VPS 节点参数</h6>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">主控端通讯地址 (自动获取)</label><input class="form-control form-control-sm" id="deploy_master_url" readonly></div>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">通讯秘钥 (Token)</label><input class="form-control form-control-sm" id="deploy_token" placeholder="与您后端配置的 agent_token 保持一致" value="autoiso_secret_token"></div>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 节点名称</label><input class="form-control form-control-sm" id="deploy_node_name" placeholder="如：日本 HostDzire" value="日本 VPS"></div>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" id="deploy_qb_url" value="http://127.0.0.1:8080"></div>
+                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" id="deploy_qb_user" value="admin"></div>
+                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 密码</label><input class="form-control form-control-sm" id="deploy_qb_pass" value="adminadmin"></div>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">115小号 CD2 挂载路径</label><input class="form-control form-control-sm" id="deploy_cd2_path" placeholder="VPS上的绝对路径" value="/CloudNAS/115small/Media"></div>
+                </form>
+              </div>
+              <div class="col-lg-7 d-flex flex-column">
+                <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-2-circle-fill text-primary me-2"></i>复制并运行此代码</h6>
+                <textarea id="deployCommandText" class="form-control flex-grow-1 bg-dark text-success font-monospace p-3" style="font-size: 0.85rem; min-height: 400px;" readonly></textarea>
+                <button class="btn btn-primary mt-3 shadow-sm" onclick="copyDeployCommand()"><i class="bi bi-clipboard me-2"></i>一键复制部署代码</button>
+              </div>
+            </div>
+          </div>
+
           <div class="tab-pane fade show active" id="tabQb">
             <form id="qbForm" class="row g-3">
               <input type="hidden" name="qb_id">
@@ -333,8 +357,6 @@
     const logModal = new bootstrap.Modal($('logModal')), manualScrapeModal = new bootstrap.Modal($('manualScrapeModal'));
     let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
     let currentPackingTasks = [], currentScrapeTarget = '';
-    
-    // 分页状态池
     let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
     let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
 
@@ -348,7 +370,82 @@
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
     
-    // 高级搜索工厂
+    // VPS 部署指令生成器逻辑
+    ['deploy_master_url', 'deploy_token', 'deploy_node_name', 'deploy_qb_url', 'deploy_qb_user', 'deploy_qb_pass', 'deploy_cd2_path'].forEach(id => {
+        $(id)?.addEventListener('input', updateDeployCommand);
+    });
+
+    function updateDeployCommand() {
+        const masterUrl = $('deploy_master_url').value || window.location.origin;
+        const token = $('deploy_token').value;
+        const node = $('deploy_node_name').value;
+        const qbUrl = $('deploy_qb_url').value;
+        const qbUser = $('deploy_qb_user').value;
+        const qbPass = $('deploy_qb_pass').value;
+        const cd2Path = $('deploy_cd2_path').value;
+
+        const bash = `# ==========================================
+# AutoISO 边缘节点 (VPS) 一键部署脚本 
+# 适用于: Debian 12 / Ubuntu 22.04+
+# 节点名称: ${node}
+# ==========================================
+
+# 1. 更新系统并安装打包核心工具和 Python 环境
+apt-get update
+apt-get install -y curl wget genisoimage fuse python3 python3-requests
+
+# 2. 安装 CloudDrive2 (官方 Docker 方式)
+if ! command -v docker &> /dev/null; then
+    echo "正在安装 Docker..."
+    curl -fsSL https://get.docker.com | bash
+fi
+echo "正在启动 CloudDrive2 容器..."
+# 如果已有容器则先停止删除
+docker rm -f clouddrive2 &>/dev/null || true
+docker run -d --name clouddrive2 --restart always \\
+    -v /CloudNAS:/CloudNAS:shared \\
+    -v /CloudNAS/Config:/Config \\
+    -p 19798:19798 \\
+    --privileged \\
+    --device /dev/fuse:mrw \\
+    cloudnas/clouddrive2-multipass
+
+# 3. 创建 AutoISO Agent 配置文件
+mkdir -p /opt/autoiso_agent
+cat << 'EOF' > /opt/autoiso_agent/config.json
+{
+  "master_url": "${masterUrl}",
+  "token": "${token}",
+  "node_name": "${node}",
+  "qb_url": "${qbUrl}",
+  "qb_user": "${qbUser}",
+  "qb_pass": "${qbPass}",
+  "cd2_path": "${cd2Path}"
+}
+EOF
+
+# 4. 环境准备就绪！
+echo "------------------------------------------------"
+echo "✅ 基础依赖与节点配置已成功写入 /opt/autoiso_agent/config.json"
+echo "✅ CD2 已安装！请在浏览器访问 http://您的VPS_IP:19798 登录 CD2"
+echo "✅ 请务必在 CD2 中将 115小号 挂载至: ${cd2Path}"
+echo "------------------------------------------------"
+echo "(注：实际干活的 agent.py 脚本将在下一步发送给您)"
+`;
+        $('deployCommandText').value = bash;
+    }
+
+    window.copyDeployCommand = function() {
+        const text = $('deployCommandText');
+        text.select();
+        text.setSelectionRange(0, 99999); 
+        navigator.clipboard.writeText(text.value).then(() => {
+            notify('部署代码已成功复制到剪贴板！', 'success');
+        }).catch(err => {
+            notify('复制失败，请手动全选复制', 'danger');
+        });
+    }
+
     function initAdvancedSearch(opts) {
       const { input, clearBtn, chevron, dropdown, recentList, getRecent, onSearch } = opts;
       if (!input) return;
@@ -383,7 +480,6 @@
       return doSearch;
     }
 
-    // 分页渲染引擎
     function renderPagination(total, page, size, containerId, onChange) {
       const totalPages = Math.ceil(total / size) || 1;
       const start = total === 0 ? 0 : (page - 1) * size + 1;
@@ -408,7 +504,6 @@
       `;
     }
 
-    // 仪表盘逻辑
     function statsRow(title,iconClass,data){const cards=[['总次数',data.total_count||0],['总数据',data.total_size_text||'-'],['平均耗时',data.avg_duration_text||'-'],['平均速率',data.avg_rate_text||'-'],['本月次数',data.month_count||0],['本月数据',data.month_size_text||'-']];return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>${cards.map(c=>`<div class="stats-card"><div class="stat-title">${c[0]}</div><div class="stat-value">${esc(c[1])}</div></div>`).join('')}</div></div>`;}
     async function loadStatsAndProgress(){const stats=await api('/api/stats');currentUploadingFile=String(stats.current_uploading_file||'');$('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;const p=await api('/api/progress');currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];if(!p.active||!(p.tasks||[]).length){$('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';}else{$('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');}const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
     
@@ -451,7 +546,6 @@
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
     
-    // 待上传交互
     $('pendingUploadsBody').addEventListener('click',async(e)=>{
       const tgg = e.target.closest('input[data-act="toggle_auto"]');
       if(tgg){
@@ -464,7 +558,6 @@
       if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地源文件吗？','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地文件','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
     });
 
-    // 历史记录与分页
     async function loadHistory(){
         histAll = await api('/api/history?limit=0') || [];
         if(!historySearchTrigger) {
@@ -490,7 +583,6 @@
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
 
-    // 刮削记录与分页
     async function loadScrapeRecords() {
         if ($('viewScrape').classList.contains('d-none')) return;
         scrapeAll = await api('/api/scrape/records') || [];
@@ -552,41 +644,44 @@
         renderPagination(scrapeFiltered.length, scrapePage, scrapeSize, 'scrapePagination', (p, s) => { scrapePage = p; scrapeSize = s; renderScrape(); });
     }
 
-    // 历史表格批量删除交互
     $('btnToggleHistoryBatch').addEventListener('click', () => { $('historyTable').classList.add('batch-mode'); $('btnToggleHistoryBatch').classList.add('d-none'); $('btnCancelHistoryBatch').classList.remove('d-none'); $('btnConfirmHistoryDelete').classList.remove('d-none'); });
     $('btnCancelHistoryBatch').addEventListener('click', () => { $('historyTable').classList.remove('batch-mode'); $('btnToggleHistoryBatch').classList.remove('d-none'); $('btnCancelHistoryBatch').classList.add('d-none'); $('btnConfirmHistoryDelete').classList.add('d-none'); document.querySelectorAll('.history-check').forEach(c=>c.checked=false); $('historyCheckAll').checked=false; });
     $('btnConfirmHistoryDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelHistoryBatch').click(); await loadHistory(); } catch (e) { notify(e.message, 'danger'); } });
     
-    // 刮削记录批量与全选交互
-    $('btnToggleScrapeBatch').addEventListener('click', () => { 
-        $('scrapeRecordsContainer').classList.add('batch-mode'); 
-        $('btnToggleScrapeBatch').classList.add('d-none'); 
-        $('btnCancelScrapeBatch').classList.remove('d-none'); 
-        $('btnConfirmScrapeDelete').classList.remove('d-none'); 
-        $('scrapeCheckAllContainer').classList.remove('d-none');
-    });
-    $('btnCancelScrapeBatch').addEventListener('click', () => { 
-        $('scrapeRecordsContainer').classList.remove('batch-mode'); 
-        $('btnToggleScrapeBatch').classList.remove('d-none'); 
-        $('btnCancelScrapeBatch').classList.add('d-none'); 
-        $('btnConfirmScrapeDelete').classList.add('d-none'); 
-        $('scrapeCheckAllContainer').classList.add('d-none');
-        document.querySelectorAll('.scrape-check').forEach(c=>c.checked=false); 
-        $('scrapeCheckAll').checked=false;
-    });
-    $('scrapeCheckAll').addEventListener('change', (e) => {
-        document.querySelectorAll('.scrape-check').forEach(c => c.checked = e.target.checked);
-    });
+    $('btnToggleScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.add('batch-mode'); $('btnToggleScrapeBatch').classList.add('d-none'); $('btnCancelScrapeBatch').classList.remove('d-none'); $('btnConfirmScrapeDelete').classList.remove('d-none'); $('scrapeCheckAllContainer').classList.remove('d-none'); });
+    $('btnCancelScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.remove('batch-mode'); $('btnToggleScrapeBatch').classList.remove('d-none'); $('btnCancelScrapeBatch').classList.add('d-none'); $('btnConfirmScrapeDelete').classList.add('d-none'); $('scrapeCheckAllContainer').classList.add('d-none'); document.querySelectorAll('.scrape-check').forEach(c=>c.checked=false); $('scrapeCheckAll').checked=false; });
+    $('scrapeCheckAll').addEventListener('change', (e) => { document.querySelectorAll('.scrape-check').forEach(c => c.checked = e.target.checked); });
     $('btnConfirmScrapeDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } });
     window.deleteScrapeRecord = async function(id) { if (!await ask('确定彻底删除这条刮削记录吗？')) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } };
 
-    // 系统设置与路由等
-    async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.global_auto_upload.checked=sys.global_auto_upload!==false;uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';$('proxyForm').global_proxy.value=sys.global_proxy||'';$('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;$('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';await loadQbServers();}
+    async function loadSettings(){
+        const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);
+        userForm.auth_username.value=sys.auth_username||'';
+        uploadForm.global_auto_upload.checked=sys.global_auto_upload!==false;
+        uploadForm.upload_cron.value=sys.upload_cron||'';
+        uploadForm.clouddrive_path.value=sys.clouddrive_path||'';
+        uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;
+        qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';
+        notify_pack_start.checked=!!sys.notify_pack_start;
+        notify_pack_end.checked=!!sys.notify_pack_end;
+        notify_upload_start.checked=!!sys.notify_upload_start;
+        notify_upload_end.checked=!!sys.notify_upload_end;
+        tgForm.tg_token.value=tg.tg_token||'';
+        tgForm.tg_chat_id.value=tg.tg_chat_id||'';
+        $('proxyForm').global_proxy.value=sys.global_proxy||'';
+        $('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;
+        $('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';
+        
+        $('deploy_master_url').value = window.location.origin;
+        $('deploy_token').value = sys.agent_token || 'autoiso_secret_token';
+        updateDeployCommand();
+
+        await loadQbServers();
+    }
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
     
-    // 初始化挂载
     sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':(vid==='viewHistory'?'历史记录':'刮削记录'));if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();if(vid==='viewScrape')await loadScrapeRecords();});});
     $('btnForceCloseSidebar')?.addEventListener('click', () => { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); });
     $('btnUploadPauseResume').addEventListener('click',async()=>{try{const action=currentUploadStatus==='paused'?'resume':'pause';await api('/api/upload/control',{method:'POST',body:JSON.stringify({action})});notify(action==='pause'?'已暂停':'已继续','success');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
@@ -607,7 +702,6 @@
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
     $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志吗？'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     
-    // TMDB 手动刮削弹窗交互
     window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-4">请输入关键字后点击搜索</div>'; manualScrapeModal.show(); };
     $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8">无图</text></svg>'; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button></div>`; }).join('') : '<div class="text-center text-danger py-4">未找到结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> 搜索'; } });
     $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
