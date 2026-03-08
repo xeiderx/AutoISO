@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.6.8"
+APP_VERSION = "v0.6.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1404,6 +1404,39 @@ def test_telegram_settings():
     if not ok:
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
+
+
+@app.route("/api/tmdb/test", methods=["POST"])
+def test_tmdb_connection():
+    payload = request.get_json(force=True) or {}
+    tmdb_api_key = (payload.get("tmdb_api_key") or "").strip()
+    global_proxy = (payload.get("global_proxy") or "").strip()
+    if not tmdb_api_key:
+        return jsonify({"error": "请先填写 TMDB API Key"}), 400
+
+    url = f"https://api.themoviedb.org/3/authentication?api_key={tmdb_api_key}"
+    request_kwargs = {"timeout": 10}
+    if global_proxy:
+        request_kwargs["proxies"] = {"http": global_proxy, "https": global_proxy}
+
+    try:
+        resp = requests.get(url, **request_kwargs)
+    except (
+        requests.exceptions.ProxyError,
+        requests.exceptions.ConnectTimeout,
+        requests.exceptions.ReadTimeout,
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+    ):
+        return jsonify({"error": "代理连接失败或网络超时，请检查代理设置"}), 400
+    except requests.exceptions.RequestException as exc:
+        return jsonify({"error": f"TMDB 请求失败: {exc}"}), 400
+
+    if resp.status_code == 200:
+        return jsonify({"message": "TMDB API 连接成功！"}), 200
+    if resp.status_code == 401:
+        return jsonify({"error": "API Key 无效，请检查是否填写正确"}), 400
+    return jsonify({"error": f"TMDB 接口返回异常状态码: {resp.status_code}"}), 400
 
 
 @app.route("/api/settings/telegram", methods=["DELETE"])

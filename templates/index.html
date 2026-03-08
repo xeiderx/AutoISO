@@ -198,7 +198,10 @@
             <form id="scrapeForm" class="row g-3">
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="enable_tmdb" type="checkbox" name="enable_tmdb"><label class="form-check-label" for="enable_tmdb">开启 TMDB 自动刮削</label></div></div>
               <div class="col-md-6"><label class="form-label">TMDB API Key</label><input class="form-control" name="tmdb_api_key" placeholder="输入 v3 API Key"></div>
-              <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
+              <div class="col-12 d-flex gap-2">
+                <button class="btn btn-success" type="submit">保存</button>
+                <button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button>
+              </div>
             </form>
           </div>
         </div>
@@ -368,6 +371,22 @@
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('proxyForm').global_proxy.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
+    $('btnTestTmdb')?.addEventListener('click', async () => {
+      try {
+        const apiKey = scrapeForm.tmdb_api_key.value.trim();
+        const proxy = proxyForm.global_proxy.value.trim(); // 获取全局代理，因为 TMDB 需要翻墙
+        if (!apiKey) throw new Error("请先填写 TMDB API Key");
+
+        notify('正在测试 TMDB 连接，请稍候...', 'primary');
+        const res = await api('/api/tmdb/test', {
+          method: 'POST',
+          body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy })
+        });
+        notify(res.message || 'TMDB 连接测试成功！', 'success');
+      } catch (err) {
+        notify(err.message, 'danger');
+      }
+    });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？','清空 Telegram 配置'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('Telegram 配置已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
     $('btnDeleteHistory').addEventListener('click',async()=>{const ids=Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value));if(!ids.length){notify('请先选择要删除的记录','warning');return;}if(!await ask(`确定删除已选中的 ${ids.length} 条历史记录吗？`,'批量删除历史记录'))return;try{await api('/api/history/delete',{method:'POST',body:JSON.stringify({ids})});notify('历史记录已删除','success');await loadHistory();}catch(err){notify(err.message,'danger');}});
