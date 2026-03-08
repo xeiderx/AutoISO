@@ -1,5 +1,6 @@
 
 import atexit
+import hmac
 import logging
 import os
 import re
@@ -18,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.9"
+APP_VERSION = "v0.8.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -40,6 +41,7 @@ DEFAULT_ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 DEFAULT_UPLOAD_CRON = os.getenv("DEFAULT_UPLOAD_CRON", "0 2 * * *")
 DEFAULT_CLOUDDRIVE_PATH = os.getenv("DEFAULT_CLOUDDRIVE_PATH", "/CloudNAS/115/电影备份")
+DEFAULT_AGENT_TOKEN = os.getenv("AGENT_TOKEN", "autoiso_secret_token")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -56,6 +58,9 @@ ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
 SCRAPE_INFLIGHT = set()
 SCRAPE_INFLIGHT_LOCK = threading.Lock()
+AGENT_TASKS = {}
+AGENT_TASKS_LOCK = threading.Lock()
+AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "180"))
 current_uploading_file = None
 upload_command = "running"
 UPLOAD_COMMAND_LOCK = threading.Lock()
@@ -206,6 +211,8 @@ def auth_guard():
     public_endpoints = {"login", "static"}
     if endpoint in public_endpoints:
         return
+    if request.path == "/api/agent/report":
+        return
     if session.get("logged_in"):
         return
     if request.path.startswith("/api/"):
@@ -303,6 +310,10 @@ def get_clouddrive_path():
 
 def get_qb_monitor_tag():
     return (get_setting("qb_monitor_tag") or DEFAULT_QB_MONITOR_TAG).strip() or DEFAULT_QB_MONITOR_TAG
+
+
+def get_agent_token():
+    return (get_setting("agent_token") or "").strip() or DEFAULT_AGENT_TOKEN
 
 
 def get_global_proxy():
@@ -887,6 +898,52 @@ def get_or_create_external_server_id():
     db.session.add(server)
     db.session.commit()
     return server.id
+
+
+def get_or_create_agent_server_id(node_name):
+    name = (node_name or "").strip() or "VPS"
+    server = QBServer.query.filter_by(name=name).first()
+    if server:
+        return server.id
+    server = QBServer(name=name, url=f"agent://{name}", username="-", password="-")
+    db.session.add(server)
+    db.session.commit()
+    return server.id
+
+
+def upsert_agent_finished_history(node_name, file_name, file_size_gb=0.0):
+    safe_name = os.path.basename(str(file_name or "").strip())
+    if not safe_name:
+        return None
+    now_dt = now_local()
+    node_label = (node_name or "").strip() or "VPS"
+    server_id = get_or_create_agent_server_id(node_name)
+    row = (
+        PackHistory.query.filter_by(task_name=safe_name, qb_server_id=server_id)
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    if not row:
+        row = PackHistory(
+            task_name=safe_name[:255],
+            qb_server_id=server_id,
+            status="待转移",
+            start_time=now_dt,
+            end_time=now_dt,
+            file_size_gb=max(0.0, float(file_size_gb or 0.0)),
+            message=f"Agent finished: {safe_name}",
+            info=f"node={node_label}",
+        )
+        db.session.add(row)
+    else:
+        row.status = "待转移"
+        row.end_time = now_dt
+        if file_size_gb:
+            row.file_size_gb = max(0.0, float(file_size_gb))
+        row.message = f"Agent finished: {safe_name}"
+        row.info = f"node={node_label}"
+    db.session.commit()
+    return row
 
 
 def finalize_pack_history_after_upload(file_name, dst_path, task_id=None):
@@ -1905,6 +1962,62 @@ def test_tmdb_connection():
     return jsonify({"error": f"TMDB 接口返回异常状态码: {resp.status_code}"}), 400
 
 
+@app.route("/api/agent/report", methods=["POST"])
+def agent_report():
+    payload = request.get_json(force=True) or {}
+    token = str(payload.get("token") or "").strip()
+    if not token or not hmac.compare_digest(token, get_agent_token()):
+        return jsonify({"error": "forbidden"}), 403
+
+    node = str(payload.get("node") or "").strip() or "VPS"
+    filename = os.path.basename(str(payload.get("filename") or "").strip())
+    status = str(payload.get("status") or "").strip().lower()
+    if not filename:
+        return jsonify({"error": "filename 不能为空"}), 400
+
+    try:
+        progress = max(0.0, min(100.0, float(payload.get("progress", 0) or 0)))
+    except (TypeError, ValueError):
+        progress = 0.0
+    try:
+        speed_mbps = float(payload.get("speed_mbps", 0) or 0)
+    except (TypeError, ValueError):
+        speed_mbps = 0.0
+    eta_text = str(payload.get("eta_text") or "-").strip() or "-"
+    last_update = now_local()
+
+    # finished: 入历史并从内存进度中移除
+    if status == "finished":
+        file_size_gb = 0.0
+        try:
+            if payload.get("file_size_gb") is not None:
+                file_size_gb = float(payload.get("file_size_gb") or 0)
+            elif payload.get("file_size_bytes") is not None:
+                file_size_gb = float(payload.get("file_size_bytes") or 0) / GB
+        except (TypeError, ValueError):
+            file_size_gb = 0.0
+        try:
+            upsert_agent_finished_history(node, filename, file_size_gb=file_size_gb)
+        except Exception:
+            logger.exception("Agent finished 入库失败: node=%s file=%s", node, filename)
+            return jsonify({"error": "history update failed"}), 500
+        with AGENT_TASKS_LOCK:
+            AGENT_TASKS.pop(filename, None)
+        return jsonify({"ok": True, "status": "accepted"})
+
+    with AGENT_TASKS_LOCK:
+        AGENT_TASKS[filename] = {
+            "node": node,
+            "filename": filename,
+            "status": status or "packing",
+            "progress": progress,
+            "speed_mbps": speed_mbps,
+            "eta_text": eta_text,
+            "last_update": last_update,
+        }
+    return jsonify({"ok": True, "status": "accepted"})
+
+
 @app.route("/api/settings/telegram", methods=["DELETE"])
 def clear_telegram_settings():
     delete_setting("tg_token")
@@ -2033,6 +2146,7 @@ def get_system_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "agent_token": get_agent_token(),
             "global_auto_upload": get_global_auto_upload(),
             "global_proxy": get_global_proxy(),
             "enable_tmdb": get_enable_tmdb(),
@@ -2066,6 +2180,7 @@ def save_system_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    agent_token = (payload.get("agent_token") or "").strip() if "agent_token" in payload else get_agent_token()
     global_auto_upload = parse_bool(payload.get("global_auto_upload"), default=get_global_auto_upload())
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
     enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
@@ -2105,6 +2220,7 @@ def save_system_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("agent_token", agent_token or DEFAULT_AGENT_TOKEN)
     set_setting("global_auto_upload", "1" if global_auto_upload else "0")
     if "global_auto_upload" in payload and global_auto_upload != current_global_auto_upload:
         apply_global_auto_upload_status(global_auto_upload)
@@ -2123,6 +2239,7 @@ def save_system_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "agent_token": agent_token or DEFAULT_AGENT_TOKEN,
             "global_auto_upload": global_auto_upload,
             "global_proxy": global_proxy,
             "enable_tmdb": enable_tmdb,
@@ -2145,6 +2262,7 @@ def get_auth_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "agent_token": get_agent_token(),
             "global_auto_upload": get_global_auto_upload(),
             "global_proxy": get_global_proxy(),
             "enable_tmdb": get_enable_tmdb(),
@@ -2170,6 +2288,7 @@ def save_auth_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    agent_token = (payload.get("agent_token") or "").strip() if "agent_token" in payload else get_agent_token()
     global_auto_upload = parse_bool(payload.get("global_auto_upload"), default=get_global_auto_upload())
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
     enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
@@ -2194,6 +2313,7 @@ def save_auth_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("agent_token", agent_token or DEFAULT_AGENT_TOKEN)
     set_setting("global_auto_upload", "1" if global_auto_upload else "0")
     if "global_auto_upload" in payload and global_auto_upload != current_global_auto_upload:
         apply_global_auto_upload_status(global_auto_upload)
@@ -2212,6 +2332,7 @@ def save_auth_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "agent_token": agent_token or DEFAULT_AGENT_TOKEN,
             "global_auto_upload": global_auto_upload,
             "global_proxy": global_proxy,
             "enable_tmdb": enable_tmdb,
@@ -2322,6 +2443,7 @@ def export_logs():
 @app.route("/api/progress", methods=["GET"])
 def get_progress():
     tasks = []
+    now_dt = now_local()
     with ACTIVE_TASKS_LOCK:
         snapshot = dict(ACTIVE_TASKS)
     for key, task in snapshot.items():
@@ -2362,6 +2484,48 @@ def get_progress():
                 "eta_text": format_eta(eta_seconds) if eta_seconds is not None else "-",
             }
         )
+
+    stale_agent_keys = []
+    with AGENT_TASKS_LOCK:
+        agent_snapshot = dict(AGENT_TASKS)
+    for filename, task in agent_snapshot.items():
+        last_update = task.get("last_update")
+        try:
+            if not isinstance(last_update, datetime):
+                stale_agent_keys.append(filename)
+                continue
+            if (now_dt - last_update).total_seconds() > AGENT_TASK_TTL_SECONDS:
+                stale_agent_keys.append(filename)
+                continue
+        except Exception:
+            stale_agent_keys.append(filename)
+            continue
+
+        progress = max(0.0, min(100.0, float(task.get("progress", 0) or 0)))
+        speed_mbps = float(task.get("speed_mbps", 0) or 0)
+        eta_text = str(task.get("eta_text") or "-").strip() or "-"
+        tasks.append(
+            {
+                "id": f"agent:{filename}",
+                "task_name": filename,
+                "server_name": task.get("node", "VPS"),
+                "source_path": "",
+                "iso_path": "",
+                "source_size_bytes": 0,
+                "iso_size_bytes": 0,
+                "progress": round(progress, 2),
+                "elapsed_seconds": 0,
+                "speed_mbps": round(speed_mbps, 2),
+                "eta_seconds": None,
+                "eta_text": eta_text,
+            }
+        )
+
+    if stale_agent_keys:
+        with AGENT_TASKS_LOCK:
+            for key in stale_agent_keys:
+                AGENT_TASKS.pop(key, None)
+
     return jsonify({"active": len(tasks) > 0, "tasks": tasks})
 
 
@@ -2689,6 +2853,8 @@ with app.app_context():
         set_setting("notify_upload_start", "1")
     if not get_setting("notify_upload_end"):
         set_setting("notify_upload_end", "1")
+    if not get_setting("agent_token"):
+        set_setting("agent_token", DEFAULT_AGENT_TOKEN)
     if not get_setting("global_auto_upload"):
         set_setting("global_auto_upload", "1")
     # 启动时清理僵尸上传状态，避免历史记录卡死
