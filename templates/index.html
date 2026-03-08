@@ -126,8 +126,8 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:25%"><col style="width:25%"><col style="width:10%"><col style="width:10%"><col style="width:17%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th>节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">添加时间</th></tr></thead>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:20%"><col style="width:32%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
+            <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
@@ -136,8 +136,8 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:22%"><col style="width:23%"><col style="width:10%"><col style="width:10%"><col style="width:8%"><col style="width:14%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th>节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">自动上传</th><th class="text-center">操作</th></tr></thead>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:20%"><col style="width:32%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"></colgroup>
+            <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">自动上传</th><th class="text-center">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
@@ -363,7 +363,7 @@
       return doSearch;
     }
 
-    // 分页渲染引擎
+    // 分页渲染引擎 (修正布局，整体靠右)
     function renderPagination(total, page, size, containerId, onChange) {
       const totalPages = Math.ceil(total / size) || 1;
       const start = total === 0 ? 0 : (page - 1) * size + 1;
@@ -391,8 +391,29 @@
     // 仪表盘逻辑
     function statsRow(title,iconClass,data){const cards=[['总次数',data.total_count||0],['总数据',data.total_size_text||'-'],['平均耗时',data.avg_duration_text||'-'],['平均速率',data.avg_rate_text||'-'],['本月次数',data.month_count||0],['本月数据',data.month_size_text||'-']];return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>${cards.map(c=>`<div class="stats-card"><div class="stat-title">${c[0]}</div><div class="stat-value">${esc(c[1])}</div></div>`).join('')}</div></div>`;}
     async function loadStatsAndProgress(){const stats=await api('/api/stats');currentUploadingFile=String(stats.current_uploading_file||'');$('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;const p=await api('/api/progress');currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];if(!p.active||!(p.tasks||[]).length){$('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';}else{$('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');}const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
-    async function loadPending(){const rows=await api('/api/pending');$('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{const isProcessing=currentPackingTasks.includes(x.title);const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node_alias||'-')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td class="text-center">${badgeHtml}</td><td class="text-center">${esc(x.added_on||'-')}</td></tr>`;}).join(''):'<tr><td colspan="7" class="text-center text-muted">暂无数据</td></tr>'}
-    async function loadPendingUploads(){const rows=await api('/api/pending_uploads');$('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{const up=String(x.status||'').toLowerCase()==='uploaded';const uploadingNow=String(x.filename||'')===currentUploadingFile;const disabled=uploadingNow?'disabled':'';const autoUpload=x.auto_upload!==false;const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');const autoIcon=`<div class="form-check form-switch d-flex justify-content-center m-0"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3.2rem; height:1.6rem;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div>`;return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node||'NAS')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${statusBadge}</td><td class="text-center">${autoIcon}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`}).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';}
+    
+    async function loadPending(){
+        const rows=await api('/api/pending');
+        $('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{
+            const isProcessing=currentPackingTasks.includes(x.title);
+            const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';
+            return `<tr><td class="text-center">${i+1}</td><td class="text-center">${esc(x.node_alias||'-')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td class="text-center">${badgeHtml}</td><td class="text-center">${esc(x.added_on||'-')}</td></tr>`;
+        }).join(''):'<tr><td colspan="7" class="text-center text-muted">暂无数据</td></tr>'
+    }
+    
+    async function loadPendingUploads(){
+        const rows=await api('/api/pending_uploads');
+        $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
+            const up=String(x.status||'').toLowerCase()==='uploaded';
+            const uploadingNow=String(x.filename||'')===currentUploadingFile;
+            const disabled=uploadingNow?'disabled':'';
+            const autoUpload=x.auto_upload!==false;
+            const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');
+            // 使用原生 flex 彻底强制居中，清除 bootstrap 的所有负边距和内边距干扰
+            const autoIcon=`<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+            return `<tr><td class="text-center">${i+1}</td><td class="text-center">${esc(x.node||'NAS')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${statusBadge}</td><td class="text-center align-middle">${autoIcon}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`
+        }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
+    }
     
     // 待上传交互
     $('pendingUploadsBody').addEventListener('click',async(e)=>{

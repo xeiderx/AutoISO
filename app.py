@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.6"
+APP_VERSION = "v0.7.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -54,6 +54,8 @@ UPLOADING_SUFFIX = ".uploading"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
+SCRAPE_INFLIGHT = set()
+SCRAPE_INFLIGHT_LOCK = threading.Lock()
 current_uploading_file = None
 upload_command = "running"
 UPLOAD_COMMAND_LOCK = threading.Lock()
@@ -342,6 +344,30 @@ def set_task_auto_upload(filename, enabled):
     return row
 
 
+def init_task_auto_upload(filename, task_id=None):
+    safe_name = os.path.basename(str(filename or "").strip())
+    if not safe_name:
+        raise ValueError("文件名不合法")
+    global_enabled = bool(get_global_auto_upload())
+    row = UploadHistory.query.filter_by(filename=safe_name).first()
+    if not row:
+        row = UploadHistory(
+            filename=safe_name,
+            task_id=task_id,
+            status="pending" if global_enabled else "packed",
+            message="",
+            auto_upload=global_enabled,
+        )
+        db.session.add(row)
+    else:
+        if task_id is not None:
+            row.task_id = task_id
+        # 新任务初始化时，强制跟随当前全局开关，避免同名旧记录残留
+        row.auto_upload = global_enabled
+    db.session.commit()
+    return global_enabled
+
+
 def apply_auto_upload_status_for_task(filename, enabled):
     safe_name = os.path.basename(str(filename or "").strip())
     if not safe_name:
@@ -623,6 +649,35 @@ def auto_scrape_for_original_name(original_name):
         return upsert_scrape_record(name, {}, SCRAPE_STATUS_FAILED)
 
 
+def trigger_auto_scrape_async(original_name):
+    if not get_enable_tmdb():
+        return
+    name = (original_name or "").strip()
+    if not name:
+        return
+
+    cached = ScrapeRecord.query.filter_by(original_name=name, status=SCRAPE_STATUS_SUCCESS).first()
+    if cached:
+        return
+
+    with SCRAPE_INFLIGHT_LOCK:
+        if name in SCRAPE_INFLIGHT:
+            return
+        SCRAPE_INFLIGHT.add(name)
+
+    def _worker(task_name):
+        with app.app_context():
+            try:
+                auto_scrape_for_original_name(task_name)
+            except Exception:
+                logger.exception("异步 TMDB 刮削失败: %s", task_name)
+            finally:
+                with SCRAPE_INFLIGHT_LOCK:
+                    SCRAPE_INFLIGHT.discard(task_name)
+
+    threading.Thread(target=_worker, args=(name,), daemon=True).start()
+
+
 def get_notify_flag(key, default=True):
     raw = get_setting(key)
     if raw == "":
@@ -762,6 +817,7 @@ def get_upload_list_files():
 def mark_upload_status(filename, status, message="", task_id=None):
     if not filename:
         return
+    global_auto_upload = bool(get_global_auto_upload())
     row = UploadHistory.query.filter_by(task_id=task_id).first() if task_id else None
     if not row:
         # upload_history.filename has a unique constraint in legacy schema.
@@ -769,11 +825,21 @@ def mark_upload_status(filename, status, message="", task_id=None):
         # while pack_history status updates stay strictly id-based.
         row = UploadHistory.query.filter_by(filename=filename).first()
     if not row:
-        row = UploadHistory(filename=filename, task_id=task_id, status=status, message=message or "")
+        row = UploadHistory(
+            filename=filename,
+            task_id=task_id,
+            status=status,
+            message=message or "",
+            auto_upload=global_auto_upload,
+        )
         db.session.add(row)
     else:
+        is_new_task_cycle = task_id is not None and row.task_id != task_id
         if task_id is not None:
             row.task_id = task_id
+        if is_new_task_cycle:
+            # 绑定到新任务时，强制重置为当前全局自动上传配置
+            row.auto_upload = global_auto_upload
         row.filename = filename
         row.status = status
         row.message = message or ""
@@ -1425,9 +1491,9 @@ def process_one_torrent(server: QBServer, client, torrent):
         return
 
     try:
-        auto_scrape_for_original_name(getattr(torrent, "name", ""))
+        trigger_auto_scrape_async(getattr(torrent, "name", ""))
     except Exception:
-        logger.exception("TMDB 自动刮削异常，任务=%s", getattr(torrent, "name", "unknown"))
+        logger.exception("TMDB 自动刮削派发异常，任务=%s", getattr(torrent, "name", "unknown"))
 
     source_path = resolve_source_path(torrent)
     source_size_bytes = get_path_size_bytes(source_path)
@@ -1441,6 +1507,13 @@ def process_one_torrent(server: QBServer, client, torrent):
     )
     db.session.add(history)
     db.session.commit()
+    try:
+        expected_output_name = (
+            os.path.basename(source_path) if os.path.isfile(source_path) else f"{torrent.name}.iso"
+        )
+        init_task_auto_upload(expected_output_name, history.id)
+    except Exception:
+        logger.exception("初始化任务自动上传状态失败，任务=%s", torrent.name)
 
     started = now_local()
     torrent_hash = getattr(torrent, "hash", "")
@@ -1484,7 +1557,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             finished = now_local()
             duration = format_seconds((finished - started).total_seconds())
             output_name = os.path.basename(output_file)
-            auto_upload_enabled = get_global_auto_upload() and get_task_auto_upload(output_name)
+            auto_upload_enabled = init_task_auto_upload(output_name, history.id)
             history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"FILE: {output_file}"
@@ -1525,7 +1598,7 @@ def process_one_torrent(server: QBServer, client, torrent):
 
         if ok:
             iso_name = os.path.basename(iso_path)
-            auto_upload_enabled = get_global_auto_upload() and get_task_auto_upload(iso_name)
+            auto_upload_enabled = init_task_auto_upload(iso_name, history.id)
             history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"ISO: {iso_path}"
@@ -1575,9 +1648,15 @@ def process_all_qbs():
                 continue
 
             for torrent in torrents:
-                if float(getattr(torrent, "progress", 0)) != 1.0:
-                    continue
                 if not has_waiting_tag(getattr(torrent, "tags", "")):
+                    continue
+                # 在扫描到待封装任务时立即异步触发刮削，提前准备展示名
+                try:
+                    trigger_auto_scrape_async(getattr(torrent, "name", ""))
+                except Exception:
+                    logger.exception("扫描阶段派发 TMDB 刮削失败，任务=%s", getattr(torrent, "name", "unknown"))
+
+                if float(getattr(torrent, "progress", 0)) != 1.0:
                     continue
 
                 torrent_hash = getattr(torrent, "hash", "")
@@ -2303,6 +2382,10 @@ def list_pending():
         for torrent in torrents:
             if not has_waiting_tag(getattr(torrent, "tags", "")):
                 continue
+            try:
+                trigger_auto_scrape_async(getattr(torrent, "name", ""))
+            except Exception:
+                logger.exception("待封装列表派发 TMDB 刮削失败，任务=%s", getattr(torrent, "name", "unknown"))
 
             size_bytes = int(getattr(torrent, "size", 0) or getattr(torrent, "total_size", 0) or 0)
             added_on = getattr(torrent, "added_on", 0) or 0
