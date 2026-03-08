@@ -50,6 +50,14 @@
     .search-dropdown.show { display: block; }
     .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
     .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
+    /* 刮削页面样式 */
+    .poster-img { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; background-color: #e2e8f0; flex-shrink: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .scrape-card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .scrape-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #cbd5e1; }
+    .tmdb-result-item { transition: background-color 0.2s; border-radius: 8px; }
+    .tmdb-result-item:hover { background-color: #f8fafc; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   </style>
 </head>
 <body>
@@ -73,6 +81,7 @@
         <li class="nav-item"><a class="nav-link active" data-view="viewDashboard"><i class="bi bi-speedometer2 me-2"></i>仪表盘</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewSettings"><i class="bi bi-sliders me-2"></i>系统设置</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewHistory"><i class="bi bi-clock-history me-2"></i>历史记录</a></li>
+        <li class="nav-item"><a class="nav-link" data-view="viewScrape"><i class="bi bi-film me-2"></i>刮削记录</a></li>
       </ul>
       <a href="/logout" class="btn btn-outline-light btn-sm w-100 mt-3">退出登录</a>
     </div>
@@ -237,11 +246,37 @@
         </div>
       </div></div>
     </section>
+
+    <section id="viewScrape" class="app-view d-none">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0">刮削与整理记录</h6>
+        <button class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" onclick="loadScrapeRecords()"><i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
+      </div>
+      <div class="row g-3" id="scrapeRecordsContainer"></div>
+    </section>
   </main>
 
   <div class="toast-container-custom"><div id="toast" class="toast border-0"><div class="d-flex"><div id="toastBody" class="toast-body">提示</div><button class="btn-close btn-close-white m-auto me-2" data-bs-dismiss="toast"></button></div></div></div>
   <div class="modal fade" id="confirmModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 id="confirmTitle" class="modal-title">确认操作</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div id="confirmMessage" class="modal-body"></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button id="confirmOkBtn" class="btn btn-danger">确认</button></div></div></div></div>
   <div class="modal fade" id="logModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">系统日志</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button id="btnExportLogs" class="btn btn-outline-success btn-sm">导出日志</button><button id="btnClearLogs" class="btn btn-outline-danger btn-sm">清空日志</button></div><pre id="logContent" class="status-console"></pre></div></div></div></div>
+  <div class="modal fade" id="manualScrapeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-light border-bottom-0 pb-0">
+          <h5 class="modal-title fw-bold">手动整理匹配</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body pt-3">
+          <div class="mb-3 text-secondary small">正在为 <span id="scrapeTargetName" class="fw-bold text-dark"></span> 寻找匹配项</div>
+          <div class="input-group mb-4 shadow-sm rounded-pill overflow-hidden border">
+            <input type="text" id="manualScrapeKeyword" class="form-control border-0 shadow-none ps-4" placeholder="输入影视名称或 TMDB 编号...">
+            <button class="btn btn-primary px-4" type="button" id="btnManualSearch"><i class="bi bi-search"></i> 搜索</button>
+          </div>
+          <div id="tmdbSearchResults" class="d-flex flex-column gap-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     const toastEl = document.getElementById('toast');
@@ -249,6 +284,8 @@
     const confirmModalEl = document.getElementById('confirmModal');
     const confirmModal = new bootstrap.Modal(confirmModalEl);
     const logModal = new bootstrap.Modal(document.getElementById('logModal'));
+    const manualScrapeModal = new bootstrap.Modal(document.getElementById('manualScrapeModal'));
+    let currentScrapeTarget = '';
     let askResolve = null;
     let currentUploadStatus = 'idle';
     let currentUploadingFile = '';
@@ -349,12 +386,101 @@
         input.focus();
       });
     }
+    // 加载刮削记录列表
+    async function loadScrapeRecords() {
+      const container = $('scrapeRecordsContainer');
+      if (!container || $('viewScrape').classList.contains('d-none')) return;
+      try {
+        const records = await api('/api/scrape/records');
+        container.innerHTML = (records || []).length ? records.map(r => {
+          const isSuccess = r.status === '成功';
+          const rawPoster = String(r.poster_url || '').trim();
+          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图片</text></svg>';
+          const encodedOriginal = encodeURIComponent(String(r.original_name || ''));
+          return `
+          <div class="col-12 col-xl-6">
+            <div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative">
+              <img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy">
+              <div class="d-flex flex-column flex-grow-1 min-w-0">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                  <h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title || '')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>
+                  ${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}
+                </div>
+                <div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name || '')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name || '')}</div>
+                <div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div>
+                <div class="text-end mt-auto">
+                  ${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-search me-1"></i>手动刮削</button>` : `<button class="btn btn-sm btn-light text-secondary rounded-pill px-3" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-pencil me-1"></i>重新匹配</button>`}
+                </div>
+              </div>
+            </div>
+          </div>`;
+        }).join('') : '<div class="text-center text-muted py-5">暂无刮削记录</div>';
+      } catch (err) {
+        container.innerHTML = `<div class="text-center text-danger py-5">${esc(err.message)}</div>`;
+      }
+    }
+    // 打开手动刮削弹窗
+    window.openManualScrape = function(originalName) {
+      currentScrapeTarget = String(originalName || '');
+      $('scrapeTargetName').textContent = currentScrapeTarget;
+      $('manualScrapeKeyword').value = '';
+      $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-4">请输入关键字后点击搜索</div>';
+      manualScrapeModal.show();
+    };
+    // 执行 TMDB 搜索
+    $('btnManualSearch')?.addEventListener('click', async () => {
+      const keyword = $('manualScrapeKeyword').value.trim();
+      if (!keyword) return notify('请输入搜索关键字', 'warning');
+      const btn = $('btnManualSearch');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中';
+      $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary" role="status"></div></div>';
+      try {
+        const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) });
+        const results = Array.isArray(resp) ? resp : (resp.results || []);
+        $('tmdbSearchResults').innerHTML = results.length ? results.map(item => {
+          const rawPoster = String(item.poster_url || '').trim();
+          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8">无图</text></svg>';
+          const dataStr = encodeURIComponent(JSON.stringify(item));
+          return `
+          <div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center">
+            <img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster">
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div>
+              <div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div>
+            </div>
+            <button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button>
+          </div>`;
+        }).join('') : '<div class="text-center text-danger py-4">未找到相关结果，请尝试修改关键字（如去除多余标点或更换中英文）</div>';
+      } catch (err) {
+        $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search"></i> 搜索';
+      }
+    });
+    // 监听回车键搜索
+    $('manualScrapeKeyword')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') $('btnManualSearch').click();
+    });
+    // 绑定结果到原始记录
+    window.bindScrapeResult = async function(dataStr) {
+      try {
+        const tmdbData = JSON.parse(decodeURIComponent(dataStr));
+        await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) });
+        notify('✅ 绑定成功！', 'success');
+        manualScrapeModal.hide();
+        await loadScrapeRecords();
+      } catch (err) {
+        notify(err.message, 'danger');
+      }
+    };
     async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';if(!window.searchBound){ bindAdvancedSearch(); window.searchBound=true; } else { $('historySearch').dispatchEvent(new Event('input')); }}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';$('proxyForm').global_proxy.value=sys.global_proxy||'';$('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;$('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';await loadQbServers();}
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
-    sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':'历史记录');if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();});});
+    sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':(vid==='viewHistory'?'历史记录':'刮削记录'));if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();if(vid==='viewScrape')await loadScrapeRecords();});});
     $('btnForceCloseSidebar')?.addEventListener('click', () => {
       const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu'));
       if(bsOffcanvas) bsOffcanvas.hide();
@@ -394,7 +520,7 @@
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
     $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志文件吗？','清空日志'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('日志已清空','success');}catch(err){notify(err.message,'danger');}});
     confirmModalEl.addEventListener('shown.bs.modal',()=>{setTimeout(()=>{const b=document.querySelectorAll('.modal-backdrop');if(b.length)b[b.length-1].classList.add('confirm-backdrop');},0);});
-    async function boot(){try{await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPendingUploads();}catch(_e){}}},5000);}
+    async function boot(){try{await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPendingUploads();}catch(_e){}}},5000);}
     boot();
   </script>
 </body>
