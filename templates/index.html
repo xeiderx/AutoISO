@@ -9,6 +9,7 @@
   <style>
     :root { --sidebar-w: 240px; }
     body { background: #f4f7fb; overflow-anchor: none; }
+    /* 侧边栏修复 */
     .sidebar { width: var(--sidebar-w); background: #1e293b !important; color: #f8fafc !important; z-index: 1045; border: none !important; box-shadow: 4px 0 15px rgba(0,0,0,0.15); }
     .sidebar .text-secondary { color: #94a3b8 !important; }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 18px 14px; } .main { margin-left: var(--sidebar-w); padding: 18px; } }
@@ -30,6 +31,7 @@
     .history-cell { font-size: .875rem; color: #6c757d; }
     .status-console { background: #05080f; color: #d1fae5; border: 1px solid #1f2937; border-radius: 10px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 12px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .88rem; line-height: 1.4; }
     
+    /* 修复表格排版的杀手锏 */
     .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .text-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; word-break: break-all; }
     
@@ -42,6 +44,7 @@
     .toast-container-custom { position: fixed; top: 20px; right: 20px; z-index: 2200; padding-top: 8px; }
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
     
+    /* 搜索框与下拉 */
     .search-container { width: 100%; max-width: 400px; z-index: 10; }
     .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
     .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
@@ -53,6 +56,7 @@
     .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
     .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
     
+    /* 刮削页面卡片与完美勾选框样式 */
     .poster-img { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; background-color: #e2e8f0; flex-shrink: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .scrape-card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #e2e8f0; border-radius: 12px; }
     .scrape-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #cbd5e1; }
@@ -60,9 +64,11 @@
     .tmdb-result-item:hover { background-color: #f8fafc; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     
+    /* 表格防错位复选框 */
     .check-col { width: 0; padding-left: 0 !important; padding-right: 0 !important; border: none !important; overflow: hidden; opacity: 0; transition: all 0.3s; visibility: collapse; white-space: nowrap; flex-shrink: 0; }
     .batch-mode .check-col { width: 40px; padding-left: 0.5rem !important; padding-right: 0.5rem !important; opacity: 1; visibility: visible; }
     
+    /* 刮削卡片防遮挡复选框 */
     .scrape-check-wrapper { width: 0; overflow: hidden; opacity: 0; transition: all 0.2s; margin-right: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
     .batch-mode .scrape-check-wrapper { width: 32px; opacity: 1; margin-right: 12px; }
     .scrape-check { width: 1.4rem; height: 1.4rem; cursor: pointer; }
@@ -129,7 +135,7 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
@@ -139,7 +145,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -279,7 +285,10 @@
             <form id="scrapeForm" class="row g-3">
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="enable_tmdb" type="checkbox" name="enable_tmdb"><label class="form-check-label" for="enable_tmdb">开启 TMDB 自动刮削</label></div></div>
               <div class="col-md-6"><label class="form-label">TMDB API Key</label><input class="form-control" name="tmdb_api_key" placeholder="输入 v3 API Key"></div>
-              <div class="col-12 d-flex gap-2"><button class="btn btn-success" type="submit">保存</button><button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button></div>
+              <div class="col-12 d-flex gap-2">
+                <button class="btn btn-success" type="submit">保存</button>
+                <button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button>
+              </div>
             </form>
           </div>
         </div>
@@ -551,7 +560,6 @@ echo "------------------------------------------------"
         text.select();
         text.setSelectionRange(0, 99999); 
         try {
-            // 兼容 HTTP 和 HTTPS 的完美复制方案
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(text.value)
                     .then(() => notify('部署代码已成功复制！', 'success'))
@@ -757,6 +765,7 @@ echo "------------------------------------------------"
     $('btnConfirmScrapeDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } });
     window.deleteScrapeRecord = async function(id) { if (!await ask('确定彻底删除这条刮削记录吗？')) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } };
 
+    // 核心修复处：移除了导致报错的残留代码
     async function loadSettings(){
         const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);
         window.globalAgentToken = sys.agent_token || 'autoiso_secret_token';
@@ -776,13 +785,13 @@ echo "------------------------------------------------"
         $('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;
         $('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';
         
-        $('deploy_master_url').value = window.location.origin;
-        $('deploy_token').value = sys.agent_token || 'autoiso_secret_token';
-        updateDeployCommand();
-
         await loadQbServers();
-        if (!$('viewSettings').classList.contains('d-none')) { await loadAgentNodes(); }
+        // 因为没报错了，这里才能正常执行去拉取节点列表
+        if (!$('viewSettings').classList.contains('d-none')) { 
+            await loadAgentNodes(); 
+        }
     }
+    
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
