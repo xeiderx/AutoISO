@@ -30,7 +30,17 @@
     .time-cell span { white-space: nowrap !important; word-break: normal !important; }
     .history-cell { font-size: .875rem; color: #6c757d; }
     .status-console { background: #05080f; color: #d1fae5; border: 1px solid #1f2937; border-radius: 10px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 12px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .88rem; line-height: 1.4; }
-    .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    
+    /* 高级多行文本截断 (彻底释放 max-width，交由 colgroup 百分比控制) */
+    .ellipsis-cell { 
+        display: -webkit-box; 
+        -webkit-line-clamp: 2; 
+        -webkit-box-orient: vertical; 
+        overflow: hidden; 
+        white-space: normal; 
+        word-break: break-all; 
+    }
+    
     .nav-tabs { border-bottom: 1px solid #e5e7eb; }
     .nav-tabs .nav-link { color: #6c757d; border: none; background: transparent; border-bottom: 2px solid transparent; }
     .nav-tabs .nav-link:hover { color: #495057; border-color: transparent; }
@@ -41,7 +51,7 @@
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
     
     /* 搜索框与下拉 */
-    .search-container { width: 300px; max-width: 100%; z-index: 1050; }
+    .search-container { width: 100%; max-width: 400px; z-index: 1050; }
     .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
     .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
     .cursor-pointer { cursor: pointer; }
@@ -52,7 +62,7 @@
     .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
     .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
     
-    /* 刮削页面样式 */
+    /* 刮削页面卡片与完美勾选框样式 */
     .poster-img { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; background-color: #e2e8f0; flex-shrink: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .scrape-card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #e2e8f0; border-radius: 12px; }
     .scrape-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #cbd5e1; }
@@ -60,9 +70,14 @@
     .tmdb-result-item:hover { background-color: #f8fafc; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     
-    /* 防错位复选框 */
-    .check-col { width: 0; padding-left: 0 !important; padding-right: 0 !important; border: none !important; overflow: hidden; opacity: 0; transition: all 0.3s; visibility: collapse; white-space: nowrap; }
+    /* 表格防错位复选框 */
+    .check-col { width: 0; padding-left: 0 !important; padding-right: 0 !important; border: none !important; overflow: hidden; opacity: 0; transition: all 0.3s; visibility: collapse; white-space: nowrap; flex-shrink: 0; }
     .batch-mode .check-col { width: 40px; padding-left: 0.5rem !important; padding-right: 0.5rem !important; opacity: 1; visibility: visible; }
+    
+    /* 刮削卡片防遮挡复选框 */
+    .scrape-check-wrapper { width: 0; overflow: hidden; opacity: 0; transition: all 0.2s; margin-right: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .batch-mode .scrape-check-wrapper { width: 32px; opacity: 1; margin-right: 12px; }
+    .scrape-check { width: 1.4rem; height: 1.4rem; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -126,7 +141,7 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:20%"><col style="width:32%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
             <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
@@ -136,7 +151,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:20%"><col style="width:32%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
             <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">自动上传</th><th class="text-center">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -256,8 +271,8 @@
     </section>
 
     <section id="viewScrape" class="app-view d-none">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="search-container position-relative">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+        <div class="search-container position-relative w-100" style="max-width: 400px;">
           <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1">
             <i class="bi bi-search text-muted"></i>
             <input type="text" id="scrapeSearch" class="form-control border-0 shadow-none bg-transparent ms-1 px-1" placeholder="搜索原名或影片名..." autocomplete="off">
@@ -272,13 +287,17 @@
             <div id="recentScrapeList"></div>
           </div>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center justify-content-end flex-wrap">
+          <div class="form-check d-none mb-0 d-flex align-items-center" id="scrapeCheckAllContainer">
+            <input class="form-check-input shadow-sm cursor-pointer scrape-check m-0" type="checkbox" id="scrapeCheckAll">
+            <label class="form-check-label fw-bold text-secondary small ms-1" for="scrapeCheckAll">全选</label>
+          </div>
           <button id="btnCancelScrapeBatch" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm d-none">取消</button>
           <button id="btnConfirmScrapeDelete" class="btn btn-danger btn-sm rounded-pill px-3 shadow-sm d-none">确认删除</button>
           <button id="btnToggleScrapeBatch" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm">批量删除</button>
         </div>
       </div>
-      <div class="row g-3" id="scrapeRecordsContainer"></div>
+      <div class="row g-3 mx-0" id="scrapeRecordsContainer"></div>
       <div id="scrapePagination"></div>
     </section>
   </main>
@@ -363,7 +382,7 @@
       return doSearch;
     }
 
-    // 分页渲染引擎 (修正布局，整体靠右)
+    // 分页渲染引擎
     function renderPagination(total, page, size, containerId, onChange) {
       const totalPages = Math.ceil(total / size) || 1;
       const start = total === 0 ? 0 : (page - 1) * size + 1;
@@ -409,7 +428,6 @@
             const disabled=uploadingNow?'disabled':'';
             const autoUpload=x.auto_upload!==false;
             const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');
-            // 使用原生 flex 彻底强制居中，清除 bootstrap 的所有负边距和内边距干扰
             const autoIcon=`<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
             return `<tr><td class="text-center">${i+1}</td><td class="text-center">${esc(x.node||'NAS')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${statusBadge}</td><td class="text-center align-middle">${autoIcon}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
@@ -450,7 +468,7 @@
     }
     function renderHistory() {
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
-        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
+        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
 
@@ -490,18 +508,36 @@
           const isSuccess = r.status === '成功';
           const rawPoster = String(r.poster_url || '').trim();
           const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图</text></svg>';
-          return `<div class="col-12 col-xl-6"><div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative"><div class="check-col d-flex align-items-center"><input type="checkbox" class="scrape-check form-check-input shadow-sm" style="transform: scale(1.3);" value="${r.id}"></div><img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy"><div class="d-flex flex-column flex-grow-1 min-w-0"><div class="d-flex justify-content-between align-items-start mb-1"><h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}</div><div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div><div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div><div class="d-flex justify-content-between align-items-center mt-auto pt-2"><div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-pencil me-1"></i>重配</button>`}</div></div></div></div></div>`;
+          return `<div class="col-12 col-xl-6"><div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative"><div class="scrape-check-wrapper"><input type="checkbox" class="scrape-check form-check-input m-0 shadow-sm" value="${r.id}"></div><img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy"><div class="d-flex flex-column flex-grow-1 min-w-0"><div class="d-flex justify-content-between align-items-start mb-1"><h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}</div><div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div><div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div><div class="d-flex justify-content-between align-items-center mt-auto pt-2"><div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-pencil me-1"></i>重配</button>`}</div></div></div></div></div>`;
         }).join('') : '<div class="text-center text-muted py-5 w-100">暂无刮削记录</div>';
         renderPagination(scrapeFiltered.length, scrapePage, scrapeSize, 'scrapePagination', (p, s) => { scrapePage = p; scrapeSize = s; renderScrape(); });
     }
 
-    // 历史/刮削 批量删除交互
+    // 历史表格批量删除交互
     $('btnToggleHistoryBatch').addEventListener('click', () => { $('historyTable').classList.add('batch-mode'); $('btnToggleHistoryBatch').classList.add('d-none'); $('btnCancelHistoryBatch').classList.remove('d-none'); $('btnConfirmHistoryDelete').classList.remove('d-none'); });
     $('btnCancelHistoryBatch').addEventListener('click', () => { $('historyTable').classList.remove('batch-mode'); $('btnToggleHistoryBatch').classList.remove('d-none'); $('btnCancelHistoryBatch').classList.add('d-none'); $('btnConfirmHistoryDelete').classList.add('d-none'); document.querySelectorAll('.history-check').forEach(c=>c.checked=false); $('historyCheckAll').checked=false; });
     $('btnConfirmHistoryDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelHistoryBatch').click(); await loadHistory(); } catch (e) { notify(e.message, 'danger'); } });
     
-    $('btnToggleScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.add('batch-mode'); $('btnToggleScrapeBatch').classList.add('d-none'); $('btnCancelScrapeBatch').classList.remove('d-none'); $('btnConfirmScrapeDelete').classList.remove('d-none'); });
-    $('btnCancelScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.remove('batch-mode'); $('btnToggleScrapeBatch').classList.remove('d-none'); $('btnCancelScrapeBatch').classList.add('d-none'); $('btnConfirmScrapeDelete').classList.add('d-none'); document.querySelectorAll('.scrape-check').forEach(c=>c.checked=false); });
+    // 刮削记录批量与全选交互
+    $('btnToggleScrapeBatch').addEventListener('click', () => { 
+        $('scrapeRecordsContainer').classList.add('batch-mode'); 
+        $('btnToggleScrapeBatch').classList.add('d-none'); 
+        $('btnCancelScrapeBatch').classList.remove('d-none'); 
+        $('btnConfirmScrapeDelete').classList.remove('d-none'); 
+        $('scrapeCheckAllContainer').classList.remove('d-none');
+    });
+    $('btnCancelScrapeBatch').addEventListener('click', () => { 
+        $('scrapeRecordsContainer').classList.remove('batch-mode'); 
+        $('btnToggleScrapeBatch').classList.remove('d-none'); 
+        $('btnCancelScrapeBatch').classList.add('d-none'); 
+        $('btnConfirmScrapeDelete').classList.add('d-none'); 
+        $('scrapeCheckAllContainer').classList.add('d-none');
+        document.querySelectorAll('.scrape-check').forEach(c=>c.checked=false); 
+        $('scrapeCheckAll').checked=false;
+    });
+    $('scrapeCheckAll').addEventListener('change', (e) => {
+        document.querySelectorAll('.scrape-check').forEach(c => c.checked = e.target.checked);
+    });
     $('btnConfirmScrapeDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } });
     window.deleteScrapeRecord = async function(id) { if (!await ask('确定彻底删除这条刮削记录吗？')) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } };
 
