@@ -357,14 +357,14 @@
   </main>
 
   <div class="modal fade" id="deployScriptModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
       <div class="modal-content border-0 shadow-lg">
         <div class="modal-header bg-dark text-white border-0 pb-2">
-          <h5 class="modal-title fw-bold"><i class="bi bi-terminal-fill me-2 text-success"></i><span id="deployModalTitle"></span> 一键部署代码</h5>
+          <h5 class="modal-title fw-bold"><i class="bi bi-terminal-fill me-2 text-success"></i><span id="deployModalTitle"></span> 全功能部署代码</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body p-0 position-relative">
-          <textarea id="deployCommandText" class="form-control border-0 bg-dark text-success font-monospace p-4 rounded-0 shadow-none" style="font-size: 0.9rem; min-height: 380px; resize: none;" readonly></textarea>
+          <textarea id="deployCommandText" class="form-control border-0 bg-dark text-success font-monospace p-4 rounded-0 shadow-none" style="font-size: 0.85rem; min-height: 550px; resize: none;" readonly></textarea>
         </div>
         <div class="modal-footer bg-dark border-0 pt-0">
           <button class="btn btn-outline-light btn-sm px-4 rounded-pill" onclick="copyDeployCommand()"><i class="bi bi-clipboard me-2"></i>一键复制完整代码</button>
@@ -509,14 +509,14 @@
         }
     }
 
-    // 纯净版一键部署弹窗生成 (已将 clouddrive2-multipass 改为 clouddrive2)
+    // 全能版一键部署弹窗生成：包含环境 + agent.py + systemd 服务
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
         $('deployModalTitle').textContent = nodeName;
         
         const bash = `# ==========================================
-# AutoISO 边缘节点 (${nodeName}) 一键部署脚本 
+# AutoISO 边缘节点 (\${nodeName}) 一键全能部署脚本 
 # ==========================================
 
 # 1. 更新系统并安装环境
@@ -530,7 +530,7 @@ docker run -d --name clouddrive2 --restart always \\
     -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
     --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
 
-# 3. 写入节点身份凭证 (动态配置将自动从 NAS 拉取)
+# 3. 写入节点身份凭证
 mkdir -p /opt/autoiso_agent
 cat << 'EOF' > /opt/autoiso_agent/identity.json
 {
@@ -540,9 +540,161 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
+# 4. 写入核心挂机脚本 agent.py (自动动态拉取群晖配置，无需修改)
+cat << 'EOF' > /opt/autoiso_agent/agent.py
+import os, sys, time, json, requests, subprocess, shutil
+
+IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
+
+def log(msg):
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+def get_identity():
+    if not os.path.exists(IDENTITY_FILE):
+        log("未找到 identity.json")
+        sys.exit(1)
+    with open(IDENTITY_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def get_config(identity):
+    url = f"{identity['master_url']}/api/agent/config"
+    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+def report(identity, filename, status, progress=0):
+    url = f"{identity['master_url']}/api/agent/report"
+    payload = {
+        "token": identity["token"],
+        "node": identity["node_name"],
+        "filename": filename,
+        "status": status,
+        "progress": progress,
+        "speed_mbps": 0,
+        "eta_text": "-"
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except:
+        pass
+
+def do_work():
+    identity = get_identity()
+    try:
+        config = get_config(identity)
+    except Exception as e:
+        log(f"无法获取主控配置: {e}")
+        return
+
+    qb_url = config.get("qb_url", "").rstrip('/')
+    temp_path = config.get("temp_path")
+    cd2_path = config.get("cd2_path")
+    
+    if not qb_url or not temp_path or not cd2_path:
+        log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
+        return
+
+    session = requests.Session()
+    try:
+        res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=5)
+        if res.text != "Ok.":
+            log("VPS 本地 qB 登录失败")
+            return
+    except Exception as e:
+        log(f"无法连接 VPS 本地 qB: {e}")
+        return
+
+    try:
+        res = session.get(f"{qb_url}/api/v2/torrents/info?filter=completed", timeout=5)
+        torrents = res.json()
+    except Exception as e:
+        log(f"获取 qB 任务失败: {e}")
+        return
+
+    for t in torrents:
+        if '待封装' not in t.get('tags', ''):
+            continue
+        
+        name = t['name']
+        save_path = t.get('content_path')
+        if not save_path or not os.path.exists(save_path):
+            save_path = os.path.join(t.get('save_path', ''), name)
+
+        iso_name = f"{name}.iso"
+        iso_temp = os.path.join(temp_path, iso_name)
+        iso_dest = os.path.join(cd2_path, iso_name)
+
+        if not os.path.exists(cd2_path):
+            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
+            return
+
+        log(f"====== 开始处理任务: {name} ======")
+        report(identity, iso_name, "packing", 10)
+
+        try:
+            log("正在打包生成 ISO...")
+            cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
+            subprocess.run(cmd, check=True)
+        except Exception as e:
+            log(f"打包失败: {e}")
+            report(identity, iso_name, "error", 0)
+            continue
+
+        log("打包完成！开始移动到 CD2...")
+        report(identity, iso_name, "uploading", 50)
+
+        try:
+            shutil.move(iso_temp, iso_dest)
+        except Exception as e:
+            log(f"移动到 CD2 失败: {e}")
+            report(identity, iso_name, "error", 0)
+            continue
+
+        log("✅ 上传成功！汇报状态并清理空间...")
+        report(identity, iso_name, "finished", 100)
+
+        try:
+            session.post(f"{qb_url}/api/v2/torrents/delete", data={"hashes": t['hash'], "deleteFiles": "true"})
+        except Exception as e:
+            log(f"清理 qB 任务失败: {e}")
+
+if __name__ == "__main__":
+    log("🚀 AutoISO 边缘节点启动成功！等待新任务...")
+    while True:
+        try:
+            do_work()
+        except Exception as e:
+            pass
+        time.sleep(60)
+EOF
+
+# 5. 配置为开机自启后台服务
+cat << 'EOF' > /etc/systemd/system/autoiso-agent.service
+[Unit]
+Description=AutoISO Edge Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/autoiso_agent
+ExecStart=/usr/bin/python3 /opt/autoiso_agent/agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now autoiso-agent
+
 echo "------------------------------------------------"
-echo "✅ 节点 [${nodeName}] 基础环境部署完成！"
-echo "✅ 请在浏览器访问 http://您的VPS_IP:19798 挂载 115小号"
+echo "✅ 节点 [${nodeName}] 全套环境与挂机程序部署完毕！"
+echo "✅ 挂机程序已在后台静默运行，无需再手动执行任何脚本。"
+echo "✅ (查看运行日志命令: journalctl -u autoiso-agent -f)"
+echo "✅ ⚠️ 必须的最后一步: 请在浏览器访问 http://您的VPS_IP:19798"
+echo "✅ 将 115小号 挂载到群晖面板里填写的那个路径上！"
 echo "------------------------------------------------"
 `;
         $('deployCommandText').value = bash;
