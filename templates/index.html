@@ -9,7 +9,6 @@
   <style>
     :root { --sidebar-w: 240px; }
     body { background: #f4f7fb; overflow-anchor: none; }
-    /* 侧边栏修复 */
     .sidebar { width: var(--sidebar-w); background: #1e293b !important; color: #f8fafc !important; z-index: 1045; border: none !important; box-shadow: 4px 0 15px rgba(0,0,0,0.15); }
     .sidebar .text-secondary { color: #94a3b8 !important; }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 18px 14px; } .main { margin-left: var(--sidebar-w); padding: 18px; } }
@@ -31,7 +30,6 @@
     .history-cell { font-size: .875rem; color: #6c757d; }
     .status-console { background: #05080f; color: #d1fae5; border: 1px solid #1f2937; border-radius: 10px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 12px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .88rem; line-height: 1.4; }
     
-    /* 修复表格排版的杀手锏 */
     .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .text-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; word-break: break-all; }
     
@@ -44,7 +42,6 @@
     .toast-container-custom { position: fixed; top: 20px; right: 20px; z-index: 2200; padding-top: 8px; }
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
     
-    /* 搜索框与下拉 */
     .search-container { width: 100%; max-width: 400px; z-index: 10; }
     .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
     .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
@@ -56,7 +53,6 @@
     .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
     .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
     
-    /* 刮削页面卡片与完美勾选框样式 */
     .poster-img { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; background-color: #e2e8f0; flex-shrink: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .scrape-card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #e2e8f0; border-radius: 12px; }
     .scrape-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #cbd5e1; }
@@ -64,11 +60,9 @@
     .tmdb-result-item:hover { background-color: #f8fafc; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     
-    /* 表格防错位复选框 */
     .check-col { width: 0; padding-left: 0 !important; padding-right: 0 !important; border: none !important; overflow: hidden; opacity: 0; transition: all 0.3s; visibility: collapse; white-space: nowrap; flex-shrink: 0; }
     .batch-mode .check-col { width: 40px; padding-left: 0.5rem !important; padding-right: 0.5rem !important; opacity: 1; visibility: visible; }
     
-    /* 刮削卡片防遮挡复选框 */
     .scrape-check-wrapper { width: 0; overflow: hidden; opacity: 0; transition: all 0.2s; margin-right: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
     .batch-mode .scrape-check-wrapper { width: 32px; opacity: 1; margin-right: 12px; }
     .scrape-check { width: 1.4rem; height: 1.4rem; cursor: pointer; }
@@ -135,7 +129,7 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
@@ -145,7 +139,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -171,7 +165,7 @@
               <i class="bi bi-hdd-network fs-4 me-3 text-primary"></i>
               <div>
                 <strong>集中式配置中心 (Master-Agent 架构)</strong><br>
-                在此管理所有海外 VPS 节点。生成的“部署代码”极度纯净，仅包含身份秘钥。qB 密码、挂载路径等配置将由 VPS 自动向此 NAS 拉取，<strong>修改配置即时生效，无需在 VPS 重装！</strong>
+                在此管理所有海外 VPS 节点。生成的“部署代码”极度纯净，仅包含身份秘钥。qB密码、挂载路径等配置将由 VPS 自动向此 NAS 拉取，<strong>修改配置即时生效，无需在 VPS 重装！</strong>
               </div>
             </div>
             <div class="row g-4">
@@ -182,7 +176,13 @@
                   <div class="col-12"><label class="form-label small text-muted mb-1">节点名称 (唯一标识)</label><input class="form-control form-control-sm" name="node_name" placeholder="如：日本 HostDzire" required></div>
                   <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" name="qb_url" value="http://127.0.0.1:8080" required></div>
                   <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" name="qb_user" value="admin"></div>
-                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 密码</label><input class="form-control form-control-sm" name="qb_pass" value="adminadmin"></div>
+                  <div class="col-6">
+                    <label class="form-label small text-muted mb-1">qB 密码</label>
+                    <div class="input-group input-group-sm">
+                      <input class="form-control border-end-0" type="password" name="qb_pass" id="agent_qb_pass" value="adminadmin">
+                      <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'agent_qb_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
+                    </div>
+                  </div>
                   <div class="col-12"><label class="form-label fw-bold text-dark mb-1">本地打包缓存目录</label><div class="small text-muted mb-1" style="font-size:0.75rem;">VPS上的临时高速硬盘路径，脚本将自动创建</div><input class="form-control form-control-sm border-primary" name="temp_path" placeholder="VPS临时盘路径" value="/opt/autoiso_agent/temp" required></div>
                   <div class="col-12"><label class="form-label fw-bold text-dark mb-1">115小号 CD2 挂载路径</label><div class="small text-muted mb-1" style="font-size:0.75rem;">该节点的CD2对应的115小号绝对路径</div><input class="form-control form-control-sm border-primary" name="cd2_path" placeholder="VPS上的CD2绝对路径" value="/CloudNAS/CloudDrive/115small/影视库/115中转" required></div>
                   <div class="col-12 d-flex justify-content-between mt-3 pt-3 border-top">
@@ -208,7 +208,13 @@
               <div class="col-md-6"><label class="form-label">节点名称</label><input class="form-control" name="alias" required></div>
               <div class="col-md-6"><label class="form-label">节点 URL</label><input class="form-control" name="url" placeholder="http://127.0.0.1:8080" required></div>
               <div class="col-md-6"><label class="form-label">账号</label><input class="form-control" name="username" required></div>
-              <div class="col-md-6"><label class="form-label">密码</label><input class="form-control" type="password" name="password" placeholder="留空表示不修改"></div>
+              <div class="col-md-6">
+                  <label class="form-label">密码</label>
+                  <div class="input-group">
+                      <input class="form-control border-end-0" type="password" name="password" id="sys_qb_pass" placeholder="留空表示不修改">
+                      <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'sys_qb_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
+                  </div>
+              </div>
               <div class="col-md-6"><label class="form-label">监控标签</label><input id="qb_monitor_tag" class="form-control" placeholder="待封装"></div>
               <div class="col-md-6 d-flex align-items-end gap-2"><button class="btn btn-primary" type="submit">保存</button><button class="btn btn-outline-info" type="button" id="btnTestQb">连接测试</button></div>
             </form>
@@ -221,12 +227,25 @@
               </table>
             </div>
           </div>
+          
           <div class="tab-pane fade" id="tabUser">
             <form id="userForm" class="row g-3">
               <div class="col-md-6"><label class="form-label">系统登录用户名</label><input class="form-control" name="auth_username" required></div>
               <div class="col-md-6"></div>
-              <div class="col-md-6"><label class="form-label">新密码</label><input class="form-control" type="password" name="auth_password" placeholder="留空则不修改"></div>
-              <div class="col-md-6"><label class="form-label">确认新密码</label><input class="form-control" type="password" name="auth_password_confirm"></div>
+              <div class="col-md-6">
+                  <label class="form-label">新密码</label>
+                  <div class="input-group">
+                      <input class="form-control border-end-0" type="password" name="auth_password" id="sys_auth_pass" placeholder="留空则不修改">
+                      <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'sys_auth_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
+                  </div>
+              </div>
+              <div class="col-md-6">
+                  <label class="form-label">确认新密码</label>
+                  <div class="input-group">
+                      <input class="form-control border-end-0" type="password" name="auth_password_confirm" id="sys_auth_pass_confirm">
+                      <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'sys_auth_pass_confirm')"><i class="bi bi-eye-slash text-muted"></i></span>
+                  </div>
+              </div>
               <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
             </form>
           </div>
@@ -395,9 +414,20 @@
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
     
-    // ----------------------------------------------------
+    // 密码明文切换逻辑
+    window.togglePwd = function(btn, inputId) {
+        const inp = $(inputId);
+        const icon = btn.querySelector('i');
+        if (inp.type === 'password') {
+            inp.type = 'text';
+            icon.classList.replace('bi-eye-slash', 'bi-eye');
+        } else {
+            inp.type = 'password';
+            icon.classList.replace('bi-eye', 'bi-eye-slash');
+        }
+    };
+
     // Agent Node CRUD 逻辑
-    // ----------------------------------------------------
     const agentNodeForm = $('agentNodeForm');
     agentNodeForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -427,6 +457,7 @@
         agentNodeForm.reset();
         agentNodeForm.agent_id.value = '';
         $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
+        if ($('agent_qb_pass').type === 'text') { togglePwd($('agent_qb_pass').nextElementSibling, 'agent_qb_pass'); }
     }
 
     $('agentNodeList').addEventListener('click', async (e) => {
@@ -475,7 +506,7 @@
         }
     }
 
-    // 纯净版一键部署弹窗生成
+    // 纯净版一键部署弹窗生成 (修复剪贴板兼容性)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -519,11 +550,22 @@ echo "------------------------------------------------"
         const text = $('deployCommandText');
         text.select();
         text.setSelectionRange(0, 99999); 
-        navigator.clipboard.writeText(text.value).then(() => {
-            notify('部署代码已成功复制到剪贴板！', 'success');
-        }).catch(err => {
+        try {
+            // 兼容 HTTP 和 HTTPS 的完美复制方案
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text.value)
+                    .then(() => notify('部署代码已成功复制！', 'success'))
+                    .catch(() => fallbackCopy());
+            } else {
+                fallbackCopy();
+            }
+        } catch (err) {
             notify('复制失败，请手动全选复制', 'danger');
-        });
+        }
+        function fallbackCopy() {
+            document.execCommand('copy');
+            notify('部署代码已成功复制！(Fallback)', 'success');
+        }
     }
 
     function initAdvancedSearch(opts) {
@@ -733,11 +775,13 @@ echo "------------------------------------------------"
         $('proxyForm').global_proxy.value=sys.global_proxy||'';
         $('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;
         $('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';
+        
+        $('deploy_master_url').value = window.location.origin;
+        $('deploy_token').value = sys.agent_token || 'autoiso_secret_token';
+        updateDeployCommand();
+
         await loadQbServers();
-        // 同时加载边缘节点列表
-        if (!$('viewSettings').classList.contains('d-none')) {
-            await loadAgentNodes();
-        }
+        if (!$('viewSettings').classList.contains('d-none')) { await loadAgentNodes(); }
     }
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
