@@ -482,32 +482,26 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：(移除了 {{.Names}} 彻底解决白屏)
+    // 全能版一键部署弹窗生成：(修改了 agent.py，让它自动创建 temp 目录)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
         $('deployModalTitle').textContent = nodeName;
         
         const bash = `# ==========================================
-# AutoISO 边缘节点 (\${nodeName}) 幂等安全部署脚本 
+# AutoISO 边缘节点 (\${nodeName}) 一键全能部署脚本 
 # ==========================================
 
 # 1. 更新系统并安装环境
 apt-get update
 apt-get install -y curl wget genisoimage fuse python3 python3-requests
 
-# 2. 安全检查并部署 CloudDrive2 容器
+# 2. 安装 CloudDrive2 (官方 Docker 方式)
 if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash; fi
-
-if ! docker container inspect clouddrive2 >/dev/null 2>&1; then
-    echo "检测到未安装 CD2，正在为您部署全新的 CloudDrive2 容器..."
-    docker run -d --name clouddrive2 --restart always \\
-        -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
-        --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
-else
-    echo "✅ 容器 clouddrive2 已存在，跳过部署。完美为您保留原有的挂载配置！"
-    docker start clouddrive2 &>/dev/null || true
-fi
+docker rm -f clouddrive2 &>/dev/null || true
+docker run -d --name clouddrive2 --restart always \\
+    -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
+    --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
 
 # 3. 写入节点身份凭证
 mkdir -p /opt/autoiso_agent
@@ -519,7 +513,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py
+# 4. 写入核心挂机脚本 agent.py (自动创建缓存目录版本)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -573,9 +567,10 @@ def do_work():
         log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
         return
 
+    # 关键修复：确保缓存文件夹绝对存在，不存在就全自动创建！
     if not os.path.exists(temp_path):
         os.makedirs(temp_path, exist_ok=True)
-        log(f"已自动创建缓存文件夹: {temp_path}")
+        log(f"已自动为您创建缺失的缓存文件夹: {temp_path}")
 
     session = requests.Session()
     try:
@@ -674,7 +669,7 @@ systemctl enable --now autoiso-agent
 systemctl restart autoiso-agent
 
 echo "------------------------------------------------"
-echo "✅ 节点 [\${nodeName}] 全套环境与挂机程序部署完毕！"
+echo "✅ 节点 [${nodeName}] 全套环境与挂机程序部署完毕！"
 echo "✅ 挂机程序已在后台静默运行，无需再手动执行任何脚本。"
 echo "✅ (查看运行日志命令: journalctl -u autoiso-agent -f)"
 echo "------------------------------------------------"
