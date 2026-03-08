@@ -482,26 +482,32 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：(修改了 genisoimage 的命令参数)
+    // 全能版一键部署弹窗生成：(修改为安全部署，不误删已有的CD2容器)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
         $('deployModalTitle').textContent = nodeName;
         
         const bash = `# ==========================================
-# AutoISO 边缘节点 (\${nodeName}) 一键全能部署脚本 
+# AutoISO 边缘节点 (\${nodeName}) 幂等安全部署脚本 
 # ==========================================
 
 # 1. 更新系统并安装环境
 apt-get update
 apt-get install -y curl wget genisoimage fuse python3 python3-requests
 
-# 2. 安装 CloudDrive2 (官方 Docker 方式)
+# 2. 安全检查并部署 CloudDrive2 容器
 if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash; fi
-docker rm -f clouddrive2 &>/dev/null || true
-docker run -d --name clouddrive2 --restart always \\
-    -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
-    --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
+
+if ! docker ps -a --format '{{.Names}}' | grep -Eq "^clouddrive2\\$"; then
+    echo "检测到未安装 CD2，正在为您部署全新的 CloudDrive2 容器..."
+    docker run -d --name clouddrive2 --restart always \\
+        -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
+        --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
+else
+    echo "✅ 容器 clouddrive2 已存在，跳过部署。完美为您保留原有的挂载配置！"
+    docker start clouddrive2 &>/dev/null || true
+fi
 
 # 3. 写入节点身份凭证
 mkdir -p /opt/autoiso_agent
@@ -567,6 +573,10 @@ def do_work():
         log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
         return
 
+    if not os.path.exists(temp_path):
+        os.makedirs(temp_path, exist_ok=True)
+        log(f"已自动创建缓存文件夹: {temp_path}")
+
     session = requests.Session()
     try:
         res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=30)
@@ -606,7 +616,6 @@ def do_work():
 
         try:
             log("正在打包生成 ISO...")
-            # 核心修复：加入了 -joliet-long (长文件名支持) 和 -udf (4GB+超大文件支持)
             cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
             subprocess.run(cmd, check=True)
         except Exception as e:
