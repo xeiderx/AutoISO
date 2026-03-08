@@ -39,7 +39,8 @@
     .modal-backdrop.confirm-backdrop { z-index: 1990 !important; }
     .toast-container-custom { position: fixed; top: 20px; right: 20px; z-index: 2200; padding-top: 8px; }
     .toast-success { background-color: rgba(25, 135, 84, 0.85) !important; color: #fff !important; border: 0 !important; }
-    /* 仿 MoviePilot 搜索框定制 */
+    
+    /* 搜索框与下拉 */
     .search-container { width: 300px; max-width: 100%; z-index: 1050; }
     .search-input-group { background: #fff; transition: all 0.2s; border: 1px solid #dee2e6; }
     .search-input-group:focus-within { box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); border-color: #86b7fe; }
@@ -50,6 +51,7 @@
     .search-dropdown.show { display: block; }
     .search-dropdown .dropdown-item { font-size: 0.88rem; padding: 8px 16px; color: #334155; }
     .search-dropdown .dropdown-item:hover { background-color: #f1f5f9; }
+    
     /* 刮削页面样式 */
     .poster-img { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; background-color: #e2e8f0; flex-shrink: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .scrape-card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #e2e8f0; border-radius: 12px; }
@@ -57,7 +59,11 @@
     .tmdb-result-item { transition: background-color 0.2s; border-radius: 8px; }
     .tmdb-result-item:hover { background-color: #f8fafc; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    
+    /* 防错位复选框 */
+    .check-col { width: 0; padding-left: 0 !important; padding-right: 0 !important; border: none !important; overflow: hidden; opacity: 0; transition: all 0.3s; visibility: collapse; white-space: nowrap; }
+    .batch-mode .check-col { width: 40px; padding-left: 0.5rem !important; padding-right: 0.5rem !important; opacity: 1; visibility: visible; }
+    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; }
   </style>
 </head>
 <body>
@@ -67,7 +73,7 @@
       <i class="bi bi-list" style="font-size: 2rem;"></i>
     </button>
   </header>
-  <aside class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+  <aside class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebarMenu">
     <div class="d-flex justify-content-between align-items-center d-lg-none mb-4 pb-2 border-bottom" style="border-color: rgba(255,255,255,0.1) !important;">
       <h5 class="mb-0 fw-bold text-white fs-5">AutoISO <span class="fs-6 text-secondary fw-normal">{{ version }}</span></h5>
       <button type="button" class="btn btn-link text-white p-1 shadow-none text-decoration-none" id="btnForceCloseSidebar">
@@ -121,8 +127,8 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
-            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:45%"><col style="width:10%"><col style="width:12%"><col style="width:20%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th>添加时间</th></tr></thead>
+            <colgroup><col style="width:5%"><col style="width:10%"><col style="width:40%"><col style="width:10%"><col style="width:15%"><col style="width:20%"></colgroup>
+            <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
@@ -131,8 +137,8 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
-            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:45%"><col style="width:10%"><col style="width:12%"><col style="width:20%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">操作</th></tr></thead>
+            <colgroup><col style="width:5%"><col style="width:10%"><col style="width:33%"><col style="width:10%"><col style="width:12%"><col style="width:10%"><col style="width:20%"></colgroup>
+            <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">自动上传</th><th class="text-center">状态</th><th class="text-center">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
@@ -145,7 +151,7 @@
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabQb" type="button">qBittorrent 设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUser" type="button">用户设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">上传设置</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram 通知</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabProxy" type="button">代理设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削设置</button></li>
         </ul>
@@ -180,8 +186,9 @@
           </div>
           <div class="tab-pane fade" id="tabUpload">
             <form id="uploadForm" class="row g-3">
+              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label" for="global_auto_upload">开启全局自动上传（关闭后仅封装，状态变为已封装）</label></div></div>
               <div class="col-md-6"><label class="form-label">自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
-              <div class="col-md-6"><label class="form-label">CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹名称（如Media/电影）"></div>
+              <div class="col-md-6"><label class="form-label">CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label" for="delete_after_upload">上传后彻底删除本地源文件</label></div></div>
               <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
             </form>
@@ -207,10 +214,7 @@
             <form id="scrapeForm" class="row g-3">
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="enable_tmdb" type="checkbox" name="enable_tmdb"><label class="form-check-label" for="enable_tmdb">开启 TMDB 自动刮削</label></div></div>
               <div class="col-md-6"><label class="form-label">TMDB API Key</label><input class="form-control" name="tmdb_api_key" placeholder="输入 v3 API Key"></div>
-              <div class="col-12 d-flex gap-2">
-                <button class="btn btn-success" type="submit">保存</button>
-                <button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button>
-              </div>
+              <div class="col-12 d-flex gap-2"><button class="btn btn-success" type="submit">保存</button><button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button></div>
             </form>
           </div>
         </div>
@@ -219,7 +223,7 @@
 
     <section id="viewHistory" class="app-view d-none">
       <div class="card"><div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3 position-relative" id="historyToolbar">
+        <div class="d-flex justify-content-between align-items-center mb-3 position-relative">
           <div class="search-container position-relative">
             <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1">
               <i class="bi bi-search text-muted"></i>
@@ -243,19 +247,31 @@
         </div>
         <div class="table-responsive">
           <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1200px;">
-            <colgroup><col style="width:3%"><col style="width:3%"><col style="width:30%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
-            <thead><tr><th class="history-check-col d-none text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
+            <colgroup><col class="check-col"><col style="width:3%"><col style="width:30%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
+            <thead><tr><th class="check-col text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
+        <div id="historyPagination"></div>
       </div></div>
     </section>
 
     <section id="viewScrape" class="app-view d-none">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1" style="width: 300px; max-width: 100%; border: 1px solid #dee2e6; background: #fff;">
-          <i class="bi bi-search text-muted"></i>
-          <input type="text" id="scrapeSearch" class="form-control border-0 shadow-none bg-transparent ms-1 px-1" placeholder="搜索原名或影片名...">
+        <div class="search-container position-relative">
+          <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1">
+            <i class="bi bi-search text-muted"></i>
+            <input type="text" id="scrapeSearch" class="form-control border-0 shadow-none bg-transparent ms-1 px-1" placeholder="搜索原名或影片名..." autocomplete="off">
+            <i class="bi bi-x-circle-fill text-secondary cursor-pointer d-none fs-6 ms-1" id="btnClearScrapeSearch"></i>
+            <i class="bi bi-caret-down-fill text-muted ms-2 transition-transform cursor-pointer" id="scrapeChevron"></i>
+          </div>
+          <div class="search-dropdown" id="scrapeDropdown">
+            <div class="dropdown-item cursor-pointer text-success" data-val="成功"><i class="bi bi-check-circle me-2"></i>成功</div>
+            <div class="dropdown-item cursor-pointer text-danger" data-val="失败"><i class="bi bi-x-circle me-2"></i>失败</div>
+            <hr class="dropdown-divider my-1">
+            <div class="px-3 py-1 small text-muted fw-bold">最近记录</div>
+            <div id="recentScrapeList"></div>
+          </div>
         </div>
         <div class="d-flex gap-2">
           <button id="btnCancelScrapeBatch" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm d-none">取消</button>
@@ -264,6 +280,7 @@
         </div>
       </div>
       <div class="row g-3" id="scrapeRecordsContainer"></div>
+      <div id="scrapePagination"></div>
     </section>
   </main>
 
@@ -288,233 +305,183 @@
       </div>
     </div>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    const toastEl = document.getElementById('toast');
-    const toast = new bootstrap.Toast(toastEl);
-    const confirmModalEl = document.getElementById('confirmModal');
-    const confirmModal = new bootstrap.Modal(confirmModalEl);
-    const logModal = new bootstrap.Modal(document.getElementById('logModal'));
-    const manualScrapeModal = new bootstrap.Modal(document.getElementById('manualScrapeModal'));
-    let currentScrapeTarget = '';
-    let askResolve = null;
-    let currentUploadStatus = 'idle';
-    let currentUploadingFile = '';
-    let currentPackingTasks = [];
     const $ = (id) => document.getElementById(id);
+    const toastEl = $('toast'), toast = new bootstrap.Toast(toastEl);
+    const confirmModalEl = $('confirmModal'), confirmModal = new bootstrap.Modal(confirmModalEl);
+    const logModal = new bootstrap.Modal($('logModal')), manualScrapeModal = new bootstrap.Modal($('manualScrapeModal'));
+    let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
+    let currentPackingTasks = [], currentScrapeTarget = '';
+    
+    // 分页状态池
+    let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
+    let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
+
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
     function notify(msg,type='primary'){toastEl.className='toast border-0';toastEl.style.backgroundColor='';toastEl.style.color='';if(type==='success'){toastEl.classList.add('toast-success');}else{const map={primary:'rgba(13,110,253,.90)',danger:'rgba(220,53,69,.90)',warning:'rgba(255,193,7,.92)'};toastEl.style.backgroundColor=map[type]||map.primary;toastEl.style.color='#fff';}$('toastBody').textContent=msg;toast.show();}
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
-    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='failed')return '<span class="badge rounded-pill text-bg-danger">失败</span>';return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
+    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='failed')return '<span class="badge rounded-pill text-bg-danger">失败</span>';return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
     $('confirmOkBtn').addEventListener('click',()=>{if(askResolve)askResolve(true);askResolve=null;confirmModal.hide();});
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
-    function statsRow(title,iconClass,data){const cards=[['总次数',data.total_count||0],['总数据',data.total_size_text||'-'],['平均耗时',data.avg_duration_text||'-'],['平均速率',data.avg_rate_text||'-'],['本月次数',data.month_count||0],['本月数据',data.month_size_text||'-']];return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>${cards.map(c=>`<div class="stats-card"><div class="stat-title">${c[0]}</div><div class="stat-value">${esc(c[1])}</div></div>`).join('')}</div></div>`;}
-    async function loadStatsAndProgress(){const stats=await api('/api/stats');currentUploadingFile=String(stats.current_uploading_file||'');$('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;const p=await api('/api/progress');currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];if(!p.active||!(p.tasks||[]).length){$('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';}else{$('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');}
-      const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
-    async function loadPending(){
-      const rows=await api('/api/pending');
-      $('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{
-        const isProcessing = currentPackingTasks.includes(x.title);
-        const badgeHtml = isProcessing ? '<span class="badge text-bg-info shadow-sm">处理中</span>' : '<span class="badge text-bg-secondary">排队中</span>';
-        return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node_alias||'-')}</td><td class="ellipsis-cell" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td class="text-center">${badgeHtml}</td><td>${esc(x.added_on||'-')}</td></tr>`;
-      }).join(''):'<tr><td colspan="6" class="text-center text-muted">暂无数据</td></tr>'
-    }
-    async function loadPendingUploads(){const rows=await api('/api/pending_uploads');$('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{const up=String(x.status||'').toLowerCase()==='uploaded';const uploadingNow=String(x.filename||'')===currentUploadingFile;const disabled=uploadingNow?'disabled':'';return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node||'NAS')}</td><td class="ellipsis-cell" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${up?'<span class="badge text-bg-success">已上传</span>':'<span class="badge text-bg-secondary">待上传</span>'}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`}).join(''):'<tr><td colspan="6" class="text-center text-muted">暂无可上传文件</td></tr>';}
-    // 高级搜索组件逻辑
-    function bindAdvancedSearch() {
-      const input = $('historySearch');
-      const clearBtn = $('btnClearSearch');
-      const chevron = $('searchChevron');
-      const dropdown = $('searchDropdown');
-      const recentList = $('recentRecordsList');
+    
+    // 高级搜索工厂
+    function initAdvancedSearch(opts) {
+      const { input, clearBtn, chevron, dropdown, recentList, getRecent, onSearch } = opts;
       if (!input) return;
-
       const doSearch = (keyword) => {
-        keyword = (keyword || '').trim();
-        input.value = keyword;
-        // 控制一键清除 X 的显示与隐藏
-        clearBtn.classList.toggle('d-none', keyword.length === 0);
-
-        const kwLower = keyword.toLowerCase();
-        document.querySelectorAll('#historyBody tr').forEach(tr => {
-          // 排除空数据提示行
-          if (tr.querySelector('td[colspan]')) return;
-
-          const txt = tr.textContent.toLowerCase();
-          const badgeEl = tr.querySelector('.badge');
-          // 提取该行的真实状态标签，判断是否为“失败”
-          const isFailed = badgeEl ? badgeEl.textContent.includes('失败') : false;
-
-          let isMatch = false;
-          if (kwLower === '成功') {
-            isMatch = !isFailed; // 只要不是失败，统统算作成功（包含待上传、已中止、删除等）
-          } else if (kwLower === '失败') {
-            isMatch = isFailed;  // 只有明确是失败的才匹配
-          } else {
-            isMatch = txt.includes(kwLower); // 正常文本搜索逻辑
-          }
-
-          tr.style.display = (!kwLower || isMatch) ? '' : 'none';
-        });
+          keyword = (keyword || '').trim();
+          input.value = keyword;
+          clearBtn.classList.toggle('d-none', keyword.length === 0);
+          onSearch(keyword.toLowerCase());
       };
-
       const populateRecent = () => {
-        const rows = document.querySelectorAll('#historyBody tr');
-        const tasks = [];
-        rows.forEach(tr => {
-          const td = tr.querySelector('.ellipsis-cell');
-          if (td && td.textContent.trim()) {
-            const name = td.textContent.trim();
-            if (!tasks.includes(name) && tasks.length < 5) tasks.push(name);
-          }
-        });
-        recentList.innerHTML = tasks.length ? tasks.map(t => `<div class="dropdown-item cursor-pointer text-truncate" data-val="${esc(t)}" title="${esc(t)}"><i class="bi bi-clock-history me-2 text-muted"></i>${esc(t)}</div>`).join('') : '<div class="px-3 py-2 small text-muted">暂无最近记录</div>';
+          const tasks = getRecent();
+          recentList.innerHTML = tasks.length ? tasks.map(t => `<div class="dropdown-item cursor-pointer text-truncate" data-val="${esc(t)}" title="${esc(t)}"><i class="bi bi-clock-history me-2 text-muted"></i>${esc(t)}</div>`).join('') : '<div class="px-3 py-2 small text-muted">暂无最近记录</div>';
       };
-
       const toggleDrop = (show) => {
-        if (show) populateRecent();
-        dropdown.classList.toggle('show', show);
-        chevron.classList.toggle('chevron-up', show);
+          if (show) populateRecent();
+          dropdown.classList.toggle('show', show);
+          chevron.classList.toggle('chevron-up', show);
       };
-
-      // 事件绑定
       input.addEventListener('input', (e) => doSearch(e.target.value));
       input.addEventListener('focus', () => toggleDrop(true));
       chevron.addEventListener('click', (e) => { e.stopPropagation(); toggleDrop(!dropdown.classList.contains('show')); });
-
-      // 点击外部关闭下拉菜单
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-container')) toggleDrop(false);
-      });
-
-      // 点击下拉项填入并搜索
+      document.addEventListener('click', (e) => { if (!e.target.closest('.search-container')) toggleDrop(false); });
       dropdown.addEventListener('click', (e) => {
-        const item = e.target.closest('.dropdown-item');
-        if (item) {
-          doSearch(item.dataset.val);
-          toggleDrop(false);
-        }
+          const item = e.target.closest('.dropdown-item');
+          if (item) { doSearch(item.dataset.val); toggleDrop(false); }
       });
-
-      // 点击 X 清除搜索
-      clearBtn.addEventListener('click', () => {
-        doSearch('');
-        input.focus();
-      });
+      clearBtn.addEventListener('click', () => { doSearch(''); input.focus(); });
+      return doSearch;
     }
-    // 加载刮削记录列表
+
+    // 分页渲染引擎
+    function renderPagination(total, page, size, containerId, onChange) {
+      const totalPages = Math.ceil(total / size) || 1;
+      const start = total === 0 ? 0 : (page - 1) * size + 1;
+      const end = Math.min(page * size, total);
+      window[`pageCb_${containerId}`] = onChange;
+      $(containerId).innerHTML = `
+          <div class="text-muted small">显示 ${start} - ${end} 条，共 ${total} 条</div>
+          <div class="d-flex align-items-center gap-2 mt-2 mt-md-0">
+              <select class="form-select form-select-sm w-auto" onchange="window['pageCb_${containerId}'](1, Number(this.value))">
+                  <option value="12" ${size===12?'selected':''}>12 条/页</option>
+                  <option value="20" ${size===20?'selected':''}>20 条/页</option>
+                  <option value="50" ${size===50?'selected':''}>50 条/页</option>
+              </select>
+              <ul class="pagination pagination-sm mb-0 shadow-sm">
+                  <li class="page-item ${page<=1?'disabled':''}"><button class="page-link" onclick="window['pageCb_${containerId}'](${page-1}, ${size})">上一页</button></li>
+                  <li class="page-item disabled"><span class="page-link text-dark">${page} / ${totalPages}</span></li>
+                  <li class="page-item ${page>=totalPages?'disabled':''}"><button class="page-link" onclick="window['pageCb_${containerId}'](${page+1}, ${size})">下一页</button></li>
+              </ul>
+          </div>
+      `;
+    }
+
+    // 仪表盘逻辑
+    function statsRow(title,iconClass,data){const cards=[['总次数',data.total_count||0],['总数据',data.total_size_text||'-'],['平均耗时',data.avg_duration_text||'-'],['平均速率',data.avg_rate_text||'-'],['本月次数',data.month_count||0],['本月数据',data.month_size_text||'-']];return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>${cards.map(c=>`<div class="stats-card"><div class="stat-title">${c[0]}</div><div class="stat-value">${esc(c[1])}</div></div>`).join('')}</div></div>`;}
+    async function loadStatsAndProgress(){const stats=await api('/api/stats');currentUploadingFile=String(stats.current_uploading_file||'');$('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;const p=await api('/api/progress');currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];if(!p.active||!(p.tasks||[]).length){$('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';}else{$('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');}const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
+    async function loadPending(){const rows=await api('/api/pending');$('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{const isProcessing=currentPackingTasks.includes(x.title);const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node_alias||'-')}</td><td class="ellipsis-cell" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td class="text-center">${badgeHtml}</td><td class="text-center">${esc(x.added_on||'-')}</td></tr>`;}).join(''):'<tr><td colspan="6" class="text-center text-muted">暂无数据</td></tr>'}
+    async function loadPendingUploads(){const rows=await api('/api/pending_uploads');$('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{const up=String(x.status||'').toLowerCase()==='uploaded';const uploadingNow=String(x.filename||'')===currentUploadingFile;const disabled=uploadingNow?'disabled':'';const autoUpload=x.auto_upload!==false;const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');const autoIcon=autoUpload?`<i class="bi bi-toggle-on text-success fs-4 cursor-pointer" title="点击关闭自动上传" data-act="toggle_auto" data-name="${esc(x.filename)}"></i>`:`<i class="bi bi-toggle-off text-secondary fs-4 cursor-pointer" title="点击开启自动上传" data-act="toggle_auto" data-name="${esc(x.filename)}"></i>`;return `<tr><td class="text-center">${i+1}</td><td>${esc(x.node||'NAS')}</td><td class="ellipsis-cell" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${autoIcon}</td><td class="text-center">${statusBadge}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`}).join(''):'<tr><td colspan="7" class="text-center text-muted">暂无可上传文件</td></tr>';}
+    
+    // 待上传交互
+    $('pendingUploadsBody').addEventListener('click',async(e)=>{
+      const tgg = e.target.closest('i[data-act="toggle_auto"]');
+      if(tgg){
+        try{ await api(`/api/upload/toggle_auto/${encodeURIComponent(tgg.dataset.name)}`,{method:'POST'}); await loadPendingUploads(); }
+        catch(err){ notify(err.message,'danger'); } return;
+      }
+      const btn = e.target.closest('button[data-act]');
+      if(!btn || !btn.dataset.name) return;
+      if(btn.dataset.act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已开始上传','success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}}
+      if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地源文件吗？','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地文件','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
+    });
+
+    // 历史记录与分页
+    async function loadHistory(){
+        histAll = await api('/api/history?limit=0') || [];
+        if(!historySearchTrigger) {
+            historySearchTrigger = initAdvancedSearch({
+                input: $('historySearch'), clearBtn: $('btnClearSearch'), chevron: $('searchChevron'), dropdown: $('searchDropdown'), recentList: $('recentRecordsList'),
+                getRecent: () => Array.from(new Set(histAll.map(x=>x.task_name).filter(Boolean))).slice(0,5),
+                onSearch: (kw) => {
+                    histFiltered = histAll.filter(x => {
+                        const isFail = (x.status||'').includes('失败');
+                        if(kw === '成功') return !isFail;
+                        if(kw === '失败') return isFail;
+                        return (!kw || (x.task_name||'').toLowerCase().includes(kw) || (x.qb_server_name||'').toLowerCase().includes(kw) || (x.status||'').toLowerCase().includes(kw));
+                    });
+                    histPage = 1; renderHistory();
+                }
+            });
+        }
+        historySearchTrigger($('historySearch').value);
+    }
+    function renderHistory() {
+        const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
+        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
+        renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
+    }
+
+    // 刮削记录与分页
     async function loadScrapeRecords() {
-      const container = $('scrapeRecordsContainer');
-      if (!container || $('viewScrape').classList.contains('d-none')) return;
-      try {
-        const records = await api('/api/scrape/records');
-        container.innerHTML = (records || []).length ? records.map(r => {
+        if ($('viewScrape').classList.contains('d-none')) return;
+        scrapeAll = await api('/api/scrape/records') || [];
+        if(!scrapeSearchTrigger) {
+            scrapeSearchTrigger = initAdvancedSearch({
+                input: $('scrapeSearch'), clearBtn: $('btnClearScrapeSearch'), chevron: $('scrapeChevron'), dropdown: $('scrapeDropdown'), recentList: $('recentScrapeList'),
+                getRecent: () => Array.from(new Set(scrapeAll.map(x=>x.original_name).filter(Boolean))).slice(0,5),
+                onSearch: (kw) => {
+                    scrapeFiltered = scrapeAll.filter(x => {
+                        if(kw === '成功') return x.status === '成功';
+                        if(kw === '失败') return x.status !== '成功';
+                        return (!kw || (x.original_name||'').toLowerCase().includes(kw) || (x.title||'').toLowerCase().includes(kw));
+                    });
+                    scrapePage = 1; renderScrape();
+                }
+            });
+        }
+        scrapeSearchTrigger($('scrapeSearch').value);
+    }
+    function renderScrape() {
+        const pageData = scrapeFiltered.slice((scrapePage - 1) * scrapeSize, scrapePage * scrapeSize);
+        $('scrapeRecordsContainer').innerHTML = pageData.length ? pageData.map(r => {
           const isSuccess = r.status === '成功';
           const rawPoster = String(r.poster_url || '').trim();
-          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图片</text></svg>';
-          const encodedOriginal = encodeURIComponent(String(r.original_name || ''));
-          return `
-          <div class="col-12 col-xl-6">
-            <div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative">
-              <div class="scrape-check-col d-none d-flex align-items-center"><input type="checkbox" class="scrape-check form-check-input" style="transform: scale(1.3);" value="${r.id}"></div>
-              <img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy">
-              <div class="d-flex flex-column flex-grow-1 min-w-0">
-                <div class="d-flex justify-content-between align-items-start mb-1">
-                  <h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title || '')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>
-                  ${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}
-                </div>
-                <div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name || '')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name || '')}</div>
-                <div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div>
-                <div class="d-flex justify-content-between align-items-center mt-auto pt-2">
-                  <div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at || r.created_at || '').substring(0, 16)}</div>
-                  <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>
-                    ${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-pencil me-1"></i>重配</button>`}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>`;
-        }).join('') : '<div class="text-center text-muted py-5">暂无刮削记录</div>';
-        $('scrapeSearch')?.dispatchEvent(new Event('input'));
-      } catch (err) {
-        container.innerHTML = `<div class="text-center text-danger py-5">${esc(err.message)}</div>`;
-      }
+          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图</text></svg>';
+          return `<div class="col-12 col-xl-6"><div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative"><div class="check-col d-flex align-items-center"><input type="checkbox" class="scrape-check form-check-input shadow-sm" style="transform: scale(1.3);" value="${r.id}"></div><img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy"><div class="d-flex flex-column flex-grow-1 min-w-0"><div class="d-flex justify-content-between align-items-start mb-1"><h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}</div><div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div><div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div><div class="d-flex justify-content-between align-items-center mt-auto pt-2"><div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-pencil me-1"></i>重配</button>`}</div></div></div></div></div>`;
+        }).join('') : '<div class="text-center text-muted py-5 w-100">暂无刮削记录</div>';
+        renderPagination(scrapeFiltered.length, scrapePage, scrapeSize, 'scrapePagination', (p, s) => { scrapePage = p; scrapeSize = s; renderScrape(); });
     }
-    // 打开手动刮削弹窗
-    window.openManualScrape = function(originalName) {
-      currentScrapeTarget = String(originalName || '');
-      $('scrapeTargetName').textContent = currentScrapeTarget;
-      $('manualScrapeKeyword').value = '';
-      $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-4">请输入关键字后点击搜索</div>';
-      manualScrapeModal.show();
-    };
-    // 执行 TMDB 搜索
-    $('btnManualSearch')?.addEventListener('click', async () => {
-      const keyword = $('manualScrapeKeyword').value.trim();
-      if (!keyword) return notify('请输入搜索关键字', 'warning');
-      const btn = $('btnManualSearch');
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中';
-      $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary" role="status"></div></div>';
-      try {
-        const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) });
-        const results = Array.isArray(resp) ? resp : (resp.results || []);
-        $('tmdbSearchResults').innerHTML = results.length ? results.map(item => {
-          const rawPoster = String(item.poster_url || '').trim();
-          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8">无图</text></svg>';
-          const dataStr = encodeURIComponent(JSON.stringify(item));
-          return `
-          <div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center">
-            <img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster">
-            <div class="flex-grow-1 min-w-0">
-              <div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div>
-              <div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div>
-            </div>
-            <button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button>
-          </div>`;
-        }).join('') : '<div class="text-center text-danger py-4">未找到相关结果，请尝试修改关键字（如去除多余标点或更换中英文）</div>';
-      } catch (err) {
-        $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`;
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-search"></i> 搜索';
-      }
-    });
-    // 监听回车键搜索
-    $('manualScrapeKeyword')?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') $('btnManualSearch').click();
-    });
-    // 绑定结果到原始记录
-    window.bindScrapeResult = async function(dataStr) {
-      try {
-        const tmdbData = JSON.parse(decodeURIComponent(dataStr));
-        await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) });
-        notify('✅ 绑定成功！', 'success');
-        manualScrapeModal.hide();
-        await loadScrapeRecords();
-      } catch (err) {
-        notify(err.message, 'danger');
-      }
-    };
-    async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="history-check-col d-none align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';if(!window.searchBound){ bindAdvancedSearch(); window.searchBound=true; } else { $('historySearch').dispatchEvent(new Event('input')); }}
+
+    // 历史/刮削 批量删除交互
+    $('btnToggleHistoryBatch').addEventListener('click', () => { $('historyTable').classList.add('batch-mode'); $('btnToggleHistoryBatch').classList.add('d-none'); $('btnCancelHistoryBatch').classList.remove('d-none'); $('btnConfirmHistoryDelete').classList.remove('d-none'); });
+    $('btnCancelHistoryBatch').addEventListener('click', () => { $('historyTable').classList.remove('batch-mode'); $('btnToggleHistoryBatch').classList.remove('d-none'); $('btnCancelHistoryBatch').classList.add('d-none'); $('btnConfirmHistoryDelete').classList.add('d-none'); document.querySelectorAll('.history-check').forEach(c=>c.checked=false); $('historyCheckAll').checked=false; });
+    $('btnConfirmHistoryDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelHistoryBatch').click(); await loadHistory(); } catch (e) { notify(e.message, 'danger'); } });
+    
+    $('btnToggleScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.add('batch-mode'); $('btnToggleScrapeBatch').classList.add('d-none'); $('btnCancelScrapeBatch').classList.remove('d-none'); $('btnConfirmScrapeDelete').classList.remove('d-none'); });
+    $('btnCancelScrapeBatch').addEventListener('click', () => { $('scrapeRecordsContainer').classList.remove('batch-mode'); $('btnToggleScrapeBatch').classList.remove('d-none'); $('btnCancelScrapeBatch').classList.add('d-none'); $('btnConfirmScrapeDelete').classList.add('d-none'); document.querySelectorAll('.scrape-check').forEach(c=>c.checked=false); });
+    $('btnConfirmScrapeDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } });
+    window.deleteScrapeRecord = async function(id) { if (!await ask('确定彻底删除这条刮削记录吗？')) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } };
+
+    // 系统设置与路由等
+    async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.global_auto_upload.checked=sys.global_auto_upload!==false;uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';$('proxyForm').global_proxy.value=sys.global_proxy||'';$('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;$('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';await loadQbServers();}
+    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
-    async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';$('proxyForm').global_proxy.value=sys.global_proxy||'';$('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;$('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';await loadQbServers();}
-    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
+    
+    // 初始化挂载
     sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':(vid==='viewHistory'?'历史记录':'刮削记录'));if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();if(vid==='viewScrape')await loadScrapeRecords();});});
-    $('btnForceCloseSidebar')?.addEventListener('click', () => {
-      const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu'));
-      if(bsOffcanvas) bsOffcanvas.hide();
-    });
-    $('btnUploadPauseResume').addEventListener('click',async()=>{try{const action=currentUploadStatus==='paused'?'resume':'pause';await api('/api/upload/control',{method:'POST',body:JSON.stringify({action})});notify(action==='pause'?'上传已暂停':'上传已继续','success');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
-    $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险操作：确定要中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('上传中止指令已发送','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
-    pendingUploadsBody.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act,name=btn.dataset.name;if(!name)return;if(act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(name)}`,{method:'POST'});notify(`已开始上传：${name}`,'success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}return;}if(act==='delete'){if(!await ask('危险操作：确定要彻底删除本地的源文件吗？此操作不可逆！','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(name)}`,{method:'POST'});notify(`已删除本地文件：${name}`,'success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}});
+    $('btnForceCloseSidebar')?.addEventListener('click', () => { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); });
+    $('btnUploadPauseResume').addEventListener('click',async()=>{try{const action=currentUploadStatus==='paused'?'resume':'pause';await api('/api/upload/control',{method:'POST',body:JSON.stringify({action})});notify(action==='pause'?'已暂停':'已继续','success');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
+    $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险：确定中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('已中止','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     qbForm.addEventListener('submit',async(e)=>{e.preventDefault();try{const id=(qbForm.qb_id.value||'').trim();if(id){await api('/api/qb/update',{method:'POST',body:JSON.stringify({id:Number(id),alias:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}else{await api('/api/qbservers',{method:'POST',body:JSON.stringify({name:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}await saveSystem();qbForm.reset();qbForm.qb_id.value='';notify('保存成功','success');await loadQbServers();}catch(err){notify(err.message,'danger');}});
-    qbList.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act;if(act==='edit'){qbForm.qb_id.value=btn.dataset.id||'';qbForm.alias.value=btn.dataset.name||'';qbForm.url.value=btn.dataset.url||'';qbForm.username.value=btn.dataset.username||'';qbForm.password.value='';return;}if(act==='delete'){const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该 qB 节点吗？','删除节点'))return;try{await api(`/api/qbservers/${id}`,{method:'DELETE'});notify('节点已删除','success');await loadQbServers();}catch(err){notify(err.message,'danger');}}});
+    qbList.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act;if(act==='edit'){qbForm.qb_id.value=btn.dataset.id||'';qbForm.alias.value=btn.dataset.name||'';qbForm.url.value=btn.dataset.url||'';qbForm.username.value=btn.dataset.username||'';qbForm.password.value='';return;}if(act==='delete'){const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该 qB 节点吗？','删除节点'))return;try{await api(`/api/qbservers/${id}`,{method:'DELETE'});notify('已删除','success');await loadQbServers();}catch(err){notify(err.message,'danger');}}});
     $('btnTestQb').addEventListener('click',async()=>{try{const d=await api('/api/qb/test',{method:'POST',body:JSON.stringify({url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});notify(d.message||'连接成功','success');}catch(err){notify(err.message,'danger');}});
     userForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
     uploadForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
@@ -522,84 +489,19 @@
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('proxyForm').global_proxy.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('btnTestTmdb')?.addEventListener('click', async () => {
-      try {
-        const apiKey = scrapeForm.tmdb_api_key.value.trim();
-        const proxy = proxyForm.global_proxy.value.trim(); // 获取全局代理，因为 TMDB 需要翻墙
-        if (!apiKey) throw new Error("请先填写 TMDB API Key");
-
-        notify('正在测试 TMDB 连接，请稍候...', 'primary');
-        const res = await api('/api/tmdb/test', {
-          method: 'POST',
-          body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy })
-        });
-        notify(res.message || 'TMDB 连接测试成功！', 'success');
-      } catch (err) {
-        notify(err.message, 'danger');
-      }
-    });
-    $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？','清空 Telegram 配置'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('Telegram 配置已清空','success');}catch(err){notify(err.message,'danger');}});
+    $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = proxyForm.global_proxy.value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
+    $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
-    // 历史记录批量删除逻辑
-    $('btnToggleHistoryBatch').addEventListener('click', () => {
-      document.querySelectorAll('.history-check-col').forEach(el => el.classList.remove('d-none'));
-      $('btnToggleHistoryBatch').classList.add('d-none');
-      $('btnCancelHistoryBatch').classList.remove('d-none');
-      $('btnConfirmHistoryDelete').classList.remove('d-none');
-    });
-    $('btnCancelHistoryBatch').addEventListener('click', () => {
-      document.querySelectorAll('.history-check-col').forEach(el => el.classList.add('d-none'));
-      $('btnToggleHistoryBatch').classList.remove('d-none');
-      $('btnCancelHistoryBatch').classList.add('d-none');
-      $('btnConfirmHistoryDelete').classList.add('d-none');
-      document.querySelectorAll('.history-check').forEach(c => c.checked = false);
-      $('historyCheckAll').checked = false;
-    });
-    $('btnConfirmHistoryDelete').addEventListener('click', async () => {
-      const ids = Array.from(document.querySelectorAll('.history-check:checked')).map(x => Number(x.value));
-      if (!ids.length) return notify('请先勾选要删除的记录', 'warning');
-      if (!await ask(`确定删除选中的 ${ids.length} 条历史记录吗？`)) return;
-      try { await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelHistoryBatch').click(); await loadHistory(); } catch (e) { notify(e.message, 'danger'); }
-    });
-
-    // 刮削记录批量删除逻辑
-    $('btnToggleScrapeBatch').addEventListener('click', () => {
-      document.querySelectorAll('.scrape-check-col').forEach(el => el.classList.remove('d-none'));
-      $('btnToggleScrapeBatch').classList.add('d-none');
-      $('btnCancelScrapeBatch').classList.remove('d-none');
-      $('btnConfirmScrapeDelete').classList.remove('d-none');
-    });
-    $('btnCancelScrapeBatch').addEventListener('click', () => {
-      document.querySelectorAll('.scrape-check-col').forEach(el => el.classList.add('d-none'));
-      $('btnToggleScrapeBatch').classList.remove('d-none');
-      $('btnCancelScrapeBatch').classList.add('d-none');
-      $('btnConfirmScrapeDelete').classList.add('d-none');
-      document.querySelectorAll('.scrape-check').forEach(c => c.checked = false);
-    });
-    $('btnConfirmScrapeDelete').addEventListener('click', async () => {
-      const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x => Number(x.value));
-      if (!ids.length) return notify('请先勾选记录', 'warning');
-      if (!await ask(`确定删除选中的 ${ids.length} 条刮削记录吗？`)) return;
-      try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); }
-    });
-
-    // 刮削记录单条删除
-    window.deleteScrapeRecord = async function(id) {
-      if (!await ask('确定彻底删除这条刮削记录吗？')) return;
-      try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); }
-    };
-
-    // 刮削页面本地搜索过滤
-    $('scrapeSearch')?.addEventListener('input', (e) => {
-      const kw = e.target.value.trim().toLowerCase();
-      document.querySelectorAll('#scrapeRecordsContainer > div').forEach(col => {
-        const text = col.textContent.toLowerCase();
-        col.style.display = text.includes(kw) ? '' : 'none';
-      });
-    });
     $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
-    $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志文件吗？','清空日志'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('日志已清空','success');}catch(err){notify(err.message,'danger');}});
+    $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志吗？'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
+    
+    // TMDB 手动刮削弹窗交互
+    window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-4">请输入关键字后点击搜索</div>'; manualScrapeModal.show(); };
+    $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8">无图</text></svg>'; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button></div>`; }).join('') : '<div class="text-center text-danger py-4">未找到结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> 搜索'; } });
+    $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
+    window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); manualScrapeModal.hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
+    
     confirmModalEl.addEventListener('shown.bs.modal',()=>{setTimeout(()=>{const b=document.querySelectorAll('.modal-backdrop');if(b.length)b[b.length-1].classList.add('confirm-backdrop');},0);});
     async function boot(){try{await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPending();await loadPendingUploads();}catch(_e){}}},5000);}
     boot();

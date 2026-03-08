@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.3"
+APP_VERSION = "v0.7.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -133,6 +133,7 @@ class UploadHistory(db.Model):
     upload_start_time = db.Column(db.Text, nullable=True)
     upload_end_time = db.Column(db.Text, nullable=True)
     message = db.Column(db.Text, nullable=True)
+    auto_upload = db.Column(db.Boolean, nullable=True)
 
 
 class ScrapeRecord(db.Model):
@@ -231,6 +232,8 @@ def ensure_schema():
             conn.execute(text("ALTER TABLE upload_history ADD COLUMN upload_start_time TEXT"))
         if "upload_end_time" not in upload_columns:
             conn.execute(text("ALTER TABLE upload_history ADD COLUMN upload_end_time TEXT"))
+        if "auto_upload" not in upload_columns:
+            conn.execute(text("ALTER TABLE upload_history ADD COLUMN auto_upload BOOLEAN"))
 
         # Backward-compatible migration requirement for legacy schema.
         for sql in (
@@ -306,6 +309,36 @@ def get_global_proxy():
 def get_delete_after_upload():
     value = (get_setting("delete_after_upload") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def get_global_auto_upload():
+    raw = get_setting("global_auto_upload")
+    if raw == "":
+        return True
+    return parse_bool(raw, default=True)
+
+
+def get_task_auto_upload(filename):
+    safe_name = os.path.basename(str(filename or "").strip())
+    if not safe_name:
+        return get_global_auto_upload()
+    row = UploadHistory.query.filter_by(filename=safe_name).first()
+    if row and row.auto_upload is not None:
+        return bool(row.auto_upload)
+    return get_global_auto_upload()
+
+
+def set_task_auto_upload(filename, enabled):
+    safe_name = os.path.basename(str(filename or "").strip())
+    if not safe_name:
+        raise ValueError("文件名不合法")
+    row = UploadHistory.query.filter_by(filename=safe_name).first()
+    if not row:
+        row = UploadHistory(filename=safe_name, status="pending", message="")
+        db.session.add(row)
+    row.auto_upload = bool(enabled)
+    db.session.commit()
+    return row
 
 
 def get_enable_tmdb():
@@ -1151,6 +1184,7 @@ def process_uploads():
 
             pending_names = get_pending_upload_files()
             logger.info("开始检查待上传队列，待处理=%s，目标路径=%s，模式=%s", len(pending_names), clouddrive_path, "上传后删除" if delete_after_upload else "上传后保留")
+            global_auto_upload = get_global_auto_upload()
 
             for file_name in pending_names:
                 src_path = os.path.join(OUTPUT_DIR, file_name)
@@ -1158,6 +1192,17 @@ def process_uploads():
                 task_name = os.path.splitext(file_name)[0]
                 row = find_pack_row_for_upload(file_name)
                 task_id = row.id if row else None
+                task_auto_upload = get_task_auto_upload(file_name)
+                should_auto_upload = global_auto_upload and task_auto_upload
+                if not should_auto_upload:
+                    reason = "global auto upload disabled" if not global_auto_upload else "task auto upload disabled"
+                    if row:
+                        row.status = "已封装"
+                        row.info = reason
+                        db.session.commit()
+                    mark_upload_status(file_name, "packed", reason, task_id=task_id)
+                    logger.info("自动上传已跳过，文件=%s，原因=%s", file_name, reason)
+                    continue
 
                 if row:
                     row.status = STATUS_UPLOADING
@@ -1826,6 +1871,7 @@ def get_system_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "global_auto_upload": get_global_auto_upload(),
             "global_proxy": get_global_proxy(),
             "enable_tmdb": get_enable_tmdb(),
             "tmdb_api_key": get_tmdb_api_key(),
@@ -1857,6 +1903,7 @@ def save_system_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    global_auto_upload = parse_bool(payload.get("global_auto_upload"), default=get_global_auto_upload())
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
     enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
     tmdb_api_key = (payload.get("tmdb_api_key") or "").strip() if "tmdb_api_key" in payload else get_tmdb_api_key()
@@ -1895,6 +1942,7 @@ def save_system_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("global_auto_upload", "1" if global_auto_upload else "0")
     set_setting("global_proxy", global_proxy)
     set_setting("enable_tmdb", "1" if enable_tmdb else "0")
     set_setting("tmdb_api_key", tmdb_api_key)
@@ -1910,6 +1958,7 @@ def save_system_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "global_auto_upload": global_auto_upload,
             "global_proxy": global_proxy,
             "enable_tmdb": enable_tmdb,
             "tmdb_api_key": tmdb_api_key,
@@ -1931,6 +1980,7 @@ def get_auth_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "global_auto_upload": get_global_auto_upload(),
             "global_proxy": get_global_proxy(),
             "enable_tmdb": get_enable_tmdb(),
             "tmdb_api_key": get_tmdb_api_key(),
@@ -1954,6 +2004,7 @@ def save_auth_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    global_auto_upload = parse_bool(payload.get("global_auto_upload"), default=get_global_auto_upload())
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
     enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
     tmdb_api_key = (payload.get("tmdb_api_key") or "").strip() if "tmdb_api_key" in payload else get_tmdb_api_key()
@@ -1977,6 +2028,7 @@ def save_auth_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("global_auto_upload", "1" if global_auto_upload else "0")
     set_setting("global_proxy", global_proxy)
     set_setting("enable_tmdb", "1" if enable_tmdb else "0")
     set_setting("tmdb_api_key", tmdb_api_key)
@@ -1992,6 +2044,7 @@ def save_auth_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "global_auto_upload": global_auto_upload,
             "global_proxy": global_proxy,
             "enable_tmdb": enable_tmdb,
             "tmdb_api_key": tmdb_api_key,
@@ -2213,6 +2266,7 @@ def list_pending_uploads():
                 "size_gb": size_gb,
                 "node": node_name,
                 "status": status_text,
+                "auto_upload": bool(get_task_auto_upload(name)),
             }
         )
     return jsonify(rows)
@@ -2231,6 +2285,25 @@ def upload_now(filename):
     thread = threading.Thread(target=process_single_upload, args=(safe_name,), daemon=True)
     thread.start()
     return jsonify({"ok": True, "message": "上传任务已启动", "file_name": safe_name})
+
+
+@app.route("/api/upload/toggle_auto/<path:filename>", methods=["POST"])
+def toggle_task_auto_upload(filename):
+    safe_name = os.path.basename((filename or "").strip())
+    if not safe_name or safe_name != filename or safe_name.startswith("."):
+        return jsonify({"error": "文件名不合法"}), 400
+    if not is_valid_upload_file(safe_name) and not UploadHistory.query.filter_by(filename=safe_name).first():
+        return jsonify({"error": "文件不存在"}), 404
+
+    current_state = bool(get_task_auto_upload(safe_name))
+    next_state = not current_state
+    try:
+        set_task_auto_upload(safe_name, next_state)
+        return jsonify({"ok": True, "filename": safe_name, "auto_upload": next_state})
+    except Exception:
+        db.session.rollback()
+        logger.exception("切换任务自动上传状态失败: %s", safe_name)
+        return jsonify({"error": "切换失败"}), 500
 
 
 @app.route("/api/delete_local/<path:filename>", methods=["POST"])
@@ -2440,6 +2513,8 @@ with app.app_context():
         set_setting("notify_upload_start", "1")
     if not get_setting("notify_upload_end"):
         set_setting("notify_upload_end", "1")
+    if not get_setting("global_auto_upload"):
+        set_setting("global_auto_upload", "1")
     # 启动时清理僵尸上传状态，避免历史记录卡死
     PackHistory.query.filter_by(status=STATUS_UPLOADING).update(
         {
