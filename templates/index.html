@@ -482,7 +482,7 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：(将所有 timeout 改为了 30 秒)
+    // 全能版一键部署弹窗生成：(修改了 genisoimage 的命令参数)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -513,7 +513,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (内置30秒防超时机制)
+# 4. 写入核心挂机脚本 agent.py
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -606,7 +606,8 @@ def do_work():
 
         try:
             log("正在打包生成 ISO...")
-            cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
+            # 核心修复：加入了 -joliet-long (长文件名支持) 和 -udf (4GB+超大文件支持)
+            cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
             subprocess.run(cmd, check=True)
         except Exception as e:
             log(f"打包失败: {e}")
