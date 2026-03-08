@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.7"
+APP_VERSION = "v0.7.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2440,7 +2440,7 @@ def list_pending_uploads():
                 "node": node_name,
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(name)),
-                "display_name": build_display_name(name),
+                "display_name": build_display_name(os.path.splitext(name)[0]),
             }
         )
     return jsonify(rows)

@@ -31,14 +31,15 @@
     .history-cell { font-size: .875rem; color: #6c757d; }
     .status-console { background: #05080f; color: #d1fae5; border: 1px solid #1f2937; border-radius: 10px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 12px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .88rem; line-height: 1.4; }
     
-    /* 高级多行文本截断 (彻底释放 max-width，交由 colgroup 百分比控制) */
-    .ellipsis-cell { 
-        display: -webkit-box; 
-        -webkit-line-clamp: 2; 
-        -webkit-box-orient: vertical; 
-        overflow: hidden; 
-        white-space: normal; 
-        word-break: break-all; 
+    /* 修复表格排版的杀手锏：内部文本截断，绝不影响 td 结构 */
+    .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .text-clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: normal;
+        word-break: break-all;
     }
     
     .nav-tabs { border-bottom: 1px solid #e5e7eb; }
@@ -141,8 +142,8 @@
         <h6 class="mb-3">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">添加时间</th></tr></thead>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:22%"></colgroup>
+            <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
@@ -151,8 +152,8 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
-            <thead><tr><th class="text-center">序号</th><th class="text-center">节点</th><th>名称</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">自动上传</th><th class="text-center">操作</th></tr></thead>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"></colgroup>
+            <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
@@ -411,12 +412,21 @@
     function statsRow(title,iconClass,data){const cards=[['总次数',data.total_count||0],['总数据',data.total_size_text||'-'],['平均耗时',data.avg_duration_text||'-'],['平均速率',data.avg_rate_text||'-'],['本月次数',data.month_count||0],['本月数据',data.month_size_text||'-']];return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>${cards.map(c=>`<div class="stats-card"><div class="stat-title">${c[0]}</div><div class="stat-value">${esc(c[1])}</div></div>`).join('')}</div></div>`;}
     async function loadStatsAndProgress(){const stats=await api('/api/stats');currentUploadingFile=String(stats.current_uploading_file||'');$('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;const p=await api('/api/progress');currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];if(!p.active||!(p.tasks||[]).length){$('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';}else{$('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');}const up=stats.upload_progress||{};const cs=stats.current_upload_status||{};currentUploadStatus=String(cs.status||'idle');const active=Boolean(up.active||cs.active);if(!active){$('uploadTaskStatus').innerHTML='<div class="text-muted">暂无上传任务</div>';$('btnUploadPauseResume').classList.add('d-none');$('btnUploadAbort').classList.add('d-none');return;}const f=up.file_name||cs.file_name||'';const pct=Number(up.percentage||0);const paused=currentUploadStatus==='paused';$('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;$('btnUploadPauseResume').classList.remove('d-none');$('btnUploadAbort').classList.remove('d-none');$('btnUploadPauseResume').textContent=paused?'继续':'暂停';$('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'}`;}
     
+    // 采用 div 包裹多行文本截断，保护 td 不受破坏
     async function loadPending(){
         const rows=await api('/api/pending');
         $('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{
             const isProcessing=currentPackingTasks.includes(x.title);
             const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';
-            return `<tr><td class="text-center">${i+1}</td><td class="text-center">${esc(x.node_alias||'-')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.title||'')}">${esc(x.title||'')}</td><td class="text-center">${Number(x.size_gb||0).toFixed(3)}</td><td class="text-center">${badgeHtml}</td><td class="text-center">${esc(x.added_on||'-')}</td></tr>`;
+            return `<tr>
+              <td class="text-center align-middle">${i+1}</td>
+              <td class="text-center align-middle">${esc(x.node_alias||'-')}</td>
+              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
+              <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.title||'')}">${esc(x.title||'')}</div></td>
+              <td class="text-center align-middle">${Number(x.size_gb||0).toFixed(3)}</td>
+              <td class="text-center align-middle">${badgeHtml}</td>
+              <td class="text-center align-middle">${esc(x.added_on||'-')}</td>
+            </tr>`;
         }).join(''):'<tr><td colspan="7" class="text-center text-muted">暂无数据</td></tr>'
     }
     
@@ -429,7 +439,16 @@
             const autoUpload=x.auto_upload!==false;
             const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');
             const autoIcon=`<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
-            return `<tr><td class="text-center">${i+1}</td><td class="text-center">${esc(x.node||'NAS')}</td><td class="ellipsis-cell fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</td><td class="ellipsis-cell text-muted" title="${esc(x.filename||'')}">${esc(x.filename||'')}</td><td class="text-center">${Number(x.size_gb||x.size||0).toFixed(3)}</td><td class="text-center">${statusBadge}</td><td class="text-center align-middle">${autoIcon}</td><td class="text-center"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td></tr>`
+            return `<tr>
+              <td class="text-center align-middle">${i+1}</td>
+              <td class="text-center align-middle">${esc(x.node||'NAS')}</td>
+              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
+              <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
+              <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
+              <td class="text-center align-middle">${statusBadge}</td>
+              <td class="text-center align-middle">${autoIcon}</td>
+              <td class="text-center align-middle"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'}" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td>
+            </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
     
@@ -508,7 +527,7 @@
           const isSuccess = r.status === '成功';
           const rawPoster = String(r.poster_url || '').trim();
           const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图</text></svg>';
-          return `<div class="col-12 col-xl-6"><div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative"><div class="scrape-check-wrapper"><input type="checkbox" class="scrape-check form-check-input m-0 shadow-sm" value="${r.id}"></div><img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy"><div class="d-flex flex-column flex-grow-1 min-w-0"><div class="d-flex justify-content-between align-items-start mb-1"><h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}</div><div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div><div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div><div class="d-flex justify-content-between align-items-center mt-auto pt-2"><div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-pencil me-1"></i>重配</button>`}</div></div></div></div></div>`;
+          return `<div class="col-12 col-xl-6"><div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative"><div class="scrape-check-wrapper"><input type="checkbox" class="scrape-check form-check-input m-0 shadow-sm" value="${r.id}"></div><img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy"><div class="d-flex flex-column flex-grow-1" style="min-width: 0;"><div class="d-flex justify-content-between align-items-start mb-1"><h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>${isSuccess ? '<span class="badge bg-success rounded-pill px-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-2">失败</span>'}</div><div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div><div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div><div class="d-flex justify-content-between align-items-center mt-auto pt-2"><div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape('${encodeURIComponent(r.original_name)}')"><i class="bi bi-pencil me-1"></i>重配</button>`}</div></div></div></div></div>`;
         }).join('') : '<div class="text-center text-muted py-5 w-100">暂无刮削记录</div>';
         renderPagination(scrapeFiltered.length, scrapePage, scrapeSize, 'scrapePagination', (p, s) => { scrapePage = p; scrapeSize = s; renderScrape(); });
     }
