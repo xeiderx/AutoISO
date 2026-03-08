@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.6.7"
+APP_VERSION = "v0.6.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -252,9 +252,21 @@ def get_qb_monitor_tag():
     return (get_setting("qb_monitor_tag") or DEFAULT_QB_MONITOR_TAG).strip() or DEFAULT_QB_MONITOR_TAG
 
 
+def get_global_proxy():
+    return (get_setting("global_proxy") or "").strip()
+
+
 def get_delete_after_upload():
     value = (get_setting("delete_after_upload") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def get_enable_tmdb():
+    return parse_bool(get_setting("enable_tmdb"), default=False)
+
+
+def get_tmdb_api_key():
+    return (get_setting("tmdb_api_key") or "").strip()
 
 
 def get_notify_flag(key, default=True):
@@ -749,13 +761,16 @@ def extract_error_tail(stderr, stdout):
 def send_tg_notification(text_msg):
     token = get_setting("tg_token")
     chat_id = get_setting("tg_chat_id")
-    proxy_url = get_setting("tg_proxy").strip()
-    return send_tg_notification_with_config(text_msg, token, chat_id, proxy_url)
+    return send_tg_notification_with_config(text_msg, token, chat_id)
 
 
-def send_tg_notification_with_config(text_msg, token, chat_id, proxy_url=""):
+def send_tg_notification_with_config(text_msg, token, chat_id, proxy_url=None):
     if not token or not chat_id:
         return False, "tg_token 或 tg_chat_id 未配置"
+
+    if proxy_url is None:
+        proxy_url = get_global_proxy()
+    proxy_url = (proxy_url or "").strip()
 
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     request_kwargs = {"json": {"chat_id": chat_id, "text": text_msg}, "timeout": 15}
@@ -1363,7 +1378,6 @@ def get_telegram_settings():
         {
             "tg_token": get_setting("tg_token"),
             "tg_chat_id": get_setting("tg_chat_id"),
-            "tg_proxy": get_setting("tg_proxy"),
         }
     )
 
@@ -1373,12 +1387,10 @@ def save_telegram_settings():
     payload = request.get_json(force=True) or {}
     tg_token = (payload.get("tg_token") or "").strip()
     tg_chat_id = (payload.get("tg_chat_id") or "").strip()
-    tg_proxy = (payload.get("tg_proxy") or "").strip()
     if not tg_token or not tg_chat_id:
         return jsonify({"error": "tg_token 和 tg_chat_id 不能为空"}), 400
     set_setting("tg_token", tg_token)
     set_setting("tg_chat_id", tg_chat_id)
-    set_setting("tg_proxy", tg_proxy)
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -1388,8 +1400,7 @@ def test_telegram_settings():
     payload = request.get_json(force=True) or {}
     tg_token = (payload.get("tg_token") or "").strip()
     tg_chat_id = (payload.get("tg_chat_id") or "").strip()
-    tg_proxy = (payload.get("tg_proxy") or "").strip()
-    ok, msg = send_tg_notification_with_config("TG 通知测试成功！", tg_token, tg_chat_id, tg_proxy)
+    ok, msg = send_tg_notification_with_config("TG 通知测试成功！", tg_token, tg_chat_id)
     if not ok:
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
@@ -1399,7 +1410,6 @@ def test_telegram_settings():
 def clear_telegram_settings():
     delete_setting("tg_token")
     delete_setting("tg_chat_id")
-    delete_setting("tg_proxy")
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -1419,6 +1429,9 @@ def get_system_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "global_proxy": get_global_proxy(),
+            "enable_tmdb": get_enable_tmdb(),
+            "tmdb_api_key": get_tmdb_api_key(),
         }
     )
 
@@ -1427,19 +1440,29 @@ def get_system_settings():
 @app.route("/api/config/update", methods=["POST"])
 def save_system_settings():
     payload = request.get_json(force=True) or {}
-    auth_username = (payload.get("auth_username") or "").strip()
+    current_auth_username, _ = get_auth_credentials()
+    auth_username = (
+        (payload.get("auth_username") or "").strip()
+        if "auth_username" in payload
+        else (current_auth_username or DEFAULT_ADMIN_USERNAME)
+    )
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
-    upload_cron_expr = (payload.get("upload_cron") or "").strip()
-    clouddrive_path = (payload.get("clouddrive_path") or "").strip()
-    qb_monitor_tag = (payload.get("qb_monitor_tag") or "").strip()
-    delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=False)
+    upload_cron_expr = (payload.get("upload_cron") or "").strip() if "upload_cron" in payload else get_upload_cron()
+    clouddrive_path = (
+        (payload.get("clouddrive_path") or "").strip() if "clouddrive_path" in payload else get_clouddrive_path()
+    )
+    qb_monitor_tag = (payload.get("qb_monitor_tag") or "").strip() if "qb_monitor_tag" in payload else get_qb_monitor_tag()
+    delete_after_upload = parse_bool(payload.get("delete_after_upload"), default=get_delete_after_upload())
     notify_pack_start = parse_bool(payload.get("notify_pack_start"), default=get_notify_flag("notify_pack_start", True))
     notify_pack_end = parse_bool(payload.get("notify_pack_end"), default=get_notify_flag("notify_pack_end", True))
     notify_upload_start = parse_bool(
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
+    enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
+    tmdb_api_key = (payload.get("tmdb_api_key") or "").strip() if "tmdb_api_key" in payload else get_tmdb_api_key()
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -1475,6 +1498,9 @@ def save_system_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("global_proxy", global_proxy)
+    set_setting("enable_tmdb", "1" if enable_tmdb else "0")
+    set_setting("tmdb_api_key", tmdb_api_key)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -1487,6 +1513,9 @@ def save_system_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "global_proxy": global_proxy,
+            "enable_tmdb": enable_tmdb,
+            "tmdb_api_key": tmdb_api_key,
         }
     )
 
@@ -1505,13 +1534,16 @@ def get_auth_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "global_proxy": get_global_proxy(),
+            "enable_tmdb": get_enable_tmdb(),
+            "tmdb_api_key": get_tmdb_api_key(),
         }
     )
 
 
 @app.route("/api/settings/auth", methods=["POST"])
 def save_auth_settings():
-    payload = request.get_json(force=True)
+    payload = request.get_json(force=True) or {}
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
@@ -1525,6 +1557,9 @@ def save_auth_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
+    enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
+    tmdb_api_key = (payload.get("tmdb_api_key") or "").strip() if "tmdb_api_key" in payload else get_tmdb_api_key()
 
     if not auth_username or not auth_password or not auth_password_confirm:
         return jsonify({"error": "账号和密码不能为空"}), 400
@@ -1545,6 +1580,9 @@ def save_auth_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("global_proxy", global_proxy)
+    set_setting("enable_tmdb", "1" if enable_tmdb else "0")
+    set_setting("tmdb_api_key", tmdb_api_key)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -1557,6 +1595,9 @@ def save_auth_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "global_proxy": global_proxy,
+            "enable_tmdb": enable_tmdb,
+            "tmdb_api_key": tmdb_api_key,
         }
     )
 
