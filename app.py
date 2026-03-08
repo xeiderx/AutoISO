@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.6.9"
+APP_VERSION = "v0.7.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -75,6 +75,14 @@ UPLOAD_PROGRESS_LOCK = threading.Lock()
 UPLOAD_ENGINE_LOCK = threading.Lock()
 GB = 1024**3
 LOG_TS_RE = re.compile(r"^(?P<dt>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,\d{3})?\s")
+TMDB_API_BASE = "https://api.themoviedb.org/3"
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+SCRAPE_STATUS_SUCCESS = "成功"
+SCRAPE_STATUS_FAILED = "失败"
+SCRAPE_NOISE_RE = re.compile(
+    r"(?i)\b(?:2160p|1080p|720p|480p|4k|uhd|blu[\s-]?ray|bdrip|brrip|remux|web[\s-]?dl|webrip|hdtv|dvdrip|x264|x265|h\.?264|h\.?265|hevc|avc|aac|ac3|dts(?:-?hd)?|truehd|atmos|hdr10\+?|dolby[\s-]?vision|dv|10bit|8bit|proper|repack|extended|uncut|sample|subs?|multi|dual(?:audio)?|国语|粤语|中字|简繁|内封|官译)\b"
+)
+SCRAPE_EPISODE_RE = re.compile(r"(?i)\b(?:S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|第\d+[季集])\b")
 
 
 class QBServer(db.Model):
@@ -124,6 +132,25 @@ class UploadHistory(db.Model):
     upload_start_time = db.Column(db.Text, nullable=True)
     upload_end_time = db.Column(db.Text, nullable=True)
     message = db.Column(db.Text, nullable=True)
+
+
+class ScrapeRecord(db.Model):
+    __tablename__ = "scrape_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    original_name = db.Column(db.String(512), nullable=False, unique=True, index=True)
+    tmdb_id = db.Column(db.Integer, nullable=True, index=True)
+    title = db.Column(db.String(255), nullable=True)
+    year = db.Column(db.String(8), nullable=True)
+    poster_url = db.Column(db.String(512), nullable=True)
+    overview = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(16), nullable=False, default=SCRAPE_STATUS_FAILED)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(TZ),
+        onupdate=lambda: datetime.now(TZ),
+    )
 
 
 def setup_logging():
@@ -214,6 +241,25 @@ def ensure_schema():
             except Exception:
                 pass
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS scrape_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    original_name VARCHAR(512) NOT NULL UNIQUE,
+                    tmdb_id INTEGER,
+                    title VARCHAR(255),
+                    year VARCHAR(8),
+                    poster_url VARCHAR(512),
+                    overview TEXT,
+                    status VARCHAR(16) NOT NULL DEFAULT '失败',
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_scrape_records_original_name ON scrape_records(original_name)"))
+
 
 def get_setting(key):
     item = SystemSetting.query.filter_by(key=key).first()
@@ -267,6 +313,172 @@ def get_enable_tmdb():
 
 def get_tmdb_api_key():
     return (get_setting("tmdb_api_key") or "").strip()
+
+
+def clean_filename(name):
+    raw = os.path.basename(str(name or "").strip())
+    raw = os.path.splitext(raw)[0]
+    if not raw:
+        return ""
+
+    year_match = re.search(r"\b(?:19|20)\d{2}\b", raw)
+    year_token = year_match.group(0) if year_match else ""
+
+    text_name = raw.replace(".", " ").replace("_", " ").replace("-", " ")
+    text_name = re.sub(r"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|【[^】]*】|（[^）]*）", " ", text_name)
+    text_name = SCRAPE_EPISODE_RE.sub(" ", text_name)
+    text_name = SCRAPE_NOISE_RE.sub(" ", text_name)
+    text_name = re.sub(r"\s+", " ", text_name).strip()
+
+    if year_token and year_token not in text_name:
+        text_name = f"{text_name} {year_token}".strip()
+    return text_name
+
+
+def normalize_poster_path(poster_value):
+    v = (poster_value or "").strip()
+    if not v:
+        return ""
+    if v.startswith(TMDB_IMAGE_BASE):
+        return v[len(TMDB_IMAGE_BASE) :]
+    return v if v.startswith("/") else ""
+
+
+def build_poster_url(poster_path):
+    p = normalize_poster_path(poster_path)
+    return f"{TMDB_IMAGE_BASE}{p}" if p else ""
+
+
+def tmdb_request(path, *, params=None, api_key=None, proxy_url=None, timeout=10):
+    token = (api_key or "").strip() or get_tmdb_api_key()
+    if not token:
+        raise ValueError("TMDB API Key 未配置")
+
+    req_params = {"api_key": token}
+    if params:
+        req_params.update(params)
+
+    request_kwargs = {"params": req_params, "timeout": timeout}
+    proxy = (proxy_url or "").strip()
+    if proxy:
+        request_kwargs["proxies"] = {"http": proxy, "https": proxy}
+    return requests.get(f"{TMDB_API_BASE}{path}", **request_kwargs)
+
+
+def format_tmdb_item(item):
+    if not item or not item.get("id"):
+        return None
+    title = (item.get("title") or item.get("name") or item.get("original_title") or item.get("original_name") or "").strip()
+    release_date = (item.get("release_date") or item.get("first_air_date") or "").strip()
+    year = release_date[:4] if release_date else ""
+    poster_path = normalize_poster_path(item.get("poster_path") or item.get("poster_url") or "")
+    return {
+        "id": int(item.get("id")),
+        "title": title or f"TMDB#{item.get('id')}",
+        "year": year,
+        "poster_url": build_poster_url(poster_path),
+        "poster_path": poster_path,
+        "overview": (item.get("overview") or "").strip(),
+    }
+
+
+def search_tmdb_candidates(keyword, limit=10):
+    kw = (keyword or "").strip()
+    if not kw:
+        return []
+
+    proxy = get_global_proxy()
+    results = []
+
+    if kw.isdigit():
+        tmdb_id = int(kw)
+        for media_type in ("movie", "tv"):
+            try:
+                resp = tmdb_request(
+                    f"/{media_type}/{tmdb_id}",
+                    params={"language": "zh-CN"},
+                    proxy_url=proxy,
+                )
+            except (ValueError, requests.exceptions.RequestException):
+                continue
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                data["media_type"] = media_type
+                item = format_tmdb_item(data)
+                if item:
+                    results.append(item)
+        return results[:limit]
+
+    resp = tmdb_request(
+        "/search/multi",
+        params={"query": kw, "language": "zh-CN", "page": 1, "include_adult": "false"},
+        proxy_url=proxy,
+    )
+    if resp.status_code != 200:
+        return []
+    data = resp.json() or {}
+    for item in data.get("results", []):
+        media_type = (item.get("media_type") or "").lower()
+        if media_type not in {"movie", "tv", ""}:
+            continue
+        formatted = format_tmdb_item(item)
+        if formatted:
+            results.append(formatted)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def upsert_scrape_record(original_name, tmdb_data=None, status=SCRAPE_STATUS_FAILED):
+    name = (original_name or "").strip()
+    if not name:
+        return None
+
+    row = ScrapeRecord.query.filter_by(original_name=name).first()
+    if not row:
+        row = ScrapeRecord(original_name=name)
+
+    tmdb_data = tmdb_data or {}
+    row.tmdb_id = int(tmdb_data["id"]) if tmdb_data.get("id") else None
+    row.title = (tmdb_data.get("title") or "").strip() or None
+    row.year = (tmdb_data.get("year") or "").strip() or None
+    row.poster_url = normalize_poster_path(tmdb_data.get("poster_path") or tmdb_data.get("poster_url") or "")
+    row.overview = (tmdb_data.get("overview") or "").strip() or None
+    row.status = status
+    row.updated_at = now_local()
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def auto_scrape_for_original_name(original_name):
+    if not get_enable_tmdb():
+        return None
+
+    name = (original_name or "").strip()
+    if not name:
+        return None
+
+    cached = ScrapeRecord.query.filter_by(original_name=name).first()
+    if cached and cached.status == SCRAPE_STATUS_SUCCESS:
+        logger.info("TMDB 刮削命中缓存: %s -> tmdb_id=%s", name, cached.tmdb_id)
+        return cached
+
+    keyword = clean_filename(name) or name
+    try:
+        matches = search_tmdb_candidates(keyword, limit=1)
+        if not matches and keyword != name:
+            matches = search_tmdb_candidates(name, limit=1)
+        if matches:
+            row = upsert_scrape_record(name, matches[0], SCRAPE_STATUS_SUCCESS)
+            logger.info("TMDB 刮削成功: %s -> %s", name, row.title or row.tmdb_id)
+            return row
+        row = upsert_scrape_record(name, {}, SCRAPE_STATUS_FAILED)
+        logger.info("TMDB 刮削无匹配: %s", name)
+        return row
+    except Exception as exc:
+        logger.warning("TMDB 刮削异常: %s | 错误: %s", name, exc)
+        return upsert_scrape_record(name, {}, SCRAPE_STATUS_FAILED)
 
 
 def get_notify_flag(key, default=True):
@@ -1058,6 +1270,11 @@ def process_one_torrent(server: QBServer, client, torrent):
     if existing:
         return
 
+    try:
+        auto_scrape_for_original_name(getattr(torrent, "name", ""))
+    except Exception:
+        logger.exception("TMDB 自动刮削异常，任务=%s", getattr(torrent, "name", "unknown"))
+
     source_path = resolve_source_path(torrent)
     source_size_bytes = get_path_size_bytes(source_path)
 
@@ -1445,6 +1662,75 @@ def clear_telegram_settings():
     delete_setting("tg_chat_id")
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/scrape/records", methods=["GET"])
+def list_scrape_records():
+    rows = ScrapeRecord.query.order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc()).all()
+    return jsonify(
+        [
+            {
+                "id": row.id,
+                "original_name": row.original_name,
+                "tmdb_id": row.tmdb_id,
+                "title": row.title or "",
+                "year": row.year or "",
+                "poster_url": build_poster_url(row.poster_url),
+                "overview": row.overview or "",
+                "status": row.status,
+                "updated_at": format_db_time(row.updated_at),
+            }
+            for row in rows
+        ]
+    )
+
+
+@app.route("/api/scrape/search", methods=["POST"])
+def scrape_search_tmdb():
+    payload = request.get_json(force=True) or {}
+    keyword = (payload.get("keyword") or "").strip()
+    if not keyword:
+        return jsonify({"error": "keyword 不能为空"}), 400
+    try:
+        results = search_tmdb_candidates(keyword, limit=10)
+        return jsonify({"results": results})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except requests.exceptions.RequestException as exc:
+        return jsonify({"error": f"TMDB 查询失败: {exc}"}), 400
+
+
+@app.route("/api/scrape/bind", methods=["POST"])
+def scrape_bind_tmdb():
+    payload = request.get_json(force=True) or {}
+    original_name = (payload.get("original_name") or "").strip()
+    tmdb_data = payload.get("tmdb_data") or {}
+    if not original_name:
+        return jsonify({"error": "original_name 不能为空"}), 400
+    if not isinstance(tmdb_data, dict) or not tmdb_data.get("id"):
+        return jsonify({"error": "tmdb_data 无效"}), 400
+
+    formatted = format_tmdb_item(tmdb_data)
+    if not formatted:
+        return jsonify({"error": "tmdb_data 格式不正确"}), 400
+
+    row = upsert_scrape_record(original_name, formatted, SCRAPE_STATUS_SUCCESS)
+    return jsonify(
+        {
+            "ok": True,
+            "record": {
+                "id": row.id,
+                "original_name": row.original_name,
+                "tmdb_id": row.tmdb_id,
+                "title": row.title or "",
+                "year": row.year or "",
+                "poster_url": build_poster_url(row.poster_url),
+                "overview": row.overview or "",
+                "status": row.status,
+                "updated_at": format_db_time(row.updated_at),
+            },
+        }
+    )
 
 
 @app.route("/api/settings/system", methods=["GET"])
