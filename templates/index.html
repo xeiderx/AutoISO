@@ -202,8 +202,8 @@
               <i class="bi bi-caret-down-fill text-muted ms-2 transition-transform cursor-pointer" id="searchChevron"></i>
             </div>
             <div class="search-dropdown" id="searchDropdown">
-              <div class="dropdown-item cursor-pointer text-success" data-val="已上传"><i class="bi bi-check-circle me-2"></i>成功 (已上传)</div>
-              <div class="dropdown-item cursor-pointer text-danger" data-val="失败"><i class="bi bi-x-circle me-2"></i>失败 (Failed)</div>
+              <div class="dropdown-item cursor-pointer text-success" data-val="成功"><i class="bi bi-check-circle me-2"></i>成功</div>
+              <div class="dropdown-item cursor-pointer text-danger" data-val="失败"><i class="bi bi-x-circle me-2"></i>失败</div>
               <hr class="dropdown-divider my-1">
               <div class="px-3 py-1 small text-muted fw-bold">最近记录</div>
               <div id="recentRecordsList"></div>
@@ -267,9 +267,24 @@
 
         const kwLower = keyword.toLowerCase();
         document.querySelectorAll('#historyBody tr').forEach(tr => {
+          // 排除空数据提示行
           if (tr.querySelector('td[colspan]')) return;
+
           const txt = tr.textContent.toLowerCase();
-          tr.style.display = (!kwLower || txt.includes(kwLower)) ? '' : 'none';
+          const badgeEl = tr.querySelector('.badge');
+          // 提取该行的真实状态标签，判断是否为“失败”
+          const isFailed = badgeEl ? badgeEl.textContent.includes('失败') : false;
+
+          let isMatch = false;
+          if (kwLower === '成功') {
+            isMatch = !isFailed; // 只要不是失败，统统算作成功（包含待上传、已中止、删除等）
+          } else if (kwLower === '失败') {
+            isMatch = isFailed;  // 只有明确是失败的才匹配
+          } else {
+            isMatch = txt.includes(kwLower); // 正常文本搜索逻辑
+          }
+
+          tr.style.display = (!kwLower || isMatch) ? '' : 'none';
         });
       };
 
