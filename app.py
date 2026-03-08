@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.1"
+APP_VERSION = "v0.7.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -83,6 +83,7 @@ SCRAPE_NOISE_RE = re.compile(
     r"(?i)\b(?:2160p|1080p|720p|480p|4k|uhd|blu[\s-]?ray|bdrip|brrip|remux|web[\s-]?dl|webrip|hdtv|dvdrip|x264|x265|h\.?264|h\.?265|hevc|avc|aac|ac3|dts(?:-?hd)?|truehd|atmos|hdr10\+?|dolby[\s-]?vision|dv|10bit|8bit|proper|repack|extended|uncut|sample|subs?|multi|dual(?:audio)?|国语|粤语|中字|简繁|内封|官译)\b"
 )
 SCRAPE_EPISODE_RE = re.compile(r"(?i)\b(?:S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|第\d+[季集])\b")
+SCRAPE_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 
 
 class QBServer(db.Model):
@@ -315,24 +316,32 @@ def get_tmdb_api_key():
     return (get_setting("tmdb_api_key") or "").strip()
 
 
+def extract_year(value):
+    m = SCRAPE_YEAR_RE.search(str(value or ""))
+    return m.group(1) if m else ""
+
+
 def clean_filename(name):
     raw = os.path.basename(str(name or "").strip())
     raw = os.path.splitext(raw)[0]
     if not raw:
-        return ""
+        return "", ""
 
-    year_match = re.search(r"\b(?:19|20)\d{2}\b", raw)
-    year_token = year_match.group(0) if year_match else ""
+    year_match = SCRAPE_YEAR_RE.search(raw)
+    year_token = year_match.group(1) if year_match else ""
+    # 优先取年份之前的片名主体，丢弃后续编码/压制组杂质
+    core = raw[: year_match.start()] if year_match else raw
 
-    text_name = raw.replace(".", " ").replace("_", " ").replace("-", " ")
+    text_name = core.replace(".", " ").replace("_", " ").replace("-", " ")
     text_name = re.sub(r"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|【[^】]*】|（[^）]*）", " ", text_name)
     text_name = SCRAPE_EPISODE_RE.sub(" ", text_name)
     text_name = SCRAPE_NOISE_RE.sub(" ", text_name)
+    text_name = re.sub(r"[^\w\u4e00-\u9fff]+", " ", text_name, flags=re.UNICODE)
     text_name = re.sub(r"\s+", " ", text_name).strip()
 
-    if year_token and year_token not in text_name:
-        text_name = f"{text_name} {year_token}".strip()
-    return text_name
+    if not text_name:
+        text_name = re.sub(r"[\._\-]+", " ", core).strip() or raw
+    return text_name, year_token
 
 
 def normalize_poster_path(poster_value):
@@ -370,7 +379,7 @@ def format_tmdb_item(item):
         return None
     title = (item.get("title") or item.get("name") or item.get("original_title") or item.get("original_name") or "").strip()
     release_date = (item.get("release_date") or item.get("first_air_date") or "").strip()
-    year = release_date[:4] if release_date else ""
+    year = extract_year(item.get("year") or release_date)
     poster_path = normalize_poster_path(item.get("poster_path") or item.get("poster_url") or "")
     return {
         "id": int(item.get("id")),
@@ -382,12 +391,13 @@ def format_tmdb_item(item):
     }
 
 
-def search_tmdb_candidates(keyword, limit=10):
+def search_tmdb_candidates(keyword, limit=10, year=None):
     kw = (keyword or "").strip()
     if not kw:
         return []
 
     proxy = get_global_proxy()
+    year_token = extract_year(year)
     results = []
 
     if kw.isdigit():
@@ -409,23 +419,52 @@ def search_tmdb_candidates(keyword, limit=10):
                     results.append(item)
         return results[:limit]
 
-    resp = tmdb_request(
-        "/search/multi",
-        params={"query": kw, "language": "zh-CN", "page": 1, "include_adult": "false"},
-        proxy_url=proxy,
-    )
-    if resp.status_code != 200:
-        return []
-    data = resp.json() or {}
-    for item in data.get("results", []):
-        media_type = (item.get("media_type") or "").lower()
-        if media_type not in {"movie", "tv", ""}:
-            continue
-        formatted = format_tmdb_item(item)
-        if formatted:
+    def append_results(items, default_media_type=""):
+        seen = {(x.get("id"), x.get("title"), x.get("year")) for x in results}
+        for item in items:
+            if default_media_type and not item.get("media_type"):
+                item["media_type"] = default_media_type
+            media_type = (item.get("media_type") or "").lower()
+            if media_type not in {"movie", "tv", ""}:
+                continue
+            formatted = format_tmdb_item(item)
+            if not formatted:
+                continue
+            sig = (formatted.get("id"), formatted.get("title"), formatted.get("year"))
+            if sig in seen:
+                continue
+            seen.add(sig)
             results.append(formatted)
-        if len(results) >= limit:
-            break
+            if len(results) >= limit:
+                break
+
+    # 如果已提取年份，优先按标题+年份精准检索电影/剧集
+    if year_token:
+        resp = tmdb_request(
+            "/search/movie",
+            params={"query": kw, "year": year_token, "language": "zh-CN", "page": 1, "include_adult": "false"},
+            proxy_url=proxy,
+        )
+        if resp.status_code == 200:
+            append_results(resp.json().get("results", []), default_media_type="movie")
+        if len(results) < limit:
+            resp = tmdb_request(
+                "/search/tv",
+                params={"query": kw, "first_air_date_year": year_token, "language": "zh-CN", "page": 1, "include_adult": "false"},
+                proxy_url=proxy,
+            )
+            if resp.status_code == 200:
+                append_results(resp.json().get("results", []), default_media_type="tv")
+
+    if len(results) < limit:
+        resp = tmdb_request(
+            "/search/multi",
+            params={"query": kw, "language": "zh-CN", "page": 1, "include_adult": "false"},
+            proxy_url=proxy,
+        )
+        if resp.status_code == 200:
+            append_results(resp.json().get("results", []))
+
     return results
 
 
@@ -441,7 +480,7 @@ def upsert_scrape_record(original_name, tmdb_data=None, status=SCRAPE_STATUS_FAI
     tmdb_data = tmdb_data or {}
     row.tmdb_id = int(tmdb_data["id"]) if tmdb_data.get("id") else None
     row.title = (tmdb_data.get("title") or "").strip() or None
-    row.year = (tmdb_data.get("year") or "").strip() or None
+    row.year = extract_year(tmdb_data.get("year") or tmdb_data.get("release_date") or tmdb_data.get("first_air_date")) or None
     row.poster_url = normalize_poster_path(tmdb_data.get("poster_path") or tmdb_data.get("poster_url") or "")
     row.overview = (tmdb_data.get("overview") or "").strip() or None
     row.status = status
@@ -464,9 +503,12 @@ def auto_scrape_for_original_name(original_name):
         logger.info("TMDB 刮削命中缓存: %s -> tmdb_id=%s", name, cached.tmdb_id)
         return cached
 
-    keyword = clean_filename(name) or name
+    clean_title, clean_year = clean_filename(name)
+    keyword = clean_title or name
     try:
-        matches = search_tmdb_candidates(keyword, limit=1)
+        matches = search_tmdb_candidates(keyword, limit=1, year=clean_year)
+        if not matches and clean_year:
+            matches = search_tmdb_candidates(keyword, limit=1)
         if not matches and keyword != name:
             matches = search_tmdb_candidates(name, limit=1)
         if matches:
