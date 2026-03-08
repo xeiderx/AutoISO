@@ -131,7 +131,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 900px;">
-            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:55%"><col style="width:12%"><col style="width:8%"><col style="width:12%"></colgroup>
+            <colgroup><col style="width:5%"><col style="width:8%"><col style="width:45%"><col style="width:10%"><col style="width:12%"><col style="width:20%"></colgroup>
             <thead><tr><th class="text-center">序号</th><th>节点</th><th>文件名</th><th class="text-center">大小(GB)</th><th class="text-center">状态</th><th class="text-center">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -235,12 +235,16 @@
               <div id="recentRecordsList"></div>
             </div>
           </div>
-          <button id="btnDeleteHistory" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm">批量删除</button>
+          <div class="d-flex gap-2">
+            <button id="btnCancelHistoryBatch" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm d-none">取消</button>
+            <button id="btnConfirmHistoryDelete" class="btn btn-danger btn-sm rounded-pill px-3 shadow-sm d-none">确认删除</button>
+            <button id="btnToggleHistoryBatch" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm">批量删除</button>
+          </div>
         </div>
         <div class="table-responsive">
           <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1200px;">
             <colgroup><col style="width:3%"><col style="width:3%"><col style="width:30%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
-            <thead><tr><th class="text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
+            <thead><tr><th class="history-check-col d-none text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -249,8 +253,15 @@
 
     <section id="viewScrape" class="app-view d-none">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="mb-0">刮削与整理记录</h6>
-        <button class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" onclick="loadScrapeRecords()"><i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
+        <div class="search-input-group d-flex align-items-center rounded-pill px-3 py-1" style="width: 300px; max-width: 100%; border: 1px solid #dee2e6; background: #fff;">
+          <i class="bi bi-search text-muted"></i>
+          <input type="text" id="scrapeSearch" class="form-control border-0 shadow-none bg-transparent ms-1 px-1" placeholder="搜索原名或影片名...">
+        </div>
+        <div class="d-flex gap-2">
+          <button id="btnCancelScrapeBatch" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm d-none">取消</button>
+          <button id="btnConfirmScrapeDelete" class="btn btn-danger btn-sm rounded-pill px-3 shadow-sm d-none">确认删除</button>
+          <button id="btnToggleScrapeBatch" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm">批量删除</button>
+        </div>
       </div>
       <div class="row g-3" id="scrapeRecordsContainer"></div>
     </section>
@@ -408,6 +419,7 @@
           return `
           <div class="col-12 col-xl-6">
             <div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative">
+              <div class="scrape-check-col d-none d-flex align-items-center"><input type="checkbox" class="scrape-check form-check-input" style="transform: scale(1.3);" value="${r.id}"></div>
               <img src="${imgUrl}" class="poster-img" alt="poster" loading="lazy">
               <div class="d-flex flex-column flex-grow-1 min-w-0">
                 <div class="d-flex justify-content-between align-items-start mb-1">
@@ -417,15 +429,17 @@
                 <div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name || '')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name || '')}</div>
                 <div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div>
                 <div class="d-flex justify-content-between align-items-center mt-auto pt-2">
-                  <div class="small text-muted" title="最后更新时间"><i class="bi bi-clock me-1"></i>${esc(r.updated_at || r.created_at || '').substring(0, 16)}</div>
-                  <div>
-                    ${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-search me-1"></i>手动刮削</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-pencil me-1"></i>重新匹配</button>`}
+                  <div class="small text-muted"><i class="bi bi-clock me-1"></i>${esc(r.updated_at || r.created_at || '').substring(0, 16)}</div>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="deleteScrapeRecord(${r.id})" title="删除此记录"><i class="bi bi-trash"></i></button>
+                    ${!isSuccess ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-search me-1"></i>手动</button>` : `<button class="btn btn-sm btn-light text-secondary border rounded-pill px-3" onclick="openManualScrape(decodeURIComponent('${encodedOriginal}'))"><i class="bi bi-pencil me-1"></i>重配</button>`}
                   </div>
                 </div>
               </div>
             </div>
           </div>`;
         }).join('') : '<div class="text-center text-muted py-5">暂无刮削记录</div>';
+        $('scrapeSearch')?.dispatchEvent(new Event('input'));
       } catch (err) {
         container.innerHTML = `<div class="text-center text-danger py-5">${esc(err.message)}</div>`;
       }
@@ -486,7 +500,7 @@
         notify(err.message, 'danger');
       }
     };
-    async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';if(!window.searchBound){ bindAdvancedSearch(); window.searchBound=true; } else { $('historySearch').dispatchEvent(new Event('input')); }}
+    async function loadHistory(){const rows=await api('/api/history?limit=0');$('historyBody').innerHTML=(rows||[]).length?rows.map(x=>`<tr><td class="history-check-col d-none align-middle text-center"><input type="checkbox" class="history-check" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join(''):'<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';if(!window.searchBound){ bindAdvancedSearch(); window.searchBound=true; } else { $('historySearch').dispatchEvent(new Event('input')); }}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadSettings(){const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);userForm.auth_username.value=sys.auth_username||'';uploadForm.upload_cron.value=sys.upload_cron||'';uploadForm.clouddrive_path.value=sys.clouddrive_path||'';uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';notify_pack_start.checked=!!sys.notify_pack_start;notify_pack_end.checked=!!sys.notify_pack_end;notify_upload_start.checked=!!sys.notify_upload_start;notify_upload_end.checked=!!sys.notify_upload_end;tgForm.tg_token.value=tg.tg_token||'';tgForm.tg_chat_id.value=tg.tg_chat_id||'';$('proxyForm').global_proxy.value=sys.global_proxy||'';$('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;$('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';await loadQbServers();}
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
@@ -526,7 +540,63 @@
     });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？','清空 Telegram 配置'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('Telegram 配置已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
-    $('btnDeleteHistory').addEventListener('click',async()=>{const ids=Array.from(document.querySelectorAll('.history-check:checked')).map(x=>Number(x.value));if(!ids.length){notify('请先选择要删除的记录','warning');return;}if(!await ask(`确定删除已选中的 ${ids.length} 条历史记录吗？`,'批量删除历史记录'))return;try{await api('/api/history/delete',{method:'POST',body:JSON.stringify({ids})});notify('历史记录已删除','success');await loadHistory();}catch(err){notify(err.message,'danger');}});
+    // 历史记录批量删除逻辑
+    $('btnToggleHistoryBatch').addEventListener('click', () => {
+      document.querySelectorAll('.history-check-col').forEach(el => el.classList.remove('d-none'));
+      $('btnToggleHistoryBatch').classList.add('d-none');
+      $('btnCancelHistoryBatch').classList.remove('d-none');
+      $('btnConfirmHistoryDelete').classList.remove('d-none');
+    });
+    $('btnCancelHistoryBatch').addEventListener('click', () => {
+      document.querySelectorAll('.history-check-col').forEach(el => el.classList.add('d-none'));
+      $('btnToggleHistoryBatch').classList.remove('d-none');
+      $('btnCancelHistoryBatch').classList.add('d-none');
+      $('btnConfirmHistoryDelete').classList.add('d-none');
+      document.querySelectorAll('.history-check').forEach(c => c.checked = false);
+      $('historyCheckAll').checked = false;
+    });
+    $('btnConfirmHistoryDelete').addEventListener('click', async () => {
+      const ids = Array.from(document.querySelectorAll('.history-check:checked')).map(x => Number(x.value));
+      if (!ids.length) return notify('请先勾选要删除的记录', 'warning');
+      if (!await ask(`确定删除选中的 ${ids.length} 条历史记录吗？`)) return;
+      try { await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelHistoryBatch').click(); await loadHistory(); } catch (e) { notify(e.message, 'danger'); }
+    });
+
+    // 刮削记录批量删除逻辑
+    $('btnToggleScrapeBatch').addEventListener('click', () => {
+      document.querySelectorAll('.scrape-check-col').forEach(el => el.classList.remove('d-none'));
+      $('btnToggleScrapeBatch').classList.add('d-none');
+      $('btnCancelScrapeBatch').classList.remove('d-none');
+      $('btnConfirmScrapeDelete').classList.remove('d-none');
+    });
+    $('btnCancelScrapeBatch').addEventListener('click', () => {
+      document.querySelectorAll('.scrape-check-col').forEach(el => el.classList.add('d-none'));
+      $('btnToggleScrapeBatch').classList.remove('d-none');
+      $('btnCancelScrapeBatch').classList.add('d-none');
+      $('btnConfirmScrapeDelete').classList.add('d-none');
+      document.querySelectorAll('.scrape-check').forEach(c => c.checked = false);
+    });
+    $('btnConfirmScrapeDelete').addEventListener('click', async () => {
+      const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x => Number(x.value));
+      if (!ids.length) return notify('请先勾选记录', 'warning');
+      if (!await ask(`确定删除选中的 ${ids.length} 条刮削记录吗？`)) return;
+      try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); }
+    });
+
+    // 刮削记录单条删除
+    window.deleteScrapeRecord = async function(id) {
+      if (!await ask('确定彻底删除这条刮削记录吗？')) return;
+      try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); }
+    };
+
+    // 刮削页面本地搜索过滤
+    $('scrapeSearch')?.addEventListener('input', (e) => {
+      const kw = e.target.value.trim().toLowerCase();
+      document.querySelectorAll('#scrapeRecordsContainer > div').forEach(col => {
+        const text = col.textContent.toLowerCase();
+        col.style.display = text.includes(kw) ? '' : 'none';
+      });
+    });
     $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
     $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志文件吗？','清空日志'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('日志已清空','success');}catch(err){notify(err.message,'danger');}});

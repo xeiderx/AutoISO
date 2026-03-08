@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.2"
+APP_VERSION = "v0.7.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1725,6 +1725,42 @@ def list_scrape_records():
             for row in rows
         ]
     )
+
+
+@app.route("/api/scrape/records", methods=["DELETE"])
+def delete_scrape_records():
+    payload = request.get_json(force=True) or {}
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids 不能为空"}), 400
+
+    norm_ids = []
+    for v in ids:
+        try:
+            iv = int(v)
+        except (TypeError, ValueError):
+            continue
+        if iv > 0:
+            norm_ids.append(iv)
+    norm_ids = sorted(set(norm_ids))
+    if not norm_ids:
+        return jsonify({"error": "ids 无效"}), 400
+
+    try:
+        bind_params = {}
+        placeholders = []
+        for i, rid in enumerate(norm_ids):
+            key = f"id_{i}"
+            placeholders.append(f":{key}")
+            bind_params[key] = rid
+        sql = text(f"DELETE FROM scrape_records WHERE id IN ({', '.join(placeholders)})")
+        db.session.execute(sql, bind_params)
+        db.session.commit()
+        return jsonify({"message": "删除成功"})
+    except Exception:
+        db.session.rollback()
+        logger.exception("删除刮削记录失败")
+        return jsonify({"error": "删除失败"}), 500
 
 
 @app.route("/api/scrape/search", methods=["POST"])
