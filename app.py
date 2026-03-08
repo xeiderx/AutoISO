@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.5"
+APP_VERSION = "v0.7.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -467,6 +467,28 @@ def format_tmdb_item(item):
         "poster_path": poster_path,
         "overview": (item.get("overview") or "").strip(),
     }
+
+
+def build_display_name(raw_name):
+    original = str(raw_name or "").strip()
+    if not original:
+        return ""
+
+    title = ""
+    year = ""
+
+    record = ScrapeRecord.query.filter_by(original_name=original).first()
+    if record and record.status == SCRAPE_STATUS_SUCCESS:
+        title = (record.title or "").strip()
+        year = (record.year or "").strip()
+    else:
+        clean_title, clean_year = clean_filename(original)
+        title = (clean_title or "").strip()
+        year = (clean_year or "").strip()
+
+    if not title:
+        title = original
+    return f"{title} ({year})" if year else title
 
 
 def search_tmdb_candidates(keyword, limit=10, year=None):
@@ -2295,6 +2317,7 @@ def list_pending():
                     "size_gb": round(size_bytes / GB, 3),
                     "node_alias": server.name,
                     "added_on": added_dt,
+                    "display_name": build_display_name(getattr(torrent, "name", "")),
                 }
             )
 
@@ -2334,6 +2357,7 @@ def list_pending_uploads():
                 "node": node_name,
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(name)),
+                "display_name": build_display_name(name),
             }
         )
     return jsonify(rows)
