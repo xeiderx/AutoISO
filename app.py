@@ -18,7 +18,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.7.4"
+APP_VERSION = "v0.7.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -45,6 +45,7 @@ LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
 STATUS_PROCESSING = "Processing"
 STATUS_PACKED_PENDING_UPLOAD = "封装完成，待上传"
+STATUS_PACKED_ONLY = "已封装"
 STATUS_UPLOADING = "上传中"
 STATUS_UPLOADED = "已上传至网盘"
 STATUS_FAILED = "Failed"
@@ -339,6 +340,50 @@ def set_task_auto_upload(filename, enabled):
     row.auto_upload = bool(enabled)
     db.session.commit()
     return row
+
+
+def apply_auto_upload_status_for_task(filename, enabled):
+    safe_name = os.path.basename(str(filename or "").strip())
+    if not safe_name:
+        return
+
+    upload_row = UploadHistory.query.filter_by(filename=safe_name).first()
+    if not upload_row:
+        upload_row = UploadHistory(filename=safe_name, status="pending" if enabled else "packed", message="")
+        db.session.add(upload_row)
+    else:
+        cur_upload_status = (upload_row.status or "").strip().lower()
+        if enabled and cur_upload_status == "packed":
+            upload_row.status = "pending"
+        elif not enabled and cur_upload_status == "pending":
+            upload_row.status = "packed"
+
+    pack_row = find_pack_row_for_upload(safe_name)
+    if not pack_row:
+        return
+
+    cur_pack_status = (pack_row.status or "").strip()
+    pending_statuses = {STATUS_PACKED_PENDING_UPLOAD, "待上传", "pending"}
+    if enabled and cur_pack_status == STATUS_PACKED_ONLY:
+        pack_row.status = STATUS_PACKED_PENDING_UPLOAD
+    elif (not enabled) and cur_pack_status in pending_statuses:
+        pack_row.status = STATUS_PACKED_ONLY
+
+
+def apply_global_auto_upload_status(enabled):
+    pending_statuses = {STATUS_PACKED_PENDING_UPLOAD, "待上传", "pending"}
+    if enabled:
+        PackHistory.query.filter(PackHistory.status == STATUS_PACKED_ONLY).update(
+            {"status": STATUS_PACKED_PENDING_UPLOAD},
+            synchronize_session=False,
+        )
+        UploadHistory.query.filter_by(status="packed").update({"status": "pending"}, synchronize_session=False)
+    else:
+        PackHistory.query.filter(PackHistory.status.in_(list(pending_statuses))).update(
+            {"status": STATUS_PACKED_ONLY},
+            synchronize_session=False,
+        )
+        UploadHistory.query.filter_by(status="pending").update({"status": "packed"}, synchronize_session=False)
 
 
 def get_enable_tmdb():
@@ -1197,7 +1242,7 @@ def process_uploads():
                 if not should_auto_upload:
                     reason = "global auto upload disabled" if not global_auto_upload else "task auto upload disabled"
                     if row:
-                        row.status = "已封装"
+                        row.status = STATUS_PACKED_ONLY
                         row.info = reason
                         db.session.commit()
                     mark_upload_status(file_name, "packed", reason, task_id=task_id)
@@ -1416,12 +1461,20 @@ def process_one_torrent(server: QBServer, client, torrent):
                 return
             finished = now_local()
             duration = format_seconds((finished - started).total_seconds())
-            history.status = STATUS_PACKED_PENDING_UPLOAD
+            output_name = os.path.basename(output_file)
+            auto_upload_enabled = get_global_auto_upload() and get_task_auto_upload(output_name)
+            history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"FILE: {output_file}"
             history.info = "single file copied to output"
             history.file_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
             db.session.commit()
+            mark_upload_status(
+                output_name,
+                "pending" if auto_upload_enabled else "packed",
+                "single file ready",
+                task_id=history.id,
+            )
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
@@ -1449,11 +1502,19 @@ def process_one_torrent(server: QBServer, client, torrent):
         duration = format_seconds((finished - started).total_seconds())
 
         if ok:
-            history.status = STATUS_PACKED_PENDING_UPLOAD
+            iso_name = os.path.basename(iso_path)
+            auto_upload_enabled = get_global_auto_upload() and get_task_auto_upload(iso_name)
+            history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"ISO: {iso_path}"
             history.info = ""
             db.session.commit()
+            mark_upload_status(
+                iso_name,
+                "pending" if auto_upload_enabled else "packed",
+                "iso ready",
+                task_id=history.id,
+            )
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
@@ -1883,6 +1944,7 @@ def get_system_settings():
 @app.route("/api/config/update", methods=["POST"])
 def save_system_settings():
     payload = request.get_json(force=True) or {}
+    current_global_auto_upload = get_global_auto_upload()
     current_auth_username, _ = get_auth_credentials()
     auth_username = (
         (payload.get("auth_username") or "").strip()
@@ -1943,6 +2005,8 @@ def save_system_settings():
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
     set_setting("global_auto_upload", "1" if global_auto_upload else "0")
+    if "global_auto_upload" in payload and global_auto_upload != current_global_auto_upload:
+        apply_global_auto_upload_status(global_auto_upload)
     set_setting("global_proxy", global_proxy)
     set_setting("enable_tmdb", "1" if enable_tmdb else "0")
     set_setting("tmdb_api_key", tmdb_api_key)
@@ -1991,6 +2055,7 @@ def get_auth_settings():
 @app.route("/api/settings/auth", methods=["POST"])
 def save_auth_settings():
     payload = request.get_json(force=True) or {}
+    current_global_auto_upload = get_global_auto_upload()
     auth_username = (payload.get("auth_username") or "").strip()
     auth_password = (payload.get("auth_password") or "").strip()
     auth_password_confirm = (payload.get("auth_password_confirm") or "").strip()
@@ -2029,6 +2094,8 @@ def save_auth_settings():
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
     set_setting("global_auto_upload", "1" if global_auto_upload else "0")
+    if "global_auto_upload" in payload and global_auto_upload != current_global_auto_upload:
+        apply_global_auto_upload_status(global_auto_upload)
     set_setting("global_proxy", global_proxy)
     set_setting("enable_tmdb", "1" if enable_tmdb else "0")
     set_setting("tmdb_api_key", tmdb_api_key)
@@ -2299,6 +2366,8 @@ def toggle_task_auto_upload(filename):
     next_state = not current_state
     try:
         set_task_auto_upload(safe_name, next_state)
+        apply_auto_upload_status_for_task(safe_name, next_state)
+        db.session.commit()
         return jsonify({"ok": True, "filename": safe_name, "auto_upload": next_state})
     except Exception:
         db.session.rollback()
