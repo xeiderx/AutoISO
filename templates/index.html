@@ -145,7 +145,7 @@
         <h6 class="mb-3">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:6%"><col style="width:15%"><col style="width:37%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
             <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -162,35 +162,42 @@
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabProxy" type="button">代理设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削设置</button></li>
-          <li class="nav-item"><button class="nav-link text-primary fw-bold" data-bs-toggle="tab" data-bs-target="#tabVpsDeploy" type="button"><i class="bi bi-hdd-network me-1"></i>VPS 节点部署</button></li>
+          <li class="nav-item"><button class="nav-link text-primary fw-bold" data-bs-toggle="tab" data-bs-target="#tabVpsDeploy" type="button"><i class="bi bi-hdd-network me-1"></i>边缘节点管理</button></li>
         </ul>
         <div class="tab-content pt-3">
           
           <div class="tab-pane fade" id="tabVpsDeploy">
-            <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center mb-4">
-              <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+            <div class="alert alert-info border-0 shadow-sm d-flex align-items-center mb-4">
+              <i class="bi bi-hdd-network fs-4 me-3 text-primary"></i>
               <div>
-                <strong>Debian 12 边缘节点生成器</strong><br>
-                在此配置您的 VPS 信息，系统将自动生成一段 <b>一键部署代码</b>。直接将其复制到 VPS 的 SSH 终端并回车，即可全自动安装打包环境、CloudDrive2 及 AutoISO 挂机程序！
+                <strong>集中式配置中心 (Master-Agent 架构)</strong><br>
+                在此管理所有海外 VPS 节点。生成的“部署代码”极度纯净，仅包含身份秘钥。qB 密码、挂载路径等配置将由 VPS 自动向此 NAS 拉取，<strong>修改配置即时生效，无需在 VPS 重装！</strong>
               </div>
             </div>
             <div class="row g-4">
-              <div class="col-lg-5">
-                <form id="deployForm" class="row g-3 bg-light p-3 rounded border">
-                  <h6 class="fw-bold mb-0 text-dark border-bottom pb-2"><i class="bi bi-1-circle-fill text-primary me-2"></i>填写 VPS 节点参数</h6>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">主控端通讯地址 (自动获取)</label><input class="form-control form-control-sm" id="deploy_master_url" readonly></div>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">通讯秘钥 (Token)</label><input class="form-control form-control-sm" id="deploy_token" placeholder="与您后端配置的 agent_token 保持一致" value="autoiso_secret_token"></div>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 节点名称</label><input class="form-control form-control-sm" id="deploy_node_name" placeholder="如：日本 HostDzire" value="日本 VPS"></div>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" id="deploy_qb_url" value="http://127.0.0.1:8080"></div>
-                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" id="deploy_qb_user" value="admin"></div>
-                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 密码</label><input class="form-control form-control-sm" id="deploy_qb_pass" value="adminadmin"></div>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">115小号 CD2 挂载路径</label><input class="form-control form-control-sm" id="deploy_cd2_path" placeholder="VPS上的绝对路径" value="/CloudNAS/115small/Media"></div>
+              <div class="col-lg-4">
+                <form id="agentNodeForm" class="row g-3 bg-white p-3 rounded shadow-sm border">
+                  <h6 class="fw-bold mb-0 text-dark border-bottom pb-2" id="agentFormTitle"><i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点</h6>
+                  <input type="hidden" name="agent_id" id="agent_id">
+                  <div class="col-12"><label class="form-label small text-muted mb-1">节点名称 (唯一标识)</label><input class="form-control form-control-sm" name="node_name" placeholder="如：日本 HostDzire" required></div>
+                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" name="qb_url" value="http://127.0.0.1:8080" required></div>
+                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" name="qb_user" value="admin"></div>
+                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 密码</label><input class="form-control form-control-sm" name="qb_pass" value="adminadmin"></div>
+                  <div class="col-12"><label class="form-label fw-bold text-dark mb-1">本地打包缓存目录</label><div class="small text-muted mb-1" style="font-size:0.75rem;">VPS上的临时高速硬盘路径，脚本将自动创建</div><input class="form-control form-control-sm border-primary" name="temp_path" placeholder="VPS临时盘路径" value="/opt/autoiso_agent/temp" required></div>
+                  <div class="col-12"><label class="form-label fw-bold text-dark mb-1">115小号 CD2 挂载路径</label><div class="small text-muted mb-1" style="font-size:0.75rem;">该节点的CD2对应的115小号绝对路径</div><input class="form-control form-control-sm border-primary" name="cd2_path" placeholder="VPS上的CD2绝对路径" value="/CloudNAS/CloudDrive/115small/影视库/115中转" required></div>
+                  <div class="col-12 d-flex justify-content-between mt-3 pt-3 border-top">
+                     <button class="btn btn-light btn-sm px-3 shadow-sm" type="button" onclick="resetAgentForm()">重置清空</button>
+                     <button class="btn btn-primary btn-sm px-4 shadow-sm" type="submit">保存节点配置</button>
+                  </div>
                 </form>
               </div>
-              <div class="col-lg-7 d-flex flex-column">
-                <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-2-circle-fill text-primary me-2"></i>复制并运行此代码</h6>
-                <textarea id="deployCommandText" class="form-control flex-grow-1 bg-dark text-success font-monospace p-3" style="font-size: 0.85rem; min-height: 400px;" readonly></textarea>
-                <button class="btn btn-primary mt-3 shadow-sm" onclick="copyDeployCommand()"><i class="bi bi-clipboard me-2"></i>一键复制部署代码</button>
+              <div class="col-lg-8">
+                <div class="table-responsive bg-white rounded shadow-sm border h-100">
+                  <table class="table table-sm table-hover align-middle mb-0 m-2" style="width: calc(100% - 1rem);">
+                    <thead class="table-light"><tr><th class="ps-3">节点名称</th><th>qB 地址</th><th>缓存目录</th><th class="text-end pe-3">操作</th></tr></thead>
+                    <tbody id="agentNodeList"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -327,6 +334,23 @@
     </section>
   </main>
 
+  <div class="modal fade" id="deployScriptModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-dark text-white border-0 pb-2">
+          <h5 class="modal-title fw-bold"><i class="bi bi-terminal-fill me-2 text-success"></i><span id="deployModalTitle"></span> 一键部署代码</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0 position-relative">
+          <textarea id="deployCommandText" class="form-control border-0 bg-dark text-success font-monospace p-4 rounded-0 shadow-none" style="font-size: 0.9rem; min-height: 380px; resize: none;" readonly></textarea>
+        </div>
+        <div class="modal-footer bg-dark border-0 pt-0">
+          <button class="btn btn-outline-light btn-sm px-4 rounded-pill" onclick="copyDeployCommand()"><i class="bi bi-clipboard me-2"></i>一键复制完整代码</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container-custom"><div id="toast" class="toast border-0"><div class="d-flex"><div id="toastBody" class="toast-body">提示</div><button class="btn-close btn-close-white m-auto me-2" data-bs-dismiss="toast"></button></div></div></div>
   <div class="modal fade" id="confirmModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 id="confirmTitle" class="modal-title">确认操作</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div id="confirmMessage" class="modal-body"></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button id="confirmOkBtn" class="btn btn-danger">确认</button></div></div></div></div>
   <div class="modal fade" id="logModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">系统日志</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button id="btnExportLogs" class="btn btn-outline-success btn-sm">导出日志</button><button id="btnClearLogs" class="btn btn-outline-danger btn-sm">清空日志</button></div><pre id="logContent" class="status-console"></pre></div></div></div></div>
@@ -357,6 +381,7 @@
     const logModal = new bootstrap.Modal($('logModal')), manualScrapeModal = new bootstrap.Modal($('manualScrapeModal'));
     let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
     let currentPackingTasks = [], currentScrapeTarget = '';
+    
     let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
     let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
 
@@ -370,70 +395,125 @@
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
     
-    // VPS 部署指令生成器逻辑
-    ['deploy_master_url', 'deploy_token', 'deploy_node_name', 'deploy_qb_url', 'deploy_qb_user', 'deploy_qb_pass', 'deploy_cd2_path'].forEach(id => {
-        $(id)?.addEventListener('input', updateDeployCommand);
+    // ----------------------------------------------------
+    // Agent Node CRUD 逻辑
+    // ----------------------------------------------------
+    const agentNodeForm = $('agentNodeForm');
+    agentNodeForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+            id: agentNodeForm.agent_id.value ? Number(agentNodeForm.agent_id.value) : null,
+            node_name: agentNodeForm.node_name.value.trim(),
+            qb_url: agentNodeForm.qb_url.value.trim(),
+            qb_user: agentNodeForm.qb_user.value.trim(),
+            qb_pass: agentNodeForm.qb_pass.value.trim(),
+            temp_path: agentNodeForm.temp_path.value.trim(),
+            cd2_path: agentNodeForm.cd2_path.value.trim()
+        };
+        try {
+            if (data.id) {
+                await api('/api/agent_nodes/update', { method: 'POST', body: JSON.stringify(data) });
+                notify('节点更新成功', 'success');
+            } else {
+                await api('/api/agent_nodes', { method: 'POST', body: JSON.stringify(data) });
+                notify('新节点添加成功', 'success');
+            }
+            resetAgentForm();
+            await loadAgentNodes();
+        } catch(err) { notify(err.message, 'danger'); }
     });
 
-    function updateDeployCommand() {
-        const masterUrl = $('deploy_master_url').value || window.location.origin;
-        const token = $('deploy_token').value;
-        const node = $('deploy_node_name').value;
-        const qbUrl = $('deploy_qb_url').value;
-        const qbUser = $('deploy_qb_user').value;
-        const qbPass = $('deploy_qb_pass').value;
-        const cd2Path = $('deploy_cd2_path').value;
+    window.resetAgentForm = function() {
+        agentNodeForm.reset();
+        agentNodeForm.agent_id.value = '';
+        $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
+    }
 
+    $('agentNodeList').addEventListener('click', async (e) => {
+        const editBtn = e.target.closest('button[data-act="edit"]');
+        if (editBtn) {
+            const d = editBtn.dataset;
+            agentNodeForm.agent_id.value = d.id;
+            agentNodeForm.node_name.value = d.name;
+            agentNodeForm.qb_url.value = d.url;
+            agentNodeForm.qb_user.value = d.user;
+            agentNodeForm.qb_pass.value = d.pass;
+            agentNodeForm.temp_path.value = d.temp;
+            agentNodeForm.cd2_path.value = d.cd2;
+            $('agentFormTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>正在编辑：' + esc(d.name);
+            return;
+        }
+        const delBtn = e.target.closest('button[data-act="delete"]');
+        if (delBtn) {
+            const id = delBtn.dataset.id;
+            if (!await ask('确定彻底删除该节点配置吗？', '删除边缘节点')) return;
+            try {
+                await api(`/api/agent_nodes/${id}`, { method: 'DELETE' });
+                notify('节点已删除', 'success');
+                await loadAgentNodes();
+            } catch(err) { notify(err.message, 'danger'); }
+        }
+    });
+
+    async function loadAgentNodes() {
+        try {
+            const rows = await api('/api/agent_nodes');
+            $('agentNodeList').innerHTML = rows.length ? rows.map(x => `
+                <tr>
+                    <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}</td>
+                    <td class="small text-secondary">${esc(x.qb_url)}</td>
+                    <td class="small text-secondary"><i class="bi bi-folder2-open me-1"></i>${esc(x.temp_path)}</td>
+                    <td class="text-end pe-3">
+                        <button class="btn btn-sm btn-success text-nowrap me-1 shadow-sm rounded-pill px-3" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal me-1"></i>部署</button>
+                        <button class="btn btn-sm btn-light text-primary me-1 rounded-circle" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-light text-danger rounded-circle" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="4" class="text-center text-muted py-4">暂无边缘节点，请在左侧添加</td></tr>';
+        } catch (e) {
+            $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`;
+        }
+    }
+
+    // 纯净版一键部署弹窗生成
+    window.openDeployModal = function(nodeName) {
+        const masterUrl = window.location.origin;
+        const token = window.globalAgentToken || 'autoiso_secret_token';
+        $('deployModalTitle').textContent = nodeName;
+        
         const bash = `# ==========================================
-# AutoISO 边缘节点 (VPS) 一键部署脚本 
-# 适用于: Debian 12 / Ubuntu 22.04+
-# 节点名称: ${node}
+# AutoISO 边缘节点 (${nodeName}) 一键部署脚本 
 # ==========================================
 
-# 1. 更新系统并安装打包核心工具和 Python 环境
+# 1. 更新系统并安装环境
 apt-get update
 apt-get install -y curl wget genisoimage fuse python3 python3-requests
 
 # 2. 安装 CloudDrive2 (官方 Docker 方式)
-if ! command -v docker &> /dev/null; then
-    echo "正在安装 Docker..."
-    curl -fsSL https://get.docker.com | bash
-fi
-echo "正在启动 CloudDrive2 容器..."
-# 如果已有容器则先停止删除
+if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash; fi
 docker rm -f clouddrive2 &>/dev/null || true
 docker run -d --name clouddrive2 --restart always \\
-    -v /CloudNAS:/CloudNAS:shared \\
-    -v /CloudNAS/Config:/Config \\
-    -p 19798:19798 \\
-    --privileged \\
-    --device /dev/fuse:mrw \\
-    cloudnas/clouddrive2-multipass
+    -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
+    --privileged --device /dev/fuse:mrw cloudnas/clouddrive2-multipass
 
-# 3. 创建 AutoISO Agent 配置文件
+# 3. 写入节点身份凭证 (动态配置将自动从 NAS 拉取)
 mkdir -p /opt/autoiso_agent
-cat << 'EOF' > /opt/autoiso_agent/config.json
+cat << 'EOF' > /opt/autoiso_agent/identity.json
 {
   "master_url": "${masterUrl}",
   "token": "${token}",
-  "node_name": "${node}",
-  "qb_url": "${qbUrl}",
-  "qb_user": "${qbUser}",
-  "qb_pass": "${qbPass}",
-  "cd2_path": "${cd2Path}"
+  "node_name": "${nodeName}"
 }
 EOF
 
-# 4. 环境准备就绪！
 echo "------------------------------------------------"
-echo "✅ 基础依赖与节点配置已成功写入 /opt/autoiso_agent/config.json"
-echo "✅ CD2 已安装！请在浏览器访问 http://您的VPS_IP:19798 登录 CD2"
-echo "✅ 请务必在 CD2 中将 115小号 挂载至: ${cd2Path}"
+echo "✅ 节点 [${nodeName}] 基础环境部署完成！"
+echo "✅ 请在浏览器访问 http://您的VPS_IP:19798 挂载 115小号"
 echo "------------------------------------------------"
-echo "(注：实际干活的 agent.py 脚本将在下一步发送给您)"
 `;
         $('deployCommandText').value = bash;
-    }
+        new bootstrap.Modal($('deployScriptModal')).show();
+    };
 
     window.copyDeployCommand = function() {
         const text = $('deployCommandText');
@@ -449,33 +529,14 @@ echo "(注：实际干活的 agent.py 脚本将在下一步发送给您)"
     function initAdvancedSearch(opts) {
       const { input, clearBtn, chevron, dropdown, recentList, getRecent, onSearch } = opts;
       if (!input) return;
-      const doSearch = (keyword) => {
-          keyword = (keyword || '').trim();
-          input.value = keyword;
-          clearBtn.classList.toggle('d-none', keyword.length === 0);
-          onSearch(keyword.toLowerCase());
-      };
-      const populateRecent = () => {
-          const tasks = getRecent();
-          recentList.innerHTML = tasks.length ? tasks.map(t => {
-              const val = typeof t === 'object' ? t.val : t;
-              const lbl = typeof t === 'object' ? t.label : t;
-              return `<div class="dropdown-item cursor-pointer text-truncate" data-val="${esc(val)}" title="${esc(lbl)}"><i class="bi bi-clock-history me-2 text-muted"></i>${esc(lbl)}</div>`;
-          }).join('') : '<div class="px-3 py-2 small text-muted">暂无最近记录</div>';
-      };
-      const toggleDrop = (show) => {
-          if (show) populateRecent();
-          dropdown.classList.toggle('show', show);
-          chevron.classList.toggle('chevron-up', show);
-      };
+      const doSearch = (keyword) => { keyword = (keyword || '').trim(); input.value = keyword; clearBtn.classList.toggle('d-none', keyword.length === 0); onSearch(keyword.toLowerCase()); };
+      const populateRecent = () => { const tasks = getRecent(); recentList.innerHTML = tasks.length ? tasks.map(t => { const val = typeof t === 'object' ? t.val : t; const lbl = typeof t === 'object' ? t.label : t; return `<div class="dropdown-item cursor-pointer text-truncate" data-val="${esc(val)}" title="${esc(lbl)}"><i class="bi bi-clock-history me-2 text-muted"></i>${esc(lbl)}</div>`; }).join('') : '<div class="px-3 py-2 small text-muted">暂无最近记录</div>'; };
+      const toggleDrop = (show) => { if (show) populateRecent(); dropdown.classList.toggle('show', show); chevron.classList.toggle('chevron-up', show); };
       input.addEventListener('input', (e) => doSearch(e.target.value));
       input.addEventListener('focus', () => toggleDrop(true));
       chevron.addEventListener('click', (e) => { e.stopPropagation(); toggleDrop(!dropdown.classList.contains('show')); });
       document.addEventListener('click', (e) => { if (!e.target.closest('.search-container')) toggleDrop(false); });
-      dropdown.addEventListener('click', (e) => {
-          const item = e.target.closest('.dropdown-item');
-          if (item) { doSearch(item.dataset.val); toggleDrop(false); }
-      });
+      dropdown.addEventListener('click', (e) => { const item = e.target.closest('.dropdown-item'); if (item) { doSearch(item.dataset.val); toggleDrop(false); } });
       clearBtn.addEventListener('click', () => { doSearch(''); input.focus(); });
       return doSearch;
     }
@@ -656,6 +717,7 @@ echo "(注：实际干活的 agent.py 脚本将在下一步发送给您)"
 
     async function loadSettings(){
         const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);
+        window.globalAgentToken = sys.agent_token || 'autoiso_secret_token';
         userForm.auth_username.value=sys.auth_username||'';
         uploadForm.global_auto_upload.checked=sys.global_auto_upload!==false;
         uploadForm.upload_cron.value=sys.upload_cron||'';
@@ -671,12 +733,11 @@ echo "(注：实际干活的 agent.py 脚本将在下一步发送给您)"
         $('proxyForm').global_proxy.value=sys.global_proxy||'';
         $('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;
         $('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';
-        
-        $('deploy_master_url').value = window.location.origin;
-        $('deploy_token').value = sys.agent_token || 'autoiso_secret_token';
-        updateDeployCommand();
-
         await loadQbServers();
+        // 同时加载边缘节点列表
+        if (!$('viewSettings').classList.contains('d-none')) {
+            await loadAgentNodes();
+        }
     }
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}

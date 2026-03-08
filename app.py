@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.1"
+APP_VERSION = "v0.8.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -163,6 +163,18 @@ class ScrapeRecord(db.Model):
     )
 
 
+class AgentNode(db.Model):
+    __tablename__ = "agent_nodes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_name = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    qb_url = db.Column(db.String(255), nullable=False)
+    qb_user = db.Column(db.String(128), nullable=False)
+    qb_pass = db.Column(db.String(255), nullable=False)
+    temp_path = db.Column(db.String(512), nullable=False)
+    cd2_path = db.Column(db.String(512), nullable=False)
+
+
 def setup_logging():
     log_dir = os.path.dirname(LOG_FILE)
     if log_dir:
@@ -212,6 +224,8 @@ def auth_guard():
     if endpoint in public_endpoints:
         return
     if request.path == "/api/agent/report":
+        return
+    if request.path == "/api/agent/config":
         return
     if session.get("logged_in"):
         return
@@ -273,6 +287,22 @@ def ensure_schema():
             )
         )
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_scrape_records_original_name ON scrape_records(original_name)"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS agent_nodes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_name VARCHAR(128) NOT NULL UNIQUE,
+                    qb_url VARCHAR(255) NOT NULL,
+                    qb_user VARCHAR(128) NOT NULL,
+                    qb_pass VARCHAR(255) NOT NULL,
+                    temp_path VARCHAR(512) NOT NULL,
+                    cd2_path VARCHAR(512) NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_nodes_node_name ON agent_nodes(node_name)"))
 
 
 def get_setting(key):
@@ -1895,6 +1925,114 @@ def delete_qbserver(server_id):
     db.session.commit()
     return jsonify({"ok": True})
 
+
+def serialize_agent_node(row):
+    return {
+        "id": row.id,
+        "node_name": row.node_name,
+        "qb_url": row.qb_url,
+        "qb_user": row.qb_user,
+        "qb_pass": row.qb_pass,
+        "temp_path": row.temp_path,
+        "cd2_path": row.cd2_path,
+    }
+
+
+@app.route("/api/agent_nodes", methods=["GET"])
+def list_agent_nodes():
+    rows = AgentNode.query.order_by(AgentNode.id.desc()).all()
+    return jsonify([serialize_agent_node(row) for row in rows])
+
+
+@app.route("/api/agent_nodes", methods=["POST"])
+def add_agent_node():
+    payload = request.get_json(force=True) or {}
+    node_name = (payload.get("node_name") or "").strip()
+    qb_url = (payload.get("qb_url") or "").strip()
+    qb_user = (payload.get("qb_user") or "").strip()
+    qb_pass = (payload.get("qb_pass") or "").strip()
+    temp_path = (payload.get("temp_path") or "").strip()
+    cd2_path = (payload.get("cd2_path") or "").strip()
+
+    if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
+        return jsonify({"error": "参数不完整"}), 400
+    if AgentNode.query.filter_by(node_name=node_name).first():
+        return jsonify({"error": "节点名称已存在"}), 400
+
+    try:
+        row = AgentNode(
+            node_name=node_name,
+            qb_url=qb_url,
+            qb_user=qb_user,
+            qb_pass=qb_pass,
+            temp_path=temp_path,
+            cd2_path=cd2_path,
+        )
+        db.session.add(row)
+        db.session.commit()
+        return jsonify({"ok": True, "node": serialize_agent_node(row)})
+    except Exception:
+        db.session.rollback()
+        logger.exception("新增边缘节点失败")
+        return jsonify({"error": "新增失败"}), 500
+
+
+@app.route("/api/agent_nodes/update", methods=["POST"])
+def update_agent_node():
+    payload = request.get_json(force=True) or {}
+    raw_id = payload.get("id")
+    try:
+        node_id = int(raw_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "无效的节点 ID"}), 400
+
+    node_name = (payload.get("node_name") or "").strip()
+    qb_url = (payload.get("qb_url") or "").strip()
+    qb_user = (payload.get("qb_user") or "").strip()
+    qb_pass = (payload.get("qb_pass") or "").strip()
+    temp_path = (payload.get("temp_path") or "").strip()
+    cd2_path = (payload.get("cd2_path") or "").strip()
+    if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
+        return jsonify({"error": "参数不完整"}), 400
+
+    row = db.session.get(AgentNode, node_id)
+    if not row:
+        return jsonify({"error": "节点不存在"}), 404
+
+    conflict = AgentNode.query.filter(AgentNode.node_name == node_name, AgentNode.id != node_id).first()
+    if conflict:
+        return jsonify({"error": "节点名称已存在"}), 400
+
+    try:
+        row.node_name = node_name
+        row.qb_url = qb_url
+        row.qb_user = qb_user
+        row.qb_pass = qb_pass
+        row.temp_path = temp_path
+        row.cd2_path = cd2_path
+        db.session.commit()
+        return jsonify({"ok": True, "node": serialize_agent_node(row)})
+    except Exception:
+        db.session.rollback()
+        logger.exception("更新边缘节点失败")
+        return jsonify({"error": "更新失败"}), 500
+
+
+@app.route("/api/agent_nodes/<int:node_id>", methods=["DELETE"])
+def delete_agent_node(node_id):
+    row = db.session.get(AgentNode, node_id)
+    if not row:
+        return jsonify({"error": "节点不存在"}), 404
+    try:
+        db.session.delete(row)
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        db.session.rollback()
+        logger.exception("删除边缘节点失败")
+        return jsonify({"error": "删除失败"}), 500
+
+
 @app.route("/api/settings/telegram", methods=["GET"])
 def get_telegram_settings():
     return jsonify(
@@ -2016,6 +2154,21 @@ def agent_report():
             "last_update": last_update,
         }
     return jsonify({"ok": True, "status": "accepted"})
+
+
+@app.route("/api/agent/config", methods=["GET"])
+def get_agent_config():
+    token = (request.args.get("token") or "").strip()
+    node_name = (request.args.get("node_name") or "").strip()
+    if not token or not hmac.compare_digest(token, get_agent_token()):
+        return jsonify({"error": "Forbidden"}), 403
+    if not node_name:
+        return jsonify({"error": "node_name 不能为空"}), 400
+
+    row = AgentNode.query.filter_by(node_name=node_name).first()
+    if not row:
+        return jsonify({"error": "节点不存在"}), 404
+    return jsonify(serialize_agent_node(row))
 
 
 @app.route("/api/settings/telegram", methods=["DELETE"])
