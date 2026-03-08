@@ -417,20 +417,13 @@
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
     
-    // 密码明文切换逻辑
     window.togglePwd = function(btn, inputId) {
         const inp = $(inputId);
         const icon = btn.querySelector('i');
-        if (inp.type === 'password') {
-            inp.type = 'text';
-            icon.classList.replace('bi-eye-slash', 'bi-eye');
-        } else {
-            inp.type = 'password';
-            icon.classList.replace('bi-eye', 'bi-eye-slash');
-        }
+        if (inp.type === 'password') { inp.type = 'text'; icon.classList.replace('bi-eye-slash', 'bi-eye'); } 
+        else { inp.type = 'password'; icon.classList.replace('bi-eye', 'bi-eye-slash'); }
     };
 
-    // Agent Node CRUD 逻辑
     const agentNodeForm = $('agentNodeForm');
     agentNodeForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -444,21 +437,14 @@
             cd2_path: agentNodeForm.cd2_path.value.trim()
         };
         try {
-            if (data.id) {
-                await api('/api/agent_nodes/update', { method: 'POST', body: JSON.stringify(data) });
-                notify('节点更新成功', 'success');
-            } else {
-                await api('/api/agent_nodes', { method: 'POST', body: JSON.stringify(data) });
-                notify('新节点添加成功', 'success');
-            }
-            resetAgentForm();
-            await loadAgentNodes();
+            if (data.id) { await api('/api/agent_nodes/update', { method: 'POST', body: JSON.stringify(data) }); notify('节点更新成功', 'success'); } 
+            else { await api('/api/agent_nodes', { method: 'POST', body: JSON.stringify(data) }); notify('新节点添加成功', 'success'); }
+            resetAgentForm(); await loadAgentNodes();
         } catch(err) { notify(err.message, 'danger'); }
     });
 
     window.resetAgentForm = function() {
-        agentNodeForm.reset();
-        agentNodeForm.agent_id.value = '';
+        agentNodeForm.reset(); agentNodeForm.agent_id.value = '';
         $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
         if ($('agent_qb_pass').type === 'text') { togglePwd($('agent_qb_pass').nextElementSibling, 'agent_qb_pass'); }
     }
@@ -466,14 +452,7 @@
     $('agentNodeList').addEventListener('click', async (e) => {
         const editBtn = e.target.closest('button[data-act="edit"]');
         if (editBtn) {
-            const d = editBtn.dataset;
-            agentNodeForm.agent_id.value = d.id;
-            agentNodeForm.node_name.value = d.name;
-            agentNodeForm.qb_url.value = d.url;
-            agentNodeForm.qb_user.value = d.user;
-            agentNodeForm.qb_pass.value = d.pass;
-            agentNodeForm.temp_path.value = d.temp;
-            agentNodeForm.cd2_path.value = d.cd2;
+            const d = editBtn.dataset; agentNodeForm.agent_id.value = d.id; agentNodeForm.node_name.value = d.name; agentNodeForm.qb_url.value = d.url; agentNodeForm.qb_user.value = d.user; agentNodeForm.qb_pass.value = d.pass; agentNodeForm.temp_path.value = d.temp; agentNodeForm.cd2_path.value = d.cd2;
             $('agentFormTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>正在编辑：' + esc(d.name);
             return;
         }
@@ -481,11 +460,7 @@
         if (delBtn) {
             const id = delBtn.dataset.id;
             if (!await ask('确定彻底删除该节点配置吗？', '删除边缘节点')) return;
-            try {
-                await api(`/api/agent_nodes/${id}`, { method: 'DELETE' });
-                notify('节点已删除', 'success');
-                await loadAgentNodes();
-            } catch(err) { notify(err.message, 'danger'); }
+            try { await api(`/api/agent_nodes/${id}`, { method: 'DELETE' }); notify('节点已删除', 'success'); await loadAgentNodes(); } catch(err) { notify(err.message, 'danger'); }
         }
     });
 
@@ -504,12 +479,10 @@
                     </td>
                 </tr>
             `).join('') : '<tr><td colspan="4" class="text-center text-muted py-4">暂无边缘节点，请在左侧添加</td></tr>';
-        } catch (e) {
-            $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`;
-        }
+        } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：包含环境 + agent.py + systemd 服务
+    // 全能版一键部署弹窗生成：(将所有 timeout 改为了 30 秒)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -540,7 +513,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (自动动态拉取群晖配置，无需修改)
+# 4. 写入核心挂机脚本 agent.py (内置30秒防超时机制)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -558,7 +531,7 @@ def get_identity():
 
 def get_config(identity):
     url = f"{identity['master_url']}/api/agent/config"
-    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
+    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -574,7 +547,7 @@ def report(identity, filename, status, progress=0):
         "eta_text": "-"
     }
     try:
-        requests.post(url, json=payload, timeout=5)
+        requests.post(url, json=payload, timeout=30)
     except:
         pass
 
@@ -596,7 +569,7 @@ def do_work():
 
     session = requests.Session()
     try:
-        res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=5)
+        res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=30)
         if res.text != "Ok.":
             log("VPS 本地 qB 登录失败")
             return
@@ -605,7 +578,7 @@ def do_work():
         return
 
     try:
-        res = session.get(f"{qb_url}/api/v2/torrents/info?filter=completed", timeout=5)
+        res = session.get(f"{qb_url}/api/v2/torrents/info?filter=completed", timeout=30)
         torrents = res.json()
     except Exception as e:
         log(f"获取 qB 任务失败: {e}")
@@ -668,7 +641,7 @@ if __name__ == "__main__":
         time.sleep(60)
 EOF
 
-# 5. 配置为开机自启后台服务
+# 5. 配置为开机自启后台服务并自动重启生效
 cat << 'EOF' > /etc/systemd/system/autoiso-agent.service
 [Unit]
 Description=AutoISO Edge Agent
@@ -688,13 +661,12 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now autoiso-agent
+systemctl restart autoiso-agent
 
 echo "------------------------------------------------"
 echo "✅ 节点 [${nodeName}] 全套环境与挂机程序部署完毕！"
 echo "✅ 挂机程序已在后台静默运行，无需再手动执行任何脚本。"
 echo "✅ (查看运行日志命令: journalctl -u autoiso-agent -f)"
-echo "✅ ⚠️ 必须的最后一步: 请在浏览器访问 http://您的VPS_IP:19798"
-echo "✅ 将 115小号 挂载到群晖面板里填写的那个路径上！"
 echo "------------------------------------------------"
 `;
         $('deployCommandText').value = bash;
@@ -707,19 +679,10 @@ echo "------------------------------------------------"
         text.setSelectionRange(0, 99999); 
         try {
             if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text.value)
-                    .then(() => notify('部署代码已成功复制！', 'success'))
-                    .catch(() => fallbackCopy());
-            } else {
-                fallbackCopy();
-            }
-        } catch (err) {
-            notify('复制失败，请手动全选复制', 'danger');
-        }
-        function fallbackCopy() {
-            document.execCommand('copy');
-            notify('部署代码已成功复制！(Fallback)', 'success');
-        }
+                navigator.clipboard.writeText(text.value).then(() => notify('部署代码已成功复制！', 'success')).catch(() => fallbackCopy());
+            } else { fallbackCopy(); }
+        } catch (err) { notify('复制失败，请手动全选复制', 'danger'); }
+        function fallbackCopy() { document.execCommand('copy'); notify('部署代码已成功复制！(Fallback)', 'success'); }
     }
 
     function initAdvancedSearch(opts) {
