@@ -141,7 +141,7 @@
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
-            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">策略/自动</th><th class="text-center align-middle">操作</th></tr></thead>
+            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
@@ -435,9 +435,26 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传'||s==='pending_upload'||s==='待上传 (阻塞中)')return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传 (阻塞中)</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
-    if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
-    return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
+    // 最强迫症的状态映射器：全统一为3字（除失败外），且绝不影响后台数据库逻辑
+    function badge(s){
+        s = String(s||'').trim();
+        const lowS = s.toLowerCase();
+        
+        if(s === '成功' || s === '已上传至网盘' || s === 'uploaded') return '<span class="badge rounded-pill text-bg-success">已上传</span>';
+        if(s === '上传中' || s === 'uploading') return '<span class="badge rounded-pill text-bg-warning">上传中</span>';
+        if(s === '封装完成，待上传' || s === 'pending' || s === '待上传' || s === 'pending_upload' || s.includes('待上传')) return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传</span>';
+        if(s === '已封装' || s === 'packed') return '<span class="badge rounded-pill text-bg-info">已封装</span>';
+        if(s === '中止上传' || s === 'aborted' || s === '已中止') return '<span class="badge rounded-pill text-bg-danger">已中止</span>';
+        if(s === '本地已删除' || s === '已删除') return '<span class="badge rounded-pill text-bg-dark">已删除</span>';
+        if(s === 'Failed' || s === '失败') return '<span class="badge rounded-pill text-bg-danger">失败</span>';
+        if(s === '待转移') return '<span class="badge rounded-pill text-bg-info">待转移</span>';
+        if(s === '封装中' || s === 'packing') return '<span class="badge rounded-pill text-bg-primary">封装中</span>';
+        if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
+        if(s === '排队中') return '<span class="badge rounded-pill text-bg-secondary">排队中</span>';
+        if(s === '处理中') return '<span class="badge rounded-pill text-bg-info shadow-sm">处理中</span>';
+        
+        return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;
+    }
     
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
     $('confirmOkBtn').addEventListener('click',()=>{if(askResolve)askResolve(true);askResolve=null;confirmModal.hide();});
@@ -869,33 +886,31 @@ echo "------------------------------------------------"
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
-            const isVps = x.node && x.node !== 'NAS'; // 判断是否是 VPS 节点
+            const isVps = x.node && x.node !== 'NAS'; 
             const disabled = (uploadingNow) ? 'disabled' : ''; 
             
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge text-bg-success">已上传</span>':badge(x.status || '待上传');
             
-            // 策略显示区：VPS显示全局/独立切换开关，NAS显示普通自动上传开关
             let autoIcon = '';
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
                 autoIcon = `<div class="d-flex justify-content-center align-items-center">
                     <div class="form-check form-switch m-0 p-0 d-flex align-items-center" title="切换该VPS节点的定时策略">
-                        <input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.5rem; height:1.25rem; float:none; margin-left:0 !important;" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}">
+                        <input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}">
                         <span class="small ms-2 fw-bold text-${isGlobal?'primary':'info'}">${isGlobal?'全局':'独立'}</span>
                     </div>
                 </div>`;
             } else {
-                autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.5rem; height:1.25rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+                autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
             }
 
-            // 操作区：VPS为立即放行按钮，NAS为常规上传/删除按钮
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm w-100" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
+                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>放行上传</button>`;
             } else {
-                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm mb-1 w-100" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm w-100" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
+                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
             }
 
             return `<tr>
@@ -906,7 +921,7 @@ echo "------------------------------------------------"
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
               <td class="text-center align-middle">${autoIcon}</td>
-              <td class="text-center align-middle"><div class="d-flex flex-column justify-content-center align-items-center">${actionBtns}</div></td>
+              <td class="text-center align-middle"><div class="d-flex flex-row justify-content-center align-items-center gap-2">${actionBtns}</div></td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
