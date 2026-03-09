@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.9.0"
+APP_VERSION = "v0.9.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3144,6 +3144,9 @@ def list_pending():
     now_dt_pending = now_local()
     stale_pending_nodes = []
     for node_name, payload in pending_snapshot.items():
+        if not isinstance(payload, dict):
+            stale_pending_nodes.append(node_name)
+            continue
         updated_at = payload.get("updated_at")
         try:
             if not isinstance(updated_at, datetime):
@@ -3189,6 +3192,7 @@ def list_pending():
 def list_pending_uploads():
     rows = []
     seen_filenames = set()
+    pending_statuses = {"待上传", "待上传 (阻塞中)"}
     agent_policy_map = {
         row.node_name: normalize_agent_upload_policy(row.upload_policy)
         for row in AgentNode.query.all()
@@ -3209,13 +3213,13 @@ def list_pending_uploads():
             size_bytes = 0
         size_gb = round(size_bytes / GB, 3)
 
-        upload_row = UploadHistory.query.filter_by(filename=name).first()
+        upload_row = UploadHistory.query.filter_by(filename=safe_filename).first()
         upload_status = (upload_row.status if upload_row else "").strip().lower()
         status_text = "uploaded" if upload_status == "uploaded" else "pending"
 
-        task_name = os.path.splitext(name)[0]
+        task_name = os.path.splitext(safe_filename)[0]
         history_row = (
-            PackHistory.query.filter(PackHistory.task_name.in_([name, task_name]))
+            PackHistory.query.filter(PackHistory.task_name.in_([safe_filename, task_name]))
             .order_by(PackHistory.id.desc())
             .first()
         )
@@ -3230,8 +3234,8 @@ def list_pending_uploads():
                 "node": node_name,
                 "node_policy": node_policy,
                 "status": status_text,
-                "auto_upload": bool(get_task_auto_upload(name)),
-                "display_name": build_display_name(os.path.splitext(name)[0]),
+                "auto_upload": bool(get_task_auto_upload(safe_filename)),
+                "display_name": build_display_name(task_name),
             }
         )
         seen_filenames.add(filename_key)
@@ -3240,7 +3244,7 @@ def list_pending_uploads():
         PackHistory.query.outerjoin(QBServer, PackHistory.qb_server_id == QBServer.id)
         .filter(
             or_(
-                PackHistory.status.like("%待上传%"),
+                PackHistory.status.in_(list(pending_statuses)),
                 func.lower(PackHistory.status) == "pending_upload",
             )
         )

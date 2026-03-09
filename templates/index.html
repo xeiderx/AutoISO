@@ -66,6 +66,14 @@
     .scrape-check-wrapper { width: 0; overflow: hidden; opacity: 0; transition: all 0.2s; margin-right: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
     .batch-mode .scrape-check-wrapper { width: 32px; opacity: 1; margin-right: 12px; }
     .scrape-check { width: 1.4rem; height: 1.4rem; cursor: pointer; }
+
+    /* 高级自定义带文字切换开关 */
+    .vps-policy-switch { position: relative; width: 3.5rem; height: 1.5rem; -webkit-appearance: none; appearance: none; background-color: #0dcaf0; border-radius: 1rem; outline: none; cursor: pointer; transition: 0.3s; border: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+    .vps-policy-switch:checked { background-color: #0d6efd; }
+    .vps-policy-switch::before { content: ''; position: absolute; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: #fff; top: 0.15rem; left: 0.15rem; transition: 0.3s; z-index: 2; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+    .vps-policy-switch:checked::before { left: 2.15rem; }
+    .vps-policy-switch::after { content: attr(data-off); position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); color: #fff; font-size: 0.7rem; font-weight: bold; z-index: 1; transition: 0.3s; }
+    .vps-policy-switch:checked::after { content: attr(data-on); left: 0.4rem; right: auto; }
   </style>
 </head>
 <body>
@@ -131,16 +139,16 @@
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
-            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">所属节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
+            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
       </div></div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (全局总控)</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
-            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
+            <colgroup><col style="width:4%"><col style="width:8%"><col style="width:22%"><col style="width:26%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:16%"></colgroup>
             <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
@@ -185,8 +193,8 @@
               <label class="form-label fw-bold text-dark mb-1">VPS 上传与排队策略</label>
               <select class="form-select form-select-sm border-primary" name="upload_policy" id="agent_upload_policy" onchange="$('agent_cron_container').classList.toggle('d-none', this.value !== 'custom')">
                 <option value="global">跟随全局定时 (推荐)</option>
-                <option value="instant">打包后立即强传</option>
-                <option value="custom">此节点独立定时</option>
+                <option value="instant">立即强传</option>
+                <option value="custom">独立定时</option>
               </select>
             </div>
             <div class="col-12 d-none" id="agent_cron_container">
@@ -329,8 +337,8 @@
         </div>
         <div class="table-responsive">
           <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1200px;">
-            <colgroup><col class="check-col"><col style="width:3%"><col style="width:30%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
-            <thead class="table-light"><tr><th class="check-col text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
+            <colgroup><col class="check-col"><col style="width:3%"><col style="width:16%"><col style="width:16%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
+            <thead class="table-light"><tr><th class="check-col text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="align-middle">名称</th><th class="align-middle">全名</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -435,11 +443,8 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    // 最强迫症的状态映射器：全统一为3字（除失败外），且绝不影响后台数据库逻辑
     function badge(s){
         s = String(s||'').trim();
-        const lowS = s.toLowerCase();
-        
         if(s === '成功' || s === '已上传至网盘' || s === 'uploaded') return '<span class="badge rounded-pill text-bg-success">已上传</span>';
         if(s === '上传中' || s === 'uploading') return '<span class="badge rounded-pill text-bg-warning">上传中</span>';
         if(s === '封装完成，待上传' || s === 'pending' || s === '待上传' || s === 'pending_upload' || s.includes('待上传')) return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传</span>';
@@ -452,7 +457,6 @@
         if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
         if(s === '排队中') return '<span class="badge rounded-pill text-bg-secondary">排队中</span>';
         if(s === '处理中') return '<span class="badge rounded-pill text-bg-info shadow-sm">处理中</span>';
-        
         return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;
     }
     
@@ -575,7 +579,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (特权放行白名单版)
+# 4. 写入核心挂机脚本 agent.py (全新断点续传+防宕机版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -651,9 +655,15 @@ def do_work():
         return
 
     pending_tasks = []
+    ready_to_process = []
+    
     for t in torrents:
-        if '待封装' in t.get('tags', ''):
-            progress_pct = int(t.get('progress', 0) * 100)
+        tags = t.get('tags', '')
+        progress = t.get('progress', 0)
+        
+        # 收集待封装列表发送给群晖
+        if '待封装' in tags:
+            progress_pct = int(progress * 100)
             status_text = "排队中" if progress_pct == 100 else f"下载中 {progress_pct}%"
             pending_tasks.append({
                 "title": t['name'],
@@ -663,6 +673,15 @@ def do_work():
                 "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
                 "node_alias": identity["node_name"]
             })
+            
+            if progress == 1:
+                ready_to_process.append((t, 'pack'))
+                
+        # 核心防宕机机制：哪怕重启了，只要看到已封装且ISO存在，立刻恢复排队等待上传！
+        elif '已封装' in tags:
+            iso_path_check = os.path.join(temp_path, f"{t['name']}.iso")
+            if os.path.exists(iso_path_check):
+                ready_to_process.append((t, 'upload'))
     
     try:
         requests.post(f"{identity['master_url']}/api/agent/pending", json={
@@ -673,9 +692,7 @@ def do_work():
     except Exception as e:
         pass
 
-    ready_to_pack = [t for t in torrents if '待封装' in t.get('tags', '') and t.get('progress', 0) == 1]
-
-    for t in ready_to_pack:
+    for t, action in ready_to_process:
         name = t['name']
         size_gb = t.get('size', 0) / (1024**3)
         save_path = t.get('content_path')
@@ -690,24 +707,32 @@ def do_work():
             log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
             return
 
-        log(f"====== 开始处理任务: {name} ======")
-        report(identity, iso_name, "packing", 10, size_gb=size_gb)
+        if action == 'pack':
+            log(f"====== 开始处理任务: {name} ======")
+            report(identity, iso_name, "packing", 10, size_gb=size_gb)
+            try:
+                log("正在打包生成 ISO...")
+                cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
+                subprocess.run(cmd, check=True)
+            except Exception as e:
+                log(f"打包失败: {e}")
+                report(identity, iso_name, "error", 0, size_gb=size_gb)
+                continue
+                
+            # 打包完成后立即改标签，极大地提升用户安全感
+            try:
+                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                log("打包完毕，标签已更新为[已封装]")
+            except Exception as e:
+                log(f"更新 qB 标签失败: {e}")
 
-        try:
-            log("正在打包生成 ISO...")
-            cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
-            subprocess.run(cmd, check=True)
-        except Exception as e:
-            log(f"打包失败: {e}")
-            report(identity, iso_name, "error", 0, size_gb=size_gb)
-            continue
-
-        log("打包完成！开始向主控请求上传许可...")
+        # 进入阻塞上传许可流程
+        log("开始向主控请求上传许可...")
         report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
         
         while True:
             try:
-                # 把文件名发给群晖，群晖检查是否在立刻放行的白名单里
                 up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
                 if up_res.status_code == 200 and up_res.json().get("can_upload", True):
                     break
@@ -728,15 +753,8 @@ def do_work():
             report(identity, iso_name, "error", 0, size_gb=size_gb)
             continue
 
-        log("✅ 上传成功(ISO已自动清理)！汇报状态并仅更新 qB 标签...")
+        log("✅ 上传成功(ISO已自动清理)！")
         report(identity, iso_name, "finished", 100, size_gb=size_gb)
-
-        try:
-            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
-            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
-            log("任务结束！已打上[已封装]标签，保留 qB 源文件继续做种！")
-        except Exception as e:
-            log(f"更新 qB 标签失败: {e}")
 
 if __name__ == "__main__":
     log("🚀 AutoISO 边缘节点启动成功！等待新任务...")
@@ -836,11 +854,15 @@ echo "------------------------------------------------"
       currentUploadingFile=String(stats.current_uploading_file||'');
       $('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;
       const p=await api('/api/progress');
-      currentPackingTasks=(p.active&&p.tasks)?p.tasks.map(t=>t.task_name):[];
-      if(!p.active||!(p.tasks||[]).length){
+      
+      // 极其关键：过滤掉已经完成或进入阻塞阶段的任务，不让它们在顶部进度条中残留显示
+      const activeOnly = (p.tasks || []).filter(t => !['pending_upload', '待上传', '待上传 (阻塞中)', 'finished'].includes(t.status));
+      currentPackingTasks = activeOnly.map(t => t.task_name);
+      
+      if(!p.active || !activeOnly.length){
         $('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${cleanName(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');
+        $('packingTasks').innerHTML=activeOnly.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${cleanName(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');
       }
       const up=stats.upload_progress||{};
       const cs=stats.current_upload_status||{};
@@ -896,10 +918,7 @@ echo "------------------------------------------------"
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
                 autoIcon = `<div class="d-flex justify-content-center align-items-center">
-                    <div class="form-check form-switch m-0 p-0 d-flex align-items-center" title="切换该VPS节点的定时策略">
-                        <input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}">
-                        <span class="small ms-2 fw-bold text-${isGlobal?'primary':'info'}">${isGlobal?'全局':'独立'}</span>
-                    </div>
+                    <input class="vps-policy-switch shadow-sm m-0" type="checkbox" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}" data-on="全局" data-off="独立" title="切换此节点定时策略">
                 </div>`;
             } else {
                 autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
@@ -907,10 +926,10 @@ echo "------------------------------------------------"
 
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>放行上传</button>`;
+                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm w-100" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
             } else {
-                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
+                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm mb-1 w-100" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm w-100" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
             }
 
             return `<tr>
@@ -921,7 +940,7 @@ echo "------------------------------------------------"
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
               <td class="text-center align-middle">${autoIcon}</td>
-              <td class="text-center align-middle"><div class="d-flex flex-row justify-content-center align-items-center gap-2">${actionBtns}</div></td>
+              <td class="text-center align-middle"><div class="d-flex flex-column justify-content-center align-items-center">${actionBtns}</div></td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
@@ -968,7 +987,7 @@ echo "------------------------------------------------"
     }
     function renderHistory() {
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
-        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
+        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell fw-bold text-dark" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle ellipsis-cell text-muted" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="13" class="text-center text-muted">暂无历史记录</td></tr>';
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
 
@@ -1007,7 +1026,7 @@ echo "------------------------------------------------"
         $('scrapeRecordsContainer').innerHTML = pageData.length ? pageData.map(r => {
           const isSuccess = r.status === '成功';
           const rawPoster = String(r.poster_url || '').trim();
-          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : defaultPoster;
+          const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="80" height="120" fill="%23e2e8f0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%2394a3b8">暂无图</text></svg>';
           return `
           <div class="col-12 col-xl-6">
             <div class="scrape-card bg-white p-3 d-flex gap-3 h-100 position-relative">
@@ -1100,7 +1119,7 @@ echo "------------------------------------------------"
     $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志吗？'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     
     window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-4">请输入关键字后点击搜索</div>'; manualScrapeModal.show(); };
-    $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : defaultPoster; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button></div>`; }).join('') : '<div class="text-center text-danger py-4">未找到结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> 搜索'; } });
+    $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-4"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8">无图</text></svg>'; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-2 border border-light align-items-center"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="small text-muted line-clamp-2 mt-1">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-outline-success btn-sm rounded-pill px-3 ms-2 text-nowrap" onclick="bindScrapeResult('${dataStr}')">绑定</button></div>`; }).join('') : '<div class="text-center text-danger py-4">未找到结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-4">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> 搜索'; } });
     $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
     window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); manualScrapeModal.hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
     
