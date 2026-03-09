@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.9.1"
+APP_VERSION = "v0.9.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3385,83 +3385,98 @@ def upload_control():
 
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
-    total_count = db.session.query(func.count(PackHistory.id)).scalar() or 0
-    total_size_gb = (
-        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
-        .filter(PackHistory.file_size_gb.isnot(None))
-        .scalar()
-        or 0.0
-    )
-
     now_dt = now_local().replace(tzinfo=None)
     month_start = datetime(now_dt.year, now_dt.month, 1)
     month_start_text = month_start.strftime("%Y-%m-%d %H:%M:%S")
 
-    month_count = db.session.query(func.count(PackHistory.id)).filter(PackHistory.start_time >= month_start).scalar() or 0
-    month_size_gb = (
-        db.session.query(func.coalesce(func.sum(PackHistory.file_size_gb), 0.0))
-        .filter(PackHistory.start_time >= month_start)
-        .scalar()
-        or 0.0
-    )
+    # 辅助函数：区分该条历史记录是 NAS 还是 VPS 节点产生的
+    def is_vps(row):
+        info = (row.info or "").strip().lower()
+        return info.startswith("node=")
 
-    pack_success_statuses = {STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING, STATUS_UPLOADED}
-    finished_pack_rows = PackHistory.query.filter(
-        PackHistory.start_time.isnot(None),
-        PackHistory.end_time.isnot(None),
-        PackHistory.status.in_(pack_success_statuses),
-    ).all()
-    pack_total_seconds = 0.0
-    pack_total_mb = 0.0
-    valid_pack_count = 0
-    for row in finished_pack_rows:
-        delta = (row.end_time - row.start_time).total_seconds()
-        if delta <= 0:
-            continue
-        valid_pack_count += 1
-        pack_total_seconds += delta
-        pack_total_mb += float((row.file_size_gb or 0.0) * 1024.0)
+    all_rows = PackHistory.query.all()
 
-    pack_avg_seconds = int(pack_total_seconds / valid_pack_count) if valid_pack_count > 0 else 0
-    try:
-        pack_avg_rate_mbps = (pack_total_mb / pack_total_seconds) if pack_total_seconds > 0 else 0.0
-    except ZeroDivisionError:
-        pack_avg_rate_mbps = 0.0
+    # 数据容器
+    pack_data = {
+        "nas": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
+        "vps": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
+    }
+    up_data = {
+        "nas": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
+        "vps": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
+    }
 
-    uploaded_rows = PackHistory.query.filter(
-        PackHistory.status == STATUS_UPLOADED,
-        PackHistory.upload_start_time.isnot(None),
-        PackHistory.upload_start_time != "",
-        PackHistory.upload_end_time.isnot(None),
-        PackHistory.upload_end_time != "",
-    ).all()
+    pack_success_statuses = {
+        STATUS_PACKED_PENDING_UPLOAD,
+        STATUS_UPLOADING,
+        STATUS_UPLOADED,
+        "已封装",
+        "待上传",
+        "待上传 (阻塞中)",
+    }
 
-    total_upload_count = len(uploaded_rows)
-    total_upload_size_gb = sum(float(r.file_size_gb or 0.0) for r in uploaded_rows)
-    month_upload_rows = [r for r in uploaded_rows if (r.upload_end_time or "") >= month_start_text]
-    month_upload_count = len(month_upload_rows)
-    month_upload_size_gb = sum(float(r.file_size_gb or 0.0) for r in month_upload_rows)
+    for r in all_rows:
+        size_gb = float(r.file_size_gb or 0.0)
+        cat = "vps" if is_vps(r) else "nas"
 
-    upload_total_seconds = 0.0
-    upload_total_mb = 0.0
-    valid_upload_count = 0
-    for row in uploaded_rows:
-        start_dt = parse_db_time(row.upload_start_time)
-        end_dt = parse_db_time(row.upload_end_time)
-        if not start_dt or not end_dt:
-            continue
-        delta = (end_dt - start_dt).total_seconds()
-        if delta <= 0:
-            continue
-        valid_upload_count += 1
-        upload_total_seconds += delta
-        upload_total_mb += float((row.file_size_gb or 0.0) * 1024.0)
+        # Total Pack stats (all records)
+        pack_data[cat]["count"] += 1
+        pack_data[cat]["size"] += size_gb
+        if r.start_time and r.start_time >= month_start:
+            pack_data[cat]["mc"] += 1
+            pack_data[cat]["msize"] += size_gb
 
-    upload_avg_seconds = int(upload_total_seconds / valid_upload_count) if valid_upload_count > 0 else 0
-    try:
-        upload_avg_rate_mbps = (upload_total_mb / upload_total_seconds) if upload_total_seconds > 0 else 0.0
-    except ZeroDivisionError:
-        upload_avg_rate_mbps = 0.0
+        # Pack Duration & Speed (only valid packs)
+        if r.start_time and r.end_time and r.status in pack_success_statuses:
+            delta = (r.end_time - r.start_time).total_seconds()
+            if delta > 0:
+                pack_data[cat]["vc"] += 1
+                pack_data[cat]["dur"] += delta
+                pack_data[cat]["mb"] += size_gb * 1024.0
+
+        # Upload stats
+        if r.status in {STATUS_UPLOADED, "已上传", "成功"}:
+            up_data[cat]["count"] += 1
+            up_data[cat]["size"] += size_gb
+            if (r.upload_end_time or "") >= month_start_text:
+                up_data[cat]["mc"] += 1
+                up_data[cat]["msize"] += size_gb
+
+            start_dt = parse_db_time(r.upload_start_time)
+            end_dt = parse_db_time(r.upload_end_time)
+            if start_dt and end_dt:
+                delta = (end_dt - start_dt).total_seconds()
+                if delta > 0:
+                    up_data[cat]["vc"] += 1
+                    up_data[cat]["dur"] += delta
+                    up_data[cat]["mb"] += size_gb * 1024.0
+
+    # 编译为前端所需的三列结构 (NAS / VPS / Total)
+    def compile_stats(d):
+        res = {}
+        for cat in ["nas", "vps"]:
+            res[f"{cat}_count"] = d[cat]["count"]
+            res[f"{cat}_size_text"] = format_data_size(d[cat]["size"])
+            res[f"{cat}_month_count"] = d[cat]["mc"]
+            res[f"{cat}_month_size_text"] = format_data_size(d[cat]["msize"])
+            avg_dur = int(d[cat]["dur"] / d[cat]["vc"]) if d[cat]["vc"] > 0 else 0
+            res[f"{cat}_avg_duration_text"] = format_seconds(avg_dur)
+            avg_spd = (d[cat]["mb"] / d[cat]["dur"]) if d[cat]["dur"] > 0 else 0.0
+            res[f"{cat}_avg_rate_text"] = f"{avg_spd:.0f} MB/s"
+
+        # Totals
+        res["total_count"] = d["nas"]["count"] + d["vps"]["count"]
+        res["total_size_text"] = format_data_size(d["nas"]["size"] + d["vps"]["size"])
+        res["month_count"] = d["nas"]["mc"] + d["vps"]["mc"]
+        res["month_size_text"] = format_data_size(d["nas"]["msize"] + d["vps"]["msize"])
+        tot_vc = d["nas"]["vc"] + d["vps"]["vc"]
+        tot_dur = d["nas"]["dur"] + d["vps"]["dur"]
+        tot_mb = d["nas"]["mb"] + d["vps"]["mb"]
+        avg_dur = int(tot_dur / tot_vc) if tot_vc > 0 else 0
+        res["avg_duration_text"] = format_seconds(avg_dur)
+        avg_spd = (tot_mb / tot_dur) if tot_dur > 0 else 0.0
+        res["avg_rate_text"] = f"{avg_spd:.0f} MB/s"
+        return res
 
     now_dt_agent = now_local()
     stale_agent_keys = []
@@ -3504,30 +3519,8 @@ def get_stats():
 
     return jsonify(
         {
-            "pack": {
-                "total_count": int(total_count or 0),
-                "total_size_gb": round(float(total_size_gb), 2),
-                "total_size_text": format_data_size(float(total_size_gb)),
-                "avg_duration_seconds": pack_avg_seconds,
-                "avg_duration_text": format_seconds(pack_avg_seconds),
-                "avg_rate_mbps": round(float(pack_avg_rate_mbps), 2),
-                "avg_rate_text": f"{pack_avg_rate_mbps:.0f} MB/s",
-                "month_count": int(month_count or 0),
-                "month_size_gb": round(float(month_size_gb), 2),
-                "month_size_text": format_data_size(float(month_size_gb)),
-            },
-            "upload": {
-                "total_count": int(total_upload_count or 0),
-                "total_size_gb": round(float(total_upload_size_gb), 2),
-                "total_size_text": format_data_size(float(total_upload_size_gb)),
-                "avg_duration_seconds": upload_avg_seconds,
-                "avg_duration_text": format_seconds(upload_avg_seconds),
-                "avg_rate_mbps": round(float(upload_avg_rate_mbps), 2),
-                "avg_rate_text": f"{upload_avg_rate_mbps:.0f} MB/s",
-                "month_count": int(month_upload_count or 0),
-                "month_size_gb": round(float(month_upload_size_gb), 2),
-                "month_size_text": format_data_size(float(month_upload_size_gb)),
-            },
+            "pack": compile_stats(pack_data),
+            "upload": compile_stats(up_data),
             "current_uploading_file": current_uploading_file,
             "current_upload_status": get_current_upload_status_snapshot(),
             "upload_progress": get_upload_progress_snapshot(),
