@@ -17,7 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from flask import Flask, has_app_context, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 
 try:
     from croniter import croniter
@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.8.9"
+APP_VERSION = "v0.9.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -435,7 +435,9 @@ def build_pending_history_block_set():
         "上传中",
         "成功",
         "已上传",
+        "已封装",
         STATUS_PACKED_PENDING_UPLOAD,
+        STATUS_PACKED_ONLY,
         STATUS_UPLOADED,
     }
     rows = (
@@ -449,14 +451,22 @@ def build_pending_history_block_set():
     return blocked
 
 
+def extract_node_name_from_history_info(info_text):
+    info = str(info_text or "").strip()
+    if not info:
+        return ""
+    match = re.search(r"node\s*=\s*([^\s;]+)", info, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
 def resolve_pack_history_node_name(row):
     if not row:
         return "NAS"
-    info = (row.info or "").strip()
-    if info.lower().startswith("node="):
-        node_name = info.split("=", 1)[1].strip()
-        if node_name:
-            return node_name
+    node_name = extract_node_name_from_history_info(row.info)
+    if node_name:
+        return node_name
     return row.qb_server.name if row.qb_server else "NAS"
 
 
@@ -1073,7 +1083,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     status_map = {
         "packing": "封装中",
         "uploading": "上传中",
-        "pending_upload": "待上传",
+        "pending_upload": "待上传 (阻塞中)",
         "finished": "成功",
         "error": "失败",
     }
@@ -3131,7 +3141,20 @@ def list_pending():
 
     with AGENT_PENDING_TASKS_LOCK:
         pending_snapshot = dict(AGENT_PENDING_TASKS)
+    now_dt_pending = now_local()
+    stale_pending_nodes = []
     for node_name, payload in pending_snapshot.items():
+        updated_at = payload.get("updated_at")
+        try:
+            if not isinstance(updated_at, datetime):
+                stale_pending_nodes.append(node_name)
+                continue
+            if (now_dt_pending - updated_at).total_seconds() > AGENT_TASK_TTL_SECONDS:
+                stale_pending_nodes.append(node_name)
+                continue
+        except Exception:
+            stale_pending_nodes.append(node_name)
+            continue
         for task in payload.get("tasks", []):
             if not isinstance(task, dict):
                 continue
@@ -3144,6 +3167,11 @@ def list_pending():
                     "display_name": str(task.get("display_name") or task.get("title") or "").strip(),
                 }
             )
+
+    if stale_pending_nodes:
+        with AGENT_PENDING_TASKS_LOCK:
+            for node_name in stale_pending_nodes:
+                AGENT_PENDING_TASKS.pop(node_name, None)
 
     blocked_names = build_pending_history_block_set()
     filtered_rows = []
@@ -3160,12 +3188,20 @@ def list_pending():
 @app.route("/api/pending_uploads", methods=["GET"])
 def list_pending_uploads():
     rows = []
+    seen_filenames = set()
     agent_policy_map = {
         row.node_name: normalize_agent_upload_policy(row.upload_policy)
         for row in AgentNode.query.all()
     }
+
     names = get_upload_list_files()
     for name in names:
+        safe_filename = os.path.basename(str(name or "").strip())
+        if not safe_filename:
+            continue
+        filename_key = safe_filename.lower()
+        if filename_key in seen_filenames:
+            continue
         file_path = os.path.join(OUTPUT_DIR, name)
         try:
             size_bytes = os.path.getsize(file_path)
@@ -3188,7 +3224,7 @@ def list_pending_uploads():
 
         rows.append(
             {
-                "filename": name,
+                "filename": safe_filename,
                 "size": size_gb,
                 "size_gb": size_gb,
                 "node": node_name,
@@ -3198,6 +3234,52 @@ def list_pending_uploads():
                 "display_name": build_display_name(os.path.splitext(name)[0]),
             }
         )
+        seen_filenames.add(filename_key)
+
+    pending_rows = (
+        PackHistory.query.outerjoin(QBServer, PackHistory.qb_server_id == QBServer.id)
+        .filter(
+            or_(
+                PackHistory.status.like("%待上传%"),
+                func.lower(PackHistory.status) == "pending_upload",
+            )
+        )
+        .order_by(PackHistory.id.desc())
+        .all()
+    )
+    for history_row in pending_rows:
+        task_name = os.path.basename(str(history_row.task_name or "").strip())
+        if not task_name:
+            continue
+        task_base = os.path.splitext(task_name)[0]
+        filename = f"{task_base}.iso"
+        filename_key = filename.lower()
+        if filename_key in seen_filenames:
+            continue
+
+        info_node = extract_node_name_from_history_info(history_row.info)
+        qb_name = (history_row.qb_server.name if history_row.qb_server else "").strip()
+        is_vps_task = bool(info_node) or (bool(qb_name) and qb_name != "NAS")
+        if not is_vps_task:
+            continue
+
+        node_name = info_node or qb_name or "VPS"
+        size_gb = round(max(0.0, float(history_row.file_size_gb or 0.0)), 3)
+        node_policy = agent_policy_map.get(node_name, AGENT_UPLOAD_DEFAULT_POLICY)
+        rows.append(
+            {
+                "filename": filename,
+                "size": size_gb,
+                "size_gb": size_gb,
+                "node": node_name,
+                "node_policy": node_policy,
+                "status": "待上传 (阻塞中)",
+                "auto_upload": True,
+                "display_name": build_display_name(task_base),
+            }
+        )
+        seen_filenames.add(filename_key)
+
     return jsonify(rows)
 
 
