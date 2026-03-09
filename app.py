@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.6"
+APP_VERSION = "v0.8.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -94,6 +94,8 @@ SCRAPE_NOISE_RE = re.compile(
 )
 SCRAPE_EPISODE_RE = re.compile(r"(?i)\b(?:S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|第\d+[季集])\b")
 SCRAPE_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+AGENT_UPLOAD_POLICIES = {"instant", "pause", "global", "custom"}
+AGENT_UPLOAD_DEFAULT_POLICY = "instant"
 
 
 class QBServer(db.Model):
@@ -176,6 +178,8 @@ class AgentNode(db.Model):
     temp_path = db.Column(db.String(512), nullable=False)
     cd2_path = db.Column(db.String(512), nullable=False)
     auto_upload = db.Column(db.Boolean, nullable=False, default=True)
+    upload_policy = db.Column(db.String(16), nullable=False, default=AGENT_UPLOAD_DEFAULT_POLICY)
+    upload_cron = db.Column(db.String(64), nullable=False, default="")
 
 
 def setup_logging():
@@ -231,6 +235,8 @@ def auth_guard():
     if request.path == "/api/agent/pending":
         return
     if request.path == "/api/agent/config":
+        return
+    if request.path == "/api/agent/can_upload":
         return
     if session.get("logged_in"):
         return
@@ -303,7 +309,9 @@ def ensure_schema():
                     qb_pass VARCHAR(255) NOT NULL,
                     temp_path VARCHAR(512) NOT NULL,
                     cd2_path VARCHAR(512) NOT NULL,
-                    auto_upload BOOLEAN NOT NULL DEFAULT 1
+                    auto_upload BOOLEAN NOT NULL DEFAULT 1,
+                    upload_policy VARCHAR(16) NOT NULL DEFAULT 'instant',
+                    upload_cron VARCHAR(64) NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -313,6 +321,22 @@ def ensure_schema():
         agent_columns = {row[1] for row in agent_result.fetchall()}
         if "auto_upload" not in agent_columns:
             conn.execute(text("ALTER TABLE agent_nodes ADD COLUMN auto_upload BOOLEAN NOT NULL DEFAULT 1"))
+        if "upload_policy" not in agent_columns:
+            conn.execute(text("ALTER TABLE agent_nodes ADD COLUMN upload_policy VARCHAR(16) NOT NULL DEFAULT 'instant'"))
+        if "upload_cron" not in agent_columns:
+            conn.execute(text("ALTER TABLE agent_nodes ADD COLUMN upload_cron VARCHAR(64) NOT NULL DEFAULT ''"))
+        conn.execute(
+            text(
+                """
+                UPDATE agent_nodes
+                SET upload_policy = 'instant'
+                WHERE upload_policy IS NULL
+                   OR TRIM(upload_policy) = ''
+                   OR LOWER(TRIM(upload_policy)) NOT IN ('instant', 'pause', 'global', 'custom')
+                """
+            )
+        )
+        conn.execute(text("UPDATE agent_nodes SET upload_cron = '' WHERE upload_cron IS NULL"))
 
 
 def get_setting(key):
@@ -354,6 +378,11 @@ def get_qb_monitor_tag():
 
 def get_agent_token():
     return (get_setting("agent_token") or "").strip() or DEFAULT_AGENT_TOKEN
+
+
+def normalize_agent_upload_policy(value):
+    policy = (value or "").strip().lower()
+    return policy if policy in AGENT_UPLOAD_POLICIES else AGENT_UPLOAD_DEFAULT_POLICY
 
 
 def get_global_proxy():
@@ -497,6 +526,19 @@ def clean_filename(name):
     if not text_name:
         text_name = re.sub(r"[\._\-]+", " ", core).strip() or raw
     return text_name, year_token
+
+
+def clean_agent_report_filename(filename):
+    raw = os.path.basename(str(filename or "").strip())
+    raw = os.path.splitext(raw)[0]
+    if not raw:
+        return ""
+    text_name = raw.replace(".", " ").replace("_", " ").replace("-", " ")
+    text_name = re.sub(r"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|【[^】]*】|（[^）]*）", " ", text_name)
+    text_name = SCRAPE_EPISODE_RE.sub(" ", text_name)
+    text_name = SCRAPE_NOISE_RE.sub(" ", text_name)
+    text_name = re.sub(r"\s+", " ", text_name).strip()
+    return text_name or raw.replace(".", " ").strip()
 
 
 def normalize_poster_path(poster_value):
@@ -667,7 +709,7 @@ def upsert_scrape_record(original_name, tmdb_data=None, status=SCRAPE_STATUS_FAI
     return row
 
 
-def auto_scrape_for_original_name(original_name):
+def auto_scrape_for_original_name(original_name, preferred_keyword=""):
     if not get_enable_tmdb():
         return None
 
@@ -681,11 +723,17 @@ def auto_scrape_for_original_name(original_name):
         return cached
 
     clean_title, clean_year = clean_filename(name)
-    keyword = clean_title or name
+    forced_keyword = (preferred_keyword or "").strip()
+    keyword = forced_keyword or clean_title or name
+    search_year = extract_year(forced_keyword) or clean_year
     try:
-        matches = search_tmdb_candidates(keyword, limit=1, year=clean_year)
-        if not matches and clean_year:
+        matches = search_tmdb_candidates(keyword, limit=1, year=search_year)
+        if not matches and search_year:
             matches = search_tmdb_candidates(keyword, limit=1)
+        if not matches and clean_title and clean_title != keyword:
+            matches = search_tmdb_candidates(clean_title, limit=1, year=clean_year)
+        if not matches and clean_title and clean_title != keyword and clean_year:
+            matches = search_tmdb_candidates(clean_title, limit=1)
         if not matches and keyword != name:
             matches = search_tmdb_candidates(name, limit=1)
         if matches:
@@ -700,12 +748,13 @@ def auto_scrape_for_original_name(original_name):
         return upsert_scrape_record(name, {}, SCRAPE_STATUS_FAILED)
 
 
-def trigger_auto_scrape_async(original_name):
+def trigger_auto_scrape_async(original_name, search_keyword=""):
     if not get_enable_tmdb():
         return
     name = (original_name or "").strip()
     if not name:
         return
+    keyword = (search_keyword or "").strip()
 
     cached = ScrapeRecord.query.filter_by(original_name=name, status=SCRAPE_STATUS_SUCCESS).first()
     if cached:
@@ -716,17 +765,17 @@ def trigger_auto_scrape_async(original_name):
             return
         SCRAPE_INFLIGHT.add(name)
 
-    def _worker(task_name):
+    def _worker(task_name, task_keyword):
         with app.app_context():
             try:
-                auto_scrape_for_original_name(task_name)
+                auto_scrape_for_original_name(task_name, preferred_keyword=task_keyword)
             except Exception:
                 logger.exception("异步 TMDB 刮削失败: %s", task_name)
             finally:
                 with SCRAPE_INFLIGHT_LOCK:
                     SCRAPE_INFLIGHT.discard(task_name)
 
-    threading.Thread(target=_worker, args=(name,), daemon=True).start()
+    threading.Thread(target=_worker, args=(name, keyword), daemon=True).start()
 
 
 def get_notify_flag(key, default=True):
@@ -1192,6 +1241,22 @@ def build_cron_trigger(cron_expr):
         logger.exception("Cron 表达式无效，回退默认值: %s", expr)
         fallback = DEFAULT_UPLOAD_CRON
         return CronTrigger.from_crontab(fallback), fallback
+
+
+def is_now_in_cron_window(cron_expr, now_dt=None):
+    expr = (cron_expr or "").strip()
+    if not expr:
+        return False
+    try:
+        trigger = CronTrigger.from_crontab(expr, timezone=TZ)
+    except Exception:
+        return False
+    current = now_dt or now_local()
+    window_start = current.replace(second=0, microsecond=0)
+    window_end = window_start + timedelta(minutes=1)
+    probe = window_end - timedelta(microseconds=1)
+    prev_fire = trigger.get_prev_fire_time(None, probe)
+    return bool(prev_fire and window_start <= prev_fire < window_end)
 
 
 def apply_upload_scheduler(cron_expr):
@@ -2061,6 +2126,8 @@ def serialize_agent_node(row):
         "temp_path": row.temp_path,
         "cd2_path": row.cd2_path,
         "auto_upload": bool(getattr(row, "auto_upload", True)),
+        "upload_policy": normalize_agent_upload_policy(getattr(row, "upload_policy", AGENT_UPLOAD_DEFAULT_POLICY)),
+        "upload_cron": (getattr(row, "upload_cron", "") or "").strip(),
     }
 
 
@@ -2080,6 +2147,8 @@ def add_agent_node():
     temp_path = (payload.get("temp_path") or "").strip()
     cd2_path = (payload.get("cd2_path") or "").strip()
     auto_upload = parse_bool(payload.get("auto_upload"), default=True)
+    upload_policy = normalize_agent_upload_policy(payload.get("upload_policy"))
+    upload_cron = (payload.get("upload_cron") or "").strip()
 
     if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
         return jsonify({"error": "参数不完整"}), 400
@@ -2095,6 +2164,8 @@ def add_agent_node():
             temp_path=temp_path,
             cd2_path=cd2_path,
             auto_upload=auto_upload,
+            upload_policy=upload_policy,
+            upload_cron=upload_cron,
         )
         db.session.add(row)
         db.session.commit()
@@ -2121,6 +2192,8 @@ def update_agent_node():
     temp_path = (payload.get("temp_path") or "").strip()
     cd2_path = (payload.get("cd2_path") or "").strip()
     auto_upload = parse_bool(payload.get("auto_upload"), default=True)
+    upload_policy = normalize_agent_upload_policy(payload.get("upload_policy"))
+    upload_cron = (payload.get("upload_cron") or "").strip()
     if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
         return jsonify({"error": "参数不完整"}), 400
 
@@ -2140,6 +2213,8 @@ def update_agent_node():
         row.temp_path = temp_path
         row.cd2_path = cd2_path
         row.auto_upload = auto_upload
+        row.upload_policy = upload_policy
+        row.upload_cron = upload_cron
         db.session.commit()
         return jsonify({"ok": True, "node": serialize_agent_node(row)})
     except Exception:
@@ -2289,7 +2364,10 @@ def agent_report():
 
     if status == "finished":
         try:
-            trigger_auto_scrape_async(filename)
+            scrape_name = clean_agent_report_filename(filename)
+            if scrape_name and scrape_name != filename:
+                logger.info("Agent finished 刮削名称清洗: %s -> %s", filename, scrape_name)
+            trigger_auto_scrape_async(filename, search_keyword=scrape_name or filename)
         except Exception:
             logger.exception("Agent finished 派发 TMDB 刮削失败: node=%s file=%s", node, filename)
     return jsonify({"ok": True, "status": "accepted"})
@@ -2352,6 +2430,33 @@ def get_agent_config():
     if not row:
         return jsonify({"error": "节点不存在"}), 404
     return jsonify(serialize_agent_node(row))
+
+
+@app.route("/api/agent/can_upload", methods=["GET"])
+def agent_can_upload():
+    token = (request.args.get("token") or "").strip()
+    node_name = (request.args.get("node_name") or "").strip()
+    if not token or not hmac.compare_digest(token, get_agent_token()):
+        return jsonify({"error": "Forbidden"}), 403
+    if not node_name:
+        return jsonify({"error": "node_name 不能为空"}), 400
+
+    row = AgentNode.query.filter_by(node_name=node_name).first()
+    if not row:
+        return jsonify({"error": "节点不存在"}), 404
+
+    policy = normalize_agent_upload_policy(getattr(row, "upload_policy", AGENT_UPLOAD_DEFAULT_POLICY))
+    if policy == "instant":
+        return jsonify({"can_upload": True})
+    if policy == "pause":
+        return jsonify({"can_upload": False})
+    if policy == "global":
+        can_upload = bool(get_global_auto_upload()) and is_now_in_cron_window(get_upload_cron())
+        return jsonify({"can_upload": bool(can_upload)})
+    if policy == "custom":
+        can_upload = is_now_in_cron_window(getattr(row, "upload_cron", ""))
+        return jsonify({"can_upload": bool(can_upload)})
+    return jsonify({"can_upload": True})
 
 
 @app.route("/api/settings/telegram", methods=["DELETE"])

@@ -127,7 +127,7 @@
         </div>
       </div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3 fw-bold text-secondary">待封装任务 (跨国集群)</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待封装任务</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
@@ -137,7 +137,7 @@
         </div>
       </div></div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (NAS本地)</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待上传任务</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
@@ -180,12 +180,21 @@
               </div>
               <input class="form-control form-control-sm border-danger text-danger fw-semibold" name="cd2_path" placeholder="必须是底层挂载的根目录" value="/CloudNAS/CloudDrive/115small" required>
             </div>
-            <div class="col-12">
-              <div class="form-check form-switch mt-2">
-                <input class="form-check-input shadow-sm cursor-pointer" type="checkbox" id="agent_auto_upload" checked style="width: 2.5rem; height: 1.25rem;">
-                <label class="form-check-label fw-bold ms-2 mt-1" for="agent_auto_upload">启用此节点的自动处理与上传</label>
-              </div>
+            
+            <div class="col-12 mt-2">
+              <label class="form-label fw-bold text-dark mb-1">VPS 上传与排队策略</label>
+              <select class="form-select form-select-sm border-primary" name="upload_policy" id="agent_upload_policy" onchange="$('agent_cron_container').classList.toggle('d-none', this.value !== 'custom')">
+                <option value="global">跟随群晖全局定时设置 (推荐)</option>
+                <option value="instant" selected>打包后立即强传 (防爆盘专用)</option>
+                <option value="custom">此节点独立定时</option>
+                <option value="pause">永远暂停上传</option>
+              </select>
             </div>
+            <div class="col-12 d-none" id="agent_cron_container">
+              <label class="form-label small text-muted mb-1">独立定时时间 (Cron 表达式)</label>
+              <input class="form-control form-control-sm" name="upload_cron" id="agent_upload_cron" placeholder="0 2 * * *">
+            </div>
+
             <div class="col-12 d-flex justify-content-between mt-3 pt-3 border-top">
                 <button class="btn btn-light btn-sm px-3 shadow-sm rounded-pill" type="button" onclick="resetAgentForm()">重置清空</button>
                 <button class="btn btn-primary btn-sm px-4 shadow-sm rounded-pill" type="submit">保存节点</button>
@@ -195,7 +204,7 @@
         <div class="col-lg-8">
           <div class="table-responsive bg-white rounded shadow-sm border h-100">
             <table class="table table-hover align-middle mb-0 m-2" style="width: calc(100% - 1rem);">
-              <thead class="table-light"><tr><th class="ps-3">节点名称</th><th>服务状态</th><th>CD2 挂载路径</th><th class="text-end pe-3">操作</th></tr></thead>
+              <thead class="table-light"><tr><th class="ps-3">节点名称</th><th>上传策略</th><th>CD2 挂载路径</th><th class="text-end pe-3">操作</th></tr></thead>
               <tbody id="agentNodeList"></tbody>
             </table>
           </div>
@@ -207,7 +216,7 @@
       <div class="card"><div class="card-body">
         <ul class="nav nav-tabs flex-nowrap text-nowrap overflow-x-auto" role="tablist" style="scrollbar-width: none;">
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabQb" type="button">qBittorrent 设置 (NAS)</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">上传设置 (NAS)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">全局定时上传 (NAS主控)</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUser" type="button">安全设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削与代理</button></li>
@@ -262,8 +271,8 @@
           </div>
           <div class="tab-pane fade" id="tabUpload">
             <form id="uploadForm" class="row g-3">
-              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">NAS 开启全局自动上传</label></div></div>
-              <div class="col-md-6"><label class="form-label">自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
+              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">开启主控全局定时上传 (控制NAS及设为跟随的VPS)</label></div></div>
+              <div class="col-md-6"><label class="form-label">全局自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
               <div class="col-md-6"><label class="form-label">NAS CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label" for="delete_after_upload">上传后彻底删除本地源文件</label></div></div>
               <div class="col-12"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button></div>
@@ -322,7 +331,7 @@
         <div class="table-responsive">
           <table id="historyTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1200px;">
             <colgroup><col class="check-col"><col style="width:3%"><col style="width:30%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
-            <thead><tr><th class="check-col text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
+            <thead class="table-light"><tr><th class="check-col text-center align-middle"><input type="checkbox" id="historyCheckAll"></th><th class="text-center align-middle">ID</th><th class="text-center align-middle">任务</th><th class="text-center align-middle">节点</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">大小<br><small>(GB)</small></th><th class="text-center align-middle">封装<br>开始</th><th class="text-center align-middle">封装<br>结束</th><th class="text-center align-middle">上传<br>开始</th><th class="text-center align-middle">上传<br>结束</th><th class="text-center align-middle">封装<br>耗时</th><th class="text-center align-middle">上传<br>耗时</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -416,6 +425,16 @@
     const defaultPoster = "data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='80' height='120'%3e%3crect width='100%25' height='100%25' fill='%23e2e8f0'/%3e%3ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='12' fill='%2394a3b8'%3e暂无图%3c/text%3e%3c/svg%3e";
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
+    
+    // JS前端极简名称清洗，让列表好看
+    function cleanName(raw) {
+        if(!raw) return '-';
+        let str = String(raw);
+        let m = str.match(/^(.*?)(?:\.(?:1080p|2160p|720p|Blu-?ray|WEB-DL|WEB|Remux|AVC|HEVC|H\.?264|H\.?265))/i);
+        let clean = m ? m[1] : str;
+        return esc(clean.replace(/\./g, ' '));
+    }
+
     function notify(msg,type='primary'){toastEl.className='toast border-0';toastEl.style.backgroundColor='';toastEl.style.color='';if(type==='success'){toastEl.classList.add('toast-success');}else{const map={primary:'rgba(13,110,253,.90)',danger:'rgba(220,53,69,.90)',warning:'rgba(255,193,7,.92)'};toastEl.style.backgroundColor=map[type]||map.primary;toastEl.style.color='#fff';}$('toastBody').textContent=msg;toast.show();}
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
@@ -448,7 +467,8 @@
             qb_pass: agentNodeForm.qb_pass.value.trim(),
             temp_path: agentNodeForm.temp_path.value.trim(),
             cd2_path: agentNodeForm.cd2_path.value.trim(),
-            auto_upload: $('agent_auto_upload').checked
+            upload_policy: $('agent_upload_policy').value,
+            upload_cron: $('agent_upload_cron').value.trim()
         };
         try {
             if (data.id) { await api('/api/agent_nodes/update', { method: 'POST', body: JSON.stringify(data) }); notify('节点更新成功', 'success'); } 
@@ -459,7 +479,8 @@
 
     window.resetAgentForm = function() {
         agentNodeForm.reset(); agentNodeForm.agent_id.value = '';
-        $('agent_auto_upload').checked = true;
+        $('agent_upload_policy').value = 'instant';
+        $('agent_cron_container').classList.add('d-none');
         $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
         if ($('agent_qb_pass').type === 'text') { togglePwd($('agent_qb_pass').nextElementSibling, 'agent_qb_pass'); }
     }
@@ -468,7 +489,11 @@
         const editBtn = e.target.closest('button[data-act="edit"]');
         if (editBtn) {
             const d = editBtn.dataset; agentNodeForm.agent_id.value = d.id; agentNodeForm.node_name.value = d.name; agentNodeForm.qb_url.value = d.url; agentNodeForm.qb_user.value = d.user; agentNodeForm.qb_pass.value = d.pass; agentNodeForm.temp_path.value = d.temp; agentNodeForm.cd2_path.value = d.cd2;
-            $('agent_auto_upload').checked = (d.autoupload !== 'false');
+            
+            $('agent_upload_policy').value = d.policy || 'instant';
+            $('agent_upload_cron').value = d.cron || '';
+            $('agent_cron_container').classList.toggle('d-none', $('agent_upload_policy').value !== 'custom');
+            
             $('agentFormTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>正在编辑：' + esc(d.name);
             return;
         }
@@ -484,16 +509,20 @@
         try {
             const rows = await api('/api/agent_nodes');
             $('agentNodeList').innerHTML = rows.length ? rows.map(x => {
-                const autoFlag = x.auto_upload !== false;
-                const statusBadge = autoFlag ? '<span class="badge bg-success rounded-pill px-2">自动处理中</span>' : '<span class="badge bg-secondary rounded-pill px-2">已暂停干活</span>';
+                let p = x.upload_policy || 'instant';
+                let b = '';
+                if(p === 'global') b = '<span class="badge bg-primary rounded-pill px-2">跟随全局</span>';
+                if(p === 'instant') b = '<span class="badge bg-success rounded-pill px-2">立即强传</span>';
+                if(p === 'custom') b = '<span class="badge bg-info text-dark rounded-pill px-2">独立定时</span>';
+                if(p === 'pause') b = '<span class="badge bg-secondary rounded-pill px-2">永远暂停</span>';
                 return `
                 <tr>
                     <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}<br><span class="small text-muted fw-normal">${esc(x.qb_url)}</span></td>
-                    <td>${statusBadge}</td>
+                    <td>${b}</td>
                     <td class="small text-secondary"><i class="bi bi-folder2-open me-1"></i>${esc(x.cd2_path)}</td>
                     <td class="text-end pe-3 text-nowrap">
                         <button class="btn btn-sm btn-success shadow-sm rounded-pill px-3 me-1" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal me-1"></i>代码</button>
-                        <button class="btn btn-sm btn-light text-primary me-1 rounded-circle" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-autoupload="${autoFlag}"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-light text-primary me-1 rounded-circle" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-policy="${p}" data-cron="${esc(x.upload_cron||'')}"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-light text-danger rounded-circle" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>
@@ -501,7 +530,7 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：(修改为获取所有任务，从而让群晖能透视“下载中”进度)
+    // 全能版一键部署弹窗生成：加入了完美的反压阻塞上传机制，再也不怕VPS爆盘！
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -536,7 +565,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (全新透视下载进度版)
+# 4. 写入核心挂机脚本 agent.py (全新透视下载进度 + 防爆盘阻塞机制版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -585,7 +614,8 @@ def do_work():
     qb_url = config.get("qb_url", "").rstrip('/')
     temp_path = config.get("temp_path")
     cd2_path = config.get("cd2_path")
-    auto_upload_enabled = config.get("auto_upload", True)
+    # policy: global | instant | custom | pause
+    upload_policy = config.get("upload_policy", "instant") 
     
     if not qb_url or not temp_path or not cd2_path:
         log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
@@ -604,7 +634,7 @@ def do_work():
         log(f"无法连接 VPS 本地 qB: {e}")
         return
 
-    # 核心改动：不再只过滤 completed，而是获取【全部】任务，为了让群晖能看见下载中的任务
+    # 获取【全部】任务，为了让群晖能看见下载中的进度
     try:
         res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=30)
         torrents = res.json()
@@ -612,7 +642,6 @@ def do_work():
         log(f"获取 qB 任务失败: {e}")
         return
 
-    # 将带有标签的任务，哪怕没下载完，也推给群晖展示
     pending_tasks = []
     for t in torrents:
         if '待封装' in t.get('tags', ''):
@@ -636,11 +665,11 @@ def do_work():
     except Exception as e:
         pass
 
-    # 过滤出真正 100% 下载完，可以开始干活的任务
+    # 过滤出 100% 下载完的任务开始干活
     ready_to_pack = [t for t in torrents if '待封装' in t.get('tags', '') and t.get('progress', 0) == 1]
 
-    if not auto_upload_enabled and len(ready_to_pack) > 0:
-        log("此节点的【自动处理与上传】开关已关闭，暂停对已完成任务的打包。")
+    if upload_policy == "pause" and len(ready_to_pack) > 0:
+        log("此节点的【上传策略】为永远暂停，拒绝处理任何任务。")
         return
 
     for t in ready_to_pack:
@@ -669,7 +698,23 @@ def do_work():
             report(identity, iso_name, "error", 0)
             continue
 
-        log("打包完成！开始移动到 CD2...")
+        log("打包完成！开始向主控请求上传许可...")
+        
+        # 核心防爆盘机制：反压阻塞 (Backpressure)
+        # 如果不到上传时间，它会死循环等待，从而【阻止】它去打包下一个任务导致硬盘爆炸！
+        while True:
+            try:
+                up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
+                if up_res.json().get("can_upload", True):
+                    break
+                else:
+                    log("主控回复: 未到定时时间。ISO保留在本地等待，1分钟后再次请示...")
+                    time.sleep(60)
+            except Exception as e:
+                log("向主控请示失败，默认允许立刻上传保护硬盘...")
+                break
+
+        log("获得许可！开始移动到 CD2...")
         report(identity, iso_name, "uploading", 50)
 
         try:
@@ -679,7 +724,7 @@ def do_work():
             report(identity, iso_name, "error", 0)
             continue
 
-        log("✅ 上传成功！汇报状态并清理空间...")
+        log("✅ 上传成功！汇报状态并清理 qB...")
         report(identity, iso_name, "finished", 100)
 
         try:
@@ -789,7 +834,7 @@ echo "------------------------------------------------"
       if(!p.active||!(p.tasks||[]).length){
         $('packingTasks').innerHTML='<div class="text-muted">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${esc(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');
+        $('packingTasks').innerHTML=p.tasks.map(t=>`<div class="border rounded p-2 mb-2"><div class="fw-semibold mb-1">${cleanName(t.task_name)} <span class="text-secondary">(${esc(t.server_name)})</span></div><div class="progress mb-2" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(t.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(t.eta_text||'-')} | 进度: ${Number(t.progress||0).toFixed(2)}%</div></div>`).join('');
       }
       const up=stats.upload_progress||{};
       const cs=stats.current_upload_status||{};
@@ -804,7 +849,7 @@ echo "------------------------------------------------"
       const f=up.file_name||cs.file_name||'';
       const pct=Number(up.percentage||0);
       const paused=currentUploadStatus==='paused';
-      $('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${esc(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;
+      $('uploadTaskStatus').innerHTML=`<div class="fw-semibold mb-1">${cleanName(f)}</div><div class="progress mb-2" style="height:10px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="small text-secondary">Speed: ${Number(up.speed_mbps||0).toFixed(2)} MB/s | ETA: ${esc(up.eta||'-')} | 进度: ${pct.toFixed(2)}%</div>`;
       $('btnUploadPauseResume').classList.remove('d-none');
       $('btnUploadAbort').classList.remove('d-none');
       $('btnUploadPauseResume').textContent=paused?'继续':'暂停';
@@ -821,7 +866,7 @@ echo "------------------------------------------------"
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
               <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node_alias||'-')}</span></td>
-              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
+              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.title||'')}</div></td>
               <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.title||'')}">${esc(x.title||'')}</div></td>
               <td class="text-center align-middle">${Number(x.size_gb||0).toFixed(3)}</td>
               <td class="text-center align-middle">${badgeHtml}</td>
@@ -842,7 +887,7 @@ echo "------------------------------------------------"
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
               <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node||'NAS')}</span></td>
-              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
+              <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.filename||'')}</div></td>
               <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
@@ -885,7 +930,7 @@ echo "------------------------------------------------"
     }
     function renderHistory() {
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
-        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${esc(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
+        $('historyBody').innerHTML = pageData.length ? pageData.map(x => `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0" value="${x.id}"></td><td class="history-cell small text-secondary align-middle text-center">${x.id}</td><td class="history-cell small text-secondary align-middle ellipsis-cell" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell small text-secondary align-middle text-center">${esc(x.qb_server_name||'-')}</td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell small text-secondary align-middle text-center">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.end_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_start_time)}</td><td class="history-cell small text-secondary align-middle text-center time-col">${fmtDt(x.upload_end_time)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.duration_seconds)}</td><td class="history-cell small text-secondary align-middle text-center text-nowrap">${fmtSec(x.upload_duration_seconds)}</td></tr>`).join('') : '<tr><td colspan="12" class="text-center text-muted">暂无历史记录</td></tr>';
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
 
@@ -935,8 +980,8 @@ echo "------------------------------------------------"
                   <h6 class="mb-0 fw-bold text-truncate pe-2">${isSuccess ? `${esc(r.title||'')}${r.year ? ` (${esc(r.year)})` : ''}` : '<span class="text-danger">未找到匹配项</span>'}</h6>
                   ${isSuccess ? '<span class="badge bg-success rounded-pill px-2 flex-shrink-0">成功</span>' : '<span class="badge bg-danger rounded-pill px-2 flex-shrink-0">失败</span>'}
                 </div>
-                <div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${esc(r.original_name||'')}</div>
-                <div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请检查名称或手动整理。'}</div>
+                <div class="small text-muted mb-2 text-truncate" title="${esc(r.original_name||'')}"><i class="bi bi-file-earmark-text me-1"></i>${cleanName(r.original_name||'')}</div>
+                <div class="small text-secondary line-clamp-2 mb-2 flex-grow-1">${isSuccess && r.overview ? esc(r.overview) : '无简介。请手动绑定或更改名称。'}</div>
                 <div class="d-flex justify-content-between align-items-center mt-auto pt-2 gap-2">
                   <div class="small text-muted text-truncate"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div>
                   <div class="d-flex gap-2 flex-shrink-0">
