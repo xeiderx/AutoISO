@@ -19,6 +19,14 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
+try:
+    from croniter import croniter
+
+    CRONITER_AVAILABLE = True
+except Exception:
+    croniter = None
+    CRONITER_AVAILABLE = False
+
 APP_VERSION = "v0.8.8"
 
 app = Flask(__name__)
@@ -207,6 +215,8 @@ def setup_logging():
 
 
 logger = setup_logging()
+if not CRONITER_AVAILABLE:
+    logger.warning("croniter 未安装，/api/agent/can_upload 将回退 APScheduler 判定。建议安装: pip install croniter")
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
@@ -337,6 +347,25 @@ def ensure_schema():
             )
         )
         conn.execute(text("UPDATE agent_nodes SET upload_cron = '' WHERE upload_cron IS NULL"))
+        conn.execute(
+            text(
+                """
+                INSERT INTO qb_servers(name, url, username, password)
+                SELECT 'NAS', 'local://nas', '-', '-'
+                WHERE NOT EXISTS (SELECT 1 FROM qb_servers WHERE name = 'NAS')
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE pack_history
+                SET qb_server_id = (SELECT id FROM qb_servers WHERE name = 'NAS' LIMIT 1)
+                WHERE qb_server_id IN (SELECT id FROM qb_servers WHERE url LIKE 'agent://%')
+                """
+            )
+        )
+        conn.execute(text("DELETE FROM qb_servers WHERE url LIKE 'agent://%'"))
 
 
 def get_setting(key):
@@ -989,17 +1018,6 @@ def get_or_create_external_server_id():
     return server.id
 
 
-def get_or_create_agent_server_id(node_name):
-    name = (node_name or "").strip() or "VPS"
-    server = QBServer.query.filter_by(name=name).first()
-    if server:
-        return server.id
-    server = QBServer(name=name, url=f"agent://{name}", username="-", password="-")
-    db.session.add(server)
-    db.session.commit()
-    return server.id
-
-
 def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     safe_name = os.path.basename(str(file_name or "").strip())
     if not safe_name:
@@ -1020,12 +1038,14 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     now_dt = now_local()
     normalized_size_gb = max(0.0, float(file_size_gb or 0.0))
     node_label = (node_name or "").strip() or "VPS"
-    server_id = get_or_create_agent_server_id(node_label)
+    server_id = get_or_create_external_server_id()
     task_name_no_ext = os.path.splitext(safe_name)[0]
     row = (
         PackHistory.query.filter(
             PackHistory.qb_server_id == server_id,
             PackHistory.task_name.in_([safe_name, task_name_no_ext]),
+            PackHistory.message.like("Agent report:%"),
+            PackHistory.info == f"node={node_label}",
         )
         .order_by(PackHistory.id.desc())
         .first()
@@ -1252,12 +1272,15 @@ def is_now_in_cron_window(cron_expr, now_dt=None, window_minutes=5):
     expr = (cron_expr or "").strip()
     if not expr:
         return False
+    current = now_dt or now_local()
     try:
-        trigger = CronTrigger.from_crontab(expr, timezone=TZ)
+        if CRONITER_AVAILABLE:
+            prev_fire = croniter(expr, current).get_prev(datetime)
+        else:
+            trigger = CronTrigger.from_crontab(expr, timezone=TZ)
+            prev_fire = trigger.get_prev_fire_time(None, current)
     except Exception:
         return False
-    current = now_dt or now_local()
-    prev_fire = trigger.get_prev_fire_time(None, current)
     if not prev_fire:
         return False
     return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60

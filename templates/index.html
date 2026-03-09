@@ -137,7 +137,7 @@
         </div>
       </div></div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3 fw-bold text-secondary">待上传任务</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (此列表仅控制NAS本地)</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
@@ -274,7 +274,7 @@
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">开启主控全局定时上传 (控制NAS及设为跟随的VPS)</label></div></div>
               <div class="col-md-6"><label class="form-label">全局自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
               <div class="col-md-6"><label class="form-label">NAS CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
-              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label text-danger fw-bold" for="delete_after_upload">上传后彻底删除本地源文件 (NAS及VPS均生效)</label></div></div>
+              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label text-danger fw-bold" for="delete_after_upload">上传后彻底删除 qB 下载的源文件 (仅 NAS 本地生效，VPS 永久保种)</label></div></div>
               <div class="col-12"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button></div>
             </form>
           </div>
@@ -422,11 +422,8 @@
     let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
     let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
 
-    const defaultPoster = "data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='80' height='120'%3e%3crect width='100%25' height='100%25' fill='%23e2e8f0'/%3e%3ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='12' fill='%2394a3b8'%3e暂无图%3c/text%3e%3c/svg%3e";
-
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
     
-    // JS前端极简名称清洗，让列表好看
     function cleanName(raw) {
         if(!raw) return '-';
         let str = String(raw);
@@ -439,7 +436,6 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    // UI状态徽章渲染
     function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传'||s==='pending_upload')return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传 (阻塞中)</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
     if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
     return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
@@ -530,7 +526,7 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：加入了完美的反压阻塞上传机制，并带上文件大小汇报！
+    // 全能版一键部署弹窗生成：坚决保种版 (移除任何 read/delete_after_upload 逻辑)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -565,7 +561,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (防爆盘阻塞机制 + 文件大小汇报版)
+# 4. 写入核心挂机脚本 agent.py (彻底保种绝不删源文件版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -700,8 +696,6 @@ def do_work():
         log("打包完成！开始向主控请求上传许可...")
         report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
         
-        # 核心防爆盘机制：反压阻塞 (Backpressure)
-        # 不到上传时间死循环等待，彻底【阻止】去打包下一个任务导致硬盘爆炸！
         while True:
             try:
                 up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
@@ -711,7 +705,6 @@ def do_work():
                     log("主控回复: 未到定时时间。ISO保留在本地等待，1分钟后再次请示...")
                     time.sleep(60)
             except Exception as e:
-                # 网络报错时：绝不强传！原地死守保护硬盘！
                 log(f"向主控请示失败({e})，为防爆盘，ISO保留在本地等待...")
                 time.sleep(60)
 
@@ -725,16 +718,16 @@ def do_work():
             report(identity, iso_name, "error", 0, size_gb=size_gb)
             continue
 
-        log("✅ 上传成功！汇报状态并清理 qB...")
+        log("✅ 上传成功(ISO已自动清理)！汇报状态并仅更新 qB 标签...")
         report(identity, iso_name, "finished", 100, size_gb=size_gb)
 
-        # 读取群晖的全局删除设置 (默认为 False，安全第一)
-        delete_files = "true" if config.get("delete_after_upload", False) else "false"
+        # 【核心保护】永远不删种子！只改标签！
         try:
-            session.post(f"{qb_url}/api/v2/torrents/delete", data={"hashes": t['hash'], "deleteFiles": delete_files})
-            log(f"已清理 qB 任务 (同步NAS删除源文件设置: {delete_files})")
+            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+            log("任务结束！已打上[已封装]标签，保留 qB 源文件继续做种！")
         except Exception as e:
-            log(f"清理 qB 任务失败: {e}")
+            log(f"更新 qB 标签失败: {e}")
 
 if __name__ == "__main__":
     log("🚀 AutoISO 边缘节点启动成功！等待新任务...")
@@ -884,10 +877,15 @@ echo "------------------------------------------------"
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
-            const disabled=uploadingNow?'disabled':'';
+            const isVps = x.node && x.node !== 'NAS'; // 判断是否是 VPS 任务
+            const disabled = (uploadingNow || isVps) ? 'disabled' : ''; // 如果是 VPS，禁用 NAS 的上传按钮
+            
             const autoUpload=x.auto_upload!==false;
             const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');
-            const autoIcon=`<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+            
+            // VPS任务隐藏开关，防止误触
+            const autoIcon = isVps ? '<span class="small text-muted">-</span>' : `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+            
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
               <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node||'NAS')}</span></td>
@@ -896,7 +894,10 @@ echo "------------------------------------------------"
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
               <td class="text-center align-middle">${autoIcon}</td>
-              <td class="text-center align-middle"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center"><button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button><button class="btn btn-sm btn-danger text-nowrap" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除本地</button></div></td>
+              <td class="text-center align-middle"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center">
+                  <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${isVps?'VPS自动处理':(up?'重新上传':'立即上传')}</button>
+                  <button class="btn btn-sm btn-danger text-nowrap" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除</button>
+              </div></td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
@@ -908,7 +909,7 @@ echo "------------------------------------------------"
         catch(err){ notify(err.message,'danger'); tgg.checked = !tgg.checked; } return;
       }
       const btn = e.target.closest('button[data-act]');
-      if(!btn || !btn.dataset.name) return;
+      if(!btn || !btn.dataset.name || btn.disabled) return;
       if(btn.dataset.act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已开始上传','success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}}
       if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地源文件吗？','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地文件','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
     });
