@@ -419,7 +419,12 @@
     function notify(msg,type='primary'){toastEl.className='toast border-0';toastEl.style.backgroundColor='';toastEl.style.color='';if(type==='success'){toastEl.classList.add('toast-success');}else{const map={primary:'rgba(13,110,253,.90)',danger:'rgba(220,53,69,.90)',warning:'rgba(255,193,7,.92)'};toastEl.style.backgroundColor=map[type]||map.primary;toastEl.style.color='#fff';}$('toastBody').textContent=msg;toast.show();}
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
-    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='failed')return '<span class="badge rounded-pill text-bg-danger">失败</span>';return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
+    
+    // UI状态徽章渲染
+    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
+    if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
+    return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
+    
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
     $('confirmOkBtn').addEventListener('click',()=>{if(askResolve)askResolve(true);askResolve=null;confirmModal.hide();});
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
@@ -480,7 +485,7 @@
             const rows = await api('/api/agent_nodes');
             $('agentNodeList').innerHTML = rows.length ? rows.map(x => {
                 const autoFlag = x.auto_upload !== false;
-                const statusBadge = autoFlag ? '<span class="badge bg-success rounded-pill px-2">自动处理中</span>' : '<span class="badge bg-secondary rounded-pill px-2">已暂停</span>';
+                const statusBadge = autoFlag ? '<span class="badge bg-success rounded-pill px-2">自动处理中</span>' : '<span class="badge bg-secondary rounded-pill px-2">已暂停干活</span>';
                 return `
                 <tr>
                     <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}<br><span class="small text-muted fw-normal">${esc(x.qb_url)}</span></td>
@@ -496,13 +501,14 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
+    // 全能版一键部署弹窗生成：(修改为获取所有任务，从而让群晖能透视“下载中”进度)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
         $('deployModalTitle').textContent = nodeName;
         
         const bash = `# ==========================================
-# AutoISO 边缘节点 (\${nodeName}) 幂等安全部署脚本 
+# AutoISO 边缘节点 (\${nodeName}) 极速部署脚本 
 # ==========================================
 
 # 1. 更新系统并安装环境
@@ -513,12 +519,10 @@ apt-get install -y curl wget genisoimage fuse python3 python3-requests
 if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash; fi
 
 if ! docker container inspect clouddrive2 >/dev/null 2>&1; then
-    echo "检测到未安装 CD2，正在为您部署全新的 CloudDrive2 容器..."
     docker run -d --name clouddrive2 --restart always \\
         -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
         --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
 else
-    echo "✅ 容器 clouddrive2 已存在，跳过部署。完美为您保留原有的挂载配置！"
     docker start clouddrive2 &>/dev/null || true
 fi
 
@@ -532,7 +536,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py
+# 4. 写入核心挂机脚本 agent.py (全新透视下载进度版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -600,21 +604,25 @@ def do_work():
         log(f"无法连接 VPS 本地 qB: {e}")
         return
 
+    # 核心改动：不再只过滤 completed，而是获取【全部】任务，为了让群晖能看见下载中的任务
     try:
-        res = session.get(f"{qb_url}/api/v2/torrents/info?filter=completed", timeout=30)
+        res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=30)
         torrents = res.json()
     except Exception as e:
         log(f"获取 qB 任务失败: {e}")
         return
 
-    # 【新增功能】将 VPS 本地的待处理任务汇报给 NAS 主控端展示
+    # 将带有标签的任务，哪怕没下载完，也推给群晖展示
     pending_tasks = []
     for t in torrents:
         if '待封装' in t.get('tags', ''):
+            progress_pct = int(t.get('progress', 0) * 100)
+            status_text = "排队中" if progress_pct == 100 else f"下载中 {progress_pct}%"
             pending_tasks.append({
                 "title": t['name'],
                 "display_name": t['name'],
                 "size_gb": t.get('size', 0) / (1024**3),
+                "status": status_text,
                 "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
                 "node_alias": identity["node_name"]
             })
@@ -628,14 +636,14 @@ def do_work():
     except Exception as e:
         pass
 
-    if not auto_upload_enabled and len(pending_tasks) > 0:
-        log("此节点的【自动处理与上传】开关已关闭，仅汇报待处理列表，暂停干活。")
+    # 过滤出真正 100% 下载完，可以开始干活的任务
+    ready_to_pack = [t for t in torrents if '待封装' in t.get('tags', '') and t.get('progress', 0) == 1]
+
+    if not auto_upload_enabled and len(ready_to_pack) > 0:
+        log("此节点的【自动处理与上传】开关已关闭，暂停对已完成任务的打包。")
         return
 
-    for t in torrents:
-        if '待封装' not in t.get('tags', ''):
-            continue
-        
+    for t in ready_to_pack:
         name = t['name']
         save_path = t.get('content_path')
         if not save_path or not os.path.exists(save_path):
@@ -646,7 +654,7 @@ def do_work():
         iso_dest = os.path.join(cd2_path, iso_name)
 
         if not os.path.exists(cd2_path):
-            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2 挂载。")
+            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
             return
 
         log(f"====== 开始处理任务: {name} ======")
@@ -712,9 +720,7 @@ systemctl enable --now autoiso-agent
 systemctl restart autoiso-agent
 
 echo "------------------------------------------------"
-echo "✅ 节点 [\${nodeName}] 全套环境与挂机程序部署完毕！"
-echo "✅ 挂机程序已在后台静默运行，无需再手动执行任何脚本。"
-echo "✅ (查看运行日志命令: journalctl -u autoiso-agent -f)"
+echo "✅ 节点 [\${nodeName}] 部署完毕！"
 echo "------------------------------------------------"
 `;
         $('deployCommandText').value = bash;
@@ -809,7 +815,9 @@ echo "------------------------------------------------"
         const rows=await api('/api/pending');
         $('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{
             const isProcessing=currentPackingTasks.includes(x.title);
-            const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';
+            let displayStatus = x.status || '排队中';
+            if(isProcessing) displayStatus = '处理中';
+            const badgeHtml = badge(displayStatus);
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
               <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node_alias||'-')}</span></td>
