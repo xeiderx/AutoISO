@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.7"
+APP_VERSION = "v0.8.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1009,6 +1009,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     status_map = {
         "packing": "封装中",
         "uploading": "上传中",
+        "pending_upload": "待上传",
         "finished": "成功",
         "error": "失败",
     }
@@ -1017,6 +1018,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
         return None
 
     now_dt = now_local()
+    normalized_size_gb = max(0.0, float(file_size_gb or 0.0))
     node_label = (node_name or "").strip() or "VPS"
     server_id = get_or_create_agent_server_id(node_label)
     task_name_no_ext = os.path.splitext(safe_name)[0]
@@ -1036,6 +1038,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
                 qb_server_id=server_id,
                 status=mapped_status,
                 start_time=now_dt,
+                file_size_gb=normalized_size_gb,
                 message="Agent report: packing",
                 info=f"node={node_label}",
             )
@@ -1045,6 +1048,8 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
         row.status = mapped_status
         if not row.start_time:
             row.start_time = now_dt
+        if normalized_size_gb > 0 or not (row.file_size_gb and row.file_size_gb > 0):
+            row.file_size_gb = normalized_size_gb
         row.message = "Agent report: packing"
         row.info = f"node={node_label}"
         db.session.commit()
@@ -1064,8 +1069,8 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     row.status = mapped_status
     row.message = f"Agent report: {safe_status}"
     row.info = f"node={node_label}"
-    if file_size_gb:
-        row.file_size_gb = max(0.0, float(file_size_gb))
+    if normalized_size_gb > 0 or not (row.file_size_gb and row.file_size_gb > 0):
+        row.file_size_gb = normalized_size_gb
     if safe_status == "finished":
         row.end_time = now_dt
     db.session.commit()
@@ -1243,7 +1248,7 @@ def build_cron_trigger(cron_expr):
         return CronTrigger.from_crontab(fallback), fallback
 
 
-def is_now_in_cron_window(cron_expr, now_dt=None):
+def is_now_in_cron_window(cron_expr, now_dt=None, window_minutes=5):
     expr = (cron_expr or "").strip()
     if not expr:
         return False
@@ -1252,11 +1257,10 @@ def is_now_in_cron_window(cron_expr, now_dt=None):
     except Exception:
         return False
     current = now_dt or now_local()
-    window_start = current.replace(second=0, microsecond=0)
-    window_end = window_start + timedelta(minutes=1)
-    probe = window_end - timedelta(microseconds=1)
-    prev_fire = trigger.get_prev_fire_time(None, probe)
-    return bool(prev_fire and window_start <= prev_fire < window_end)
+    prev_fire = trigger.get_prev_fire_time(None, current)
+    if not prev_fire:
+        return False
+    return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60
 
 
 def apply_upload_scheduler(cron_expr):
@@ -2316,7 +2320,7 @@ def agent_report():
     node = str(payload.get("node") or "").strip() or "VPS"
     filename = os.path.basename(str(payload.get("filename") or "").strip())
     status = str(payload.get("status") or "").strip().lower()
-    if status not in {"packing", "uploading", "finished", "error"}:
+    if status not in {"packing", "uploading", "pending_upload", "finished", "error"}:
         return jsonify({"error": "invalid status"}), 400
     if not filename:
         return jsonify({"error": "filename 不能为空"}), 400
@@ -2334,7 +2338,9 @@ def agent_report():
 
     file_size_gb = 0.0
     try:
-        if payload.get("file_size_gb") is not None:
+        if payload.get("size_gb") is not None:
+            file_size_gb = float(payload.get("size_gb") or 0)
+        elif payload.get("file_size_gb") is not None:
             file_size_gb = float(payload.get("file_size_gb") or 0)
         elif payload.get("file_size_bytes") is not None:
             file_size_gb = float(payload.get("file_size_bytes") or 0) / GB
@@ -2429,7 +2435,9 @@ def get_agent_config():
     row = AgentNode.query.filter_by(node_name=node_name).first()
     if not row:
         return jsonify({"error": "节点不存在"}), 404
-    return jsonify(serialize_agent_node(row))
+    data = serialize_agent_node(row)
+    data["delete_after_upload"] = bool(get_delete_after_upload())
+    return jsonify(data)
 
 
 @app.route("/api/agent/can_upload", methods=["GET"])
@@ -2451,10 +2459,10 @@ def agent_can_upload():
     if policy == "pause":
         return jsonify({"can_upload": False})
     if policy == "global":
-        can_upload = bool(get_global_auto_upload()) and is_now_in_cron_window(get_upload_cron())
+        can_upload = is_now_in_cron_window(get_upload_cron(), window_minutes=5)
         return jsonify({"can_upload": bool(can_upload)})
     if policy == "custom":
-        can_upload = is_now_in_cron_window(getattr(row, "upload_cron", ""))
+        can_upload = is_now_in_cron_window(getattr(row, "upload_cron", ""), window_minutes=5)
         return jsonify({"can_upload": bool(can_upload)})
     return jsonify({"can_upload": True})
 

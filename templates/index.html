@@ -274,7 +274,7 @@
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">开启主控全局定时上传 (控制NAS及设为跟随的VPS)</label></div></div>
               <div class="col-md-6"><label class="form-label">全局自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
               <div class="col-md-6"><label class="form-label">NAS CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
-              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label" for="delete_after_upload">上传后彻底删除本地源文件</label></div></div>
+              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label text-danger fw-bold" for="delete_after_upload">上传后彻底删除本地源文件 (NAS及VPS均生效)</label></div></div>
               <div class="col-12"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button></div>
             </form>
           </div>
@@ -440,7 +440,7 @@
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
     // UI状态徽章渲染
-    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传')return '<span class="badge rounded-pill text-bg-secondary">待上传</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
+    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传'||s==='pending_upload')return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传 (阻塞中)</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
     if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
     return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
     
@@ -530,7 +530,7 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：加入了完美的反压阻塞上传机制，再也不怕VPS爆盘！
+    // 全能版一键部署弹窗生成：加入了完美的反压阻塞上传机制，并带上文件大小汇报！
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -565,7 +565,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (全新透视下载进度 + 防爆盘阻塞机制版)
+# 4. 写入核心挂机脚本 agent.py (防爆盘阻塞机制 + 文件大小汇报版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -587,7 +587,7 @@ def get_config(identity):
     r.raise_for_status()
     return r.json()
 
-def report(identity, filename, status, progress=0):
+def report(identity, filename, status, progress=0, size_gb=0):
     url = f"{identity['master_url']}/api/agent/report"
     payload = {
         "token": identity["token"],
@@ -595,6 +595,7 @@ def report(identity, filename, status, progress=0):
         "filename": filename,
         "status": status,
         "progress": progress,
+        "size_gb": size_gb,
         "speed_mbps": 0,
         "eta_text": "-"
     }
@@ -614,7 +615,6 @@ def do_work():
     qb_url = config.get("qb_url", "").rstrip('/')
     temp_path = config.get("temp_path")
     cd2_path = config.get("cd2_path")
-    # policy: global | instant | custom | pause
     upload_policy = config.get("upload_policy", "instant") 
     
     if not qb_url or not temp_path or not cd2_path:
@@ -634,7 +634,6 @@ def do_work():
         log(f"无法连接 VPS 本地 qB: {e}")
         return
 
-    # 获取【全部】任务，为了让群晖能看见下载中的进度
     try:
         res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=30)
         torrents = res.json()
@@ -665,7 +664,6 @@ def do_work():
     except Exception as e:
         pass
 
-    # 过滤出 100% 下载完的任务开始干活
     ready_to_pack = [t for t in torrents if '待封装' in t.get('tags', '') and t.get('progress', 0) == 1]
 
     if upload_policy == "pause" and len(ready_to_pack) > 0:
@@ -674,6 +672,7 @@ def do_work():
 
     for t in ready_to_pack:
         name = t['name']
+        size_gb = t.get('size', 0) / (1024**3)
         save_path = t.get('content_path')
         if not save_path or not os.path.exists(save_path):
             save_path = os.path.join(t.get('save_path', ''), name)
@@ -687,7 +686,7 @@ def do_work():
             return
 
         log(f"====== 开始处理任务: {name} ======")
-        report(identity, iso_name, "packing", 10)
+        report(identity, iso_name, "packing", 10, size_gb=size_gb)
 
         try:
             log("正在打包生成 ISO...")
@@ -695,40 +694,45 @@ def do_work():
             subprocess.run(cmd, check=True)
         except Exception as e:
             log(f"打包失败: {e}")
-            report(identity, iso_name, "error", 0)
+            report(identity, iso_name, "error", 0, size_gb=size_gb)
             continue
 
         log("打包完成！开始向主控请求上传许可...")
+        report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
         
         # 核心防爆盘机制：反压阻塞 (Backpressure)
-        # 如果不到上传时间，它会死循环等待，从而【阻止】它去打包下一个任务导致硬盘爆炸！
+        # 不到上传时间死循环等待，彻底【阻止】去打包下一个任务导致硬盘爆炸！
         while True:
             try:
                 up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
-                if up_res.json().get("can_upload", True):
+                if up_res.status_code == 200 and up_res.json().get("can_upload", True):
                     break
                 else:
                     log("主控回复: 未到定时时间。ISO保留在本地等待，1分钟后再次请示...")
                     time.sleep(60)
             except Exception as e:
-                log("向主控请示失败，默认允许立刻上传保护硬盘...")
-                break
+                # 网络报错时：绝不强传！原地死守保护硬盘！
+                log(f"向主控请示失败({e})，为防爆盘，ISO保留在本地等待...")
+                time.sleep(60)
 
         log("获得许可！开始移动到 CD2...")
-        report(identity, iso_name, "uploading", 50)
+        report(identity, iso_name, "uploading", 50, size_gb=size_gb)
 
         try:
             shutil.move(iso_temp, iso_dest)
         except Exception as e:
             log(f"移动到 CD2 失败: {e}")
-            report(identity, iso_name, "error", 0)
+            report(identity, iso_name, "error", 0, size_gb=size_gb)
             continue
 
         log("✅ 上传成功！汇报状态并清理 qB...")
-        report(identity, iso_name, "finished", 100)
+        report(identity, iso_name, "finished", 100, size_gb=size_gb)
 
+        # 读取群晖的全局删除设置 (默认为 False，安全第一)
+        delete_files = "true" if config.get("delete_after_upload", False) else "false"
         try:
-            session.post(f"{qb_url}/api/v2/torrents/delete", data={"hashes": t['hash'], "deleteFiles": "true"})
+            session.post(f"{qb_url}/api/v2/torrents/delete", data={"hashes": t['hash'], "deleteFiles": delete_files})
+            log(f"已清理 qB 任务 (同步NAS删除源文件设置: {delete_files})")
         except Exception as e:
             log(f"清理 qB 任务失败: {e}")
 
