@@ -1,4 +1,4 @@
-
+﻿
 import atexit
 import hmac
 import logging
@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.4"
+APP_VERSION = "v0.8.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1343,6 +1343,45 @@ def make_qb_client(server: QBServer):
     return client
 
 
+def is_qb_connection_exception(exc):
+    if exc is None:
+        return False
+    text = f"{type(exc).__name__}: {exc}".lower()
+    keys = (
+        "nameresolutionerror",
+        "connectionerror",
+        "apiconnectionerror",
+        "newconnectionerror",
+        "maxretryerror",
+        "failed to establish a new connection",
+        "failed to resolve",
+        "temporary failure in name resolution",
+        "nodename nor servname provided",
+        "getaddrinfo failed",
+    )
+    return any(k in text for k in keys)
+
+
+def is_invalid_qb_server_url(raw_url):
+    url = (raw_url or "").strip().lower()
+    if not url:
+        return True
+    if "agent://" in url:
+        return True
+    if "://agent" in url:
+        return True
+    return False
+
+
+def should_suppress_qb_alert(server, exc):
+    url = (getattr(server, "url", "") or "").strip().lower()
+    if "agent" in url:
+        return True
+    if is_invalid_qb_server_url(url):
+        return True
+    return is_qb_connection_exception(exc)
+
+
 def has_waiting_tag(tags_str):
     monitor_tag = get_qb_monitor_tag()
     tags = [tag.strip() for tag in (tags_str or "").split(",") if tag.strip()]
@@ -1762,13 +1801,19 @@ def process_all_qbs():
         monitor_tag = get_qb_monitor_tag()
         logger.info("开始轮询 qB 节点，监控标签=%s", monitor_tag)
         for server in servers:
+            if is_invalid_qb_server_url(getattr(server, "url", "")):
+                logger.warning("跳过无效 qB 节点 URL: node=%s url=%s", server.name, server.url)
+                continue
             try:
                 client = make_qb_client(server)
                 torrents = client.torrents_info()
                 logger.info("[节点:%s] 扫描 qB 任务完成，发现 %s 个种子", server.name, len(torrents))
             except Exception as exc:
-                logger.exception("qB 节点连接失败，节点=%s", server.name)
-                send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
+                if should_suppress_qb_alert(server, exc):
+                    logger.warning("qB 节点连接失败(已抑制告警): node=%s err=%s", server.name, exc)
+                else:
+                    logger.exception("qB 节点连接失败，节点=%s", server.name)
+                    send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
                 continue
 
             for torrent in torrents:
@@ -1793,8 +1838,11 @@ def process_all_qbs():
                     process_one_torrent(server, client, torrent)
                 except Exception as exc:
                     logger.exception("任务处理异常，[节点:%s] 任务=%s", server.name, getattr(torrent, "name", "unknown"))
-                    qb_remove_tags(client, torrent_hash, [PACKING_TAG, monitor_tag])
-                    qb_add_tags(client, torrent_hash, [FAILED_TAG])
+                    try:
+                        qb_remove_tags(client, torrent_hash, [PACKING_TAG, monitor_tag])
+                        qb_add_tags(client, torrent_hash, [FAILED_TAG])
+                    except Exception:
+                        logger.warning("任务异常后更新 qB 标签失败: node=%s task=%s", server.name, getattr(torrent, "name", "unknown"))
                     failed_record = PackHistory(
                         task_name=getattr(torrent, "name", "unknown"),
                         qb_server_id=server.id,
@@ -1805,7 +1853,17 @@ def process_all_qbs():
                     )
                     db.session.add(failed_record)
                     db.session.commit()
-                    send_tg_notification(f"[AutoISO] 任务处理异常 | 节点: {server.name} | 任务: {getattr(torrent, 'name', 'unknown')} | 错误: {exc}")
+                    if should_suppress_qb_alert(server, exc):
+                        logger.warning(
+                            "任务处理异常(已抑制告警): node=%s task=%s err=%s",
+                            server.name,
+                            getattr(torrent, "name", "unknown"),
+                            exc,
+                        )
+                    else:
+                        send_tg_notification(
+                            f"[AutoISO] 任务处理异常 | 节点: {server.name} | 任务: {getattr(torrent, 'name', 'unknown')} | 错误: {exc}"
+                        )
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
@@ -1958,9 +2016,29 @@ def delete_qbserver(server_id):
     item = db.session.get(QBServer, server_id)
     if not item:
         return jsonify({"error": "节点不存在"}), 404
-    db.session.delete(item)
-    db.session.commit()
-    return jsonify({"ok": True})
+    try:
+        fallback_id = get_or_create_external_server_id()
+        if fallback_id == item.id:
+            alt = QBServer.query.filter(QBServer.id != item.id).order_by(QBServer.id.asc()).first()
+            if alt:
+                fallback_id = alt.id
+            else:
+                alt = QBServer(name="DeletedNode", url="local://deleted", username="-", password="-")
+                db.session.add(alt)
+                db.session.flush()
+                fallback_id = alt.id
+
+        PackHistory.query.filter_by(qb_server_id=item.id).update(
+            {"qb_server_id": fallback_id},
+            synchronize_session=False,
+        )
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("删除 qB 节点失败: id=%s", server_id)
+        return jsonify({"error": f"delete failed: {exc}"}), 500
 
 
 def serialize_agent_node(row):
@@ -2737,11 +2815,17 @@ def list_pending():
     logger.info("拉取待封装列表，监控标签=%s", monitor_tag)
     servers = QBServer.query.order_by(QBServer.id.asc()).all()
     for server in servers:
+        if is_invalid_qb_server_url(getattr(server, "url", "")):
+            logger.warning("待封装列表跳过无效节点: node=%s url=%s", server.name, server.url)
+            continue
         try:
             client = make_qb_client(server)
             torrents = client.torrents_info()
-        except Exception:
-            logger.exception("获取待封装任务失败，节点=%s", server.name)
+        except Exception as exc:
+            if is_qb_connection_exception(exc):
+                logger.warning("获取待封装任务连接失败，已跳过节点=%s err=%s", server.name, exc)
+            else:
+                logger.exception("获取待封装任务失败，节点=%s", server.name)
             continue
 
         for torrent in torrents:
