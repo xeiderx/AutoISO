@@ -137,11 +137,11 @@
         </div>
       </div></div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (此列表仅控制NAS本地)</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (全局总控)</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
-            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
+            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">策略/自动</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
@@ -184,10 +184,9 @@
             <div class="col-12 mt-2">
               <label class="form-label fw-bold text-dark mb-1">VPS 上传与排队策略</label>
               <select class="form-select form-select-sm border-primary" name="upload_policy" id="agent_upload_policy" onchange="$('agent_cron_container').classList.toggle('d-none', this.value !== 'custom')">
-                <option value="global">跟随群晖全局定时设置 (推荐)</option>
-                <option value="instant" selected>打包后立即强传 (防爆盘专用)</option>
+                <option value="global">跟随全局定时 (推荐)</option>
+                <option value="instant">打包后立即强传</option>
                 <option value="custom">此节点独立定时</option>
-                <option value="pause">永远暂停上传</option>
               </select>
             </div>
             <div class="col-12 d-none" id="agent_cron_container">
@@ -436,7 +435,7 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传'||s==='pending_upload')return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传 (阻塞中)</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
+    function badge(s){s=String(s||'').trim();if(s==='已上传至网盘'||s==='uploaded')return '<span class="badge rounded-pill text-bg-success">已上传</span>';if(s==='上传中'||s==='uploading')return '<span class="badge rounded-pill text-bg-warning">上传中</span>';if(s==='封装完成，待上传'||s==='pending'||s==='待上传'||s==='pending_upload'||s==='待上传 (阻塞中)')return '<span class="badge rounded-pill text-bg-secondary shadow-sm">待上传 (阻塞中)</span>';if(s==='已封装'||s==='packed')return '<span class="badge rounded-pill text-bg-info">已封装</span>';if(s==='中止上传'||s==='aborted')return '<span class="badge rounded-pill text-bg-danger">已中止</span>';if(s==='本地已删除')return '<span class="badge rounded-pill text-bg-dark">本地已删除</span>';if(s==='Failed'||s==='失败')return '<span class="badge rounded-pill text-bg-danger">失败</span>';
     if(s.includes('下载中')) return `<span class="badge rounded-pill text-bg-warning shadow-sm"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
     return `<span class="badge rounded-pill text-bg-info">${esc(s||'处理中')}</span>`;}
     
@@ -475,7 +474,7 @@
 
     window.resetAgentForm = function() {
         agentNodeForm.reset(); agentNodeForm.agent_id.value = '';
-        $('agent_upload_policy').value = 'instant';
+        $('agent_upload_policy').value = 'global';
         $('agent_cron_container').classList.add('d-none');
         $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
         if ($('agent_qb_pass').type === 'text') { togglePwd($('agent_qb_pass').nextElementSibling, 'agent_qb_pass'); }
@@ -486,7 +485,7 @@
         if (editBtn) {
             const d = editBtn.dataset; agentNodeForm.agent_id.value = d.id; agentNodeForm.node_name.value = d.name; agentNodeForm.qb_url.value = d.url; agentNodeForm.qb_user.value = d.user; agentNodeForm.qb_pass.value = d.pass; agentNodeForm.temp_path.value = d.temp; agentNodeForm.cd2_path.value = d.cd2;
             
-            $('agent_upload_policy').value = d.policy || 'instant';
+            $('agent_upload_policy').value = d.policy || 'global';
             $('agent_upload_cron').value = d.cron || '';
             $('agent_cron_container').classList.toggle('d-none', $('agent_upload_policy').value !== 'custom');
             
@@ -505,12 +504,11 @@
         try {
             const rows = await api('/api/agent_nodes');
             $('agentNodeList').innerHTML = rows.length ? rows.map(x => {
-                let p = x.upload_policy || 'instant';
+                let p = x.upload_policy || 'global';
                 let b = '';
                 if(p === 'global') b = '<span class="badge bg-primary rounded-pill px-2">跟随全局</span>';
                 if(p === 'instant') b = '<span class="badge bg-success rounded-pill px-2">立即强传</span>';
                 if(p === 'custom') b = '<span class="badge bg-info text-dark rounded-pill px-2">独立定时</span>';
-                if(p === 'pause') b = '<span class="badge bg-secondary rounded-pill px-2">永远暂停</span>';
                 return `
                 <tr>
                     <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}<br><span class="small text-muted fw-normal">${esc(x.qb_url)}</span></td>
@@ -526,7 +524,6 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 全能版一键部署弹窗生成：坚决保种版 (移除任何 read/delete_after_upload 逻辑)
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -561,7 +558,7 @@ cat << 'EOF' > /opt/autoiso_agent/identity.json
 }
 EOF
 
-# 4. 写入核心挂机脚本 agent.py (彻底保种绝不删源文件版)
+# 4. 写入核心挂机脚本 agent.py (特权放行白名单版)
 cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil
 
@@ -611,7 +608,6 @@ def do_work():
     qb_url = config.get("qb_url", "").rstrip('/')
     temp_path = config.get("temp_path")
     cd2_path = config.get("cd2_path")
-    upload_policy = config.get("upload_policy", "instant") 
     
     if not qb_url or not temp_path or not cd2_path:
         log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
@@ -662,10 +658,6 @@ def do_work():
 
     ready_to_pack = [t for t in torrents if '待封装' in t.get('tags', '') and t.get('progress', 0) == 1]
 
-    if upload_policy == "pause" and len(ready_to_pack) > 0:
-        log("此节点的【上传策略】为永远暂停，拒绝处理任何任务。")
-        return
-
     for t in ready_to_pack:
         name = t['name']
         size_gb = t.get('size', 0) / (1024**3)
@@ -698,11 +690,12 @@ def do_work():
         
         while True:
             try:
-                up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
+                # 把文件名发给群晖，群晖检查是否在立刻放行的白名单里
+                up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
                 if up_res.status_code == 200 and up_res.json().get("can_upload", True):
                     break
                 else:
-                    log("主控回复: 未到定时时间。ISO保留在本地等待，1分钟后再次请示...")
+                    log("主控回复: 未到定时时间且无特权。ISO保留在本地等待，1分钟后再次请示...")
                     time.sleep(60)
             except Exception as e:
                 log(f"向主控请示失败({e})，为防爆盘，ISO保留在本地等待...")
@@ -721,7 +714,6 @@ def do_work():
         log("✅ 上传成功(ISO已自动清理)！汇报状态并仅更新 qB 标签...")
         report(identity, iso_name, "finished", 100, size_gb=size_gb)
 
-        # 【核心保护】永远不删种子！只改标签！
         try:
             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
@@ -877,41 +869,67 @@ echo "------------------------------------------------"
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
-            const isVps = x.node && x.node !== 'NAS'; // 判断是否是 VPS 任务
-            const disabled = (uploadingNow || isVps) ? 'disabled' : ''; // 如果是 VPS，禁用 NAS 的上传按钮
+            const isVps = x.node && x.node !== 'NAS'; // 判断是否是 VPS 节点
+            const disabled = (uploadingNow) ? 'disabled' : ''; 
             
-            const autoUpload=x.auto_upload!==false;
-            const statusBadge=up?'<span class="badge text-bg-success">已上传</span>':(autoUpload?'<span class="badge text-bg-secondary">待上传</span>':'<span class="badge text-bg-info">已封装</span>');
+            const autoUpload = x.auto_upload!==false;
+            const statusBadge = up?'<span class="badge text-bg-success">已上传</span>':badge(x.status || '待上传');
             
-            // VPS任务隐藏开关，防止误触
-            const autoIcon = isVps ? '<span class="small text-muted">-</span>' : `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
-            
+            // 策略显示区：VPS显示全局/独立切换开关，NAS显示普通自动上传开关
+            let autoIcon = '';
+            if (isVps) {
+                const isGlobal = x.node_policy !== 'custom';
+                autoIcon = `<div class="d-flex justify-content-center align-items-center">
+                    <div class="form-check form-switch m-0 p-0 d-flex align-items-center" title="切换该VPS节点的定时策略">
+                        <input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.5rem; height:1.25rem; float:none; margin-left:0 !important;" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}">
+                        <span class="small ms-2 fw-bold text-${isGlobal?'primary':'info'}">${isGlobal?'全局':'独立'}</span>
+                    </div>
+                </div>`;
+            } else {
+                autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.5rem; height:1.25rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+            }
+
+            // 操作区：VPS为立即放行按钮，NAS为常规上传/删除按钮
+            let actionBtns = '';
+            if (isVps) {
+                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm w-100" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
+            } else {
+                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm mb-1 w-100" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm w-100" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
+            }
+
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
-              <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node||'NAS')}</span></td>
+              <td class="text-center align-middle"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'}">${esc(x.node||'NAS')}</span></td>
               <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.filename||'')}</div></td>
               <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
               <td class="text-center align-middle">${autoIcon}</td>
-              <td class="text-center align-middle"><div class="d-flex flex-column flex-lg-row justify-content-center gap-1 align-items-center">
-                  <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${isVps?'VPS自动处理':(up?'重新上传':'立即上传')}</button>
-                  <button class="btn btn-sm btn-danger text-nowrap" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除</button>
-              </div></td>
+              <td class="text-center align-middle"><div class="d-flex flex-column justify-content-center align-items-center">${actionBtns}</div></td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
     
     $('pendingUploadsBody').addEventListener('click',async(e)=>{
-      const tgg = e.target.closest('input[data-act="toggle_auto"]');
+      const tgg = e.target.closest('input[data-act]');
       if(tgg){
-        try{ await api(`/api/upload/toggle_auto/${encodeURIComponent(tgg.dataset.name)}`,{method:'POST'}); await loadPendingUploads(); await loadHistory(); }
-        catch(err){ notify(err.message,'danger'); tgg.checked = !tgg.checked; } return;
+        if(tgg.dataset.act === 'toggle_auto') {
+            try{ await api(`/api/upload/toggle_auto/${encodeURIComponent(tgg.dataset.name)}`,{method:'POST'}); await loadPendingUploads(); await loadHistory(); }
+            catch(err){ notify(err.message,'danger'); tgg.checked = !tgg.checked; } 
+        } else if (tgg.dataset.act === 'toggle_vps_policy') {
+            try{ await api(`/api/agent_nodes/toggle_policy`,{method:'POST', body: JSON.stringify({node: tgg.dataset.node})}); notify('策略切换成功', 'success'); await loadAgentNodes(); await loadPendingUploads(); }
+            catch(err){ notify(err.message,'danger'); tgg.checked = !tgg.checked; } 
+        }
+        return;
       }
       const btn = e.target.closest('button[data-act]');
       if(!btn || !btn.dataset.name || btn.disabled) return;
+      if(btn.dataset.act==='whitelist'){
+          try{await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});notify('已加入特权白名单，VPS即将开始上传！','success');await loadStatsAndProgress();}catch(err){notify(err.message,'danger');}
+      }
       if(btn.dataset.act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已开始上传','success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}}
-      if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地源文件吗？','删除本地文件'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地文件','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
+      if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地的ISO封装缓存文件吗？(不影响下载源文件)','删除封装缓存'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地ISO','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
     });
 
     async function loadHistory(){

@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.8.8"
+APP_VERSION = "v0.8.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -71,6 +71,8 @@ AGENT_TASKS_LOCK = threading.Lock()
 AGENT_PENDING_TASKS = {}
 AGENT_PENDING_TASKS_LOCK = threading.Lock()
 AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "180"))
+UPLOAD_WHITELIST = set()
+UPLOAD_WHITELIST_LOCK = threading.Lock()
 current_uploading_file = None
 upload_command = "running"
 UPLOAD_COMMAND_LOCK = threading.Lock()
@@ -412,6 +414,50 @@ def get_agent_token():
 def normalize_agent_upload_policy(value):
     policy = (value or "").strip().lower()
     return policy if policy in AGENT_UPLOAD_POLICIES else AGENT_UPLOAD_DEFAULT_POLICY
+
+
+def build_task_name_keys(name):
+    safe_name = os.path.basename(str(name or "").strip())
+    if not safe_name:
+        return set()
+    no_ext = os.path.splitext(safe_name)[0]
+    keys = {safe_name.lower()}
+    if no_ext:
+        keys.add(no_ext.lower())
+    return keys
+
+
+def build_pending_history_block_set():
+    blocking_statuses = {
+        "封装中",
+        "待上传",
+        "待上传 (阻塞中)",
+        "上传中",
+        "成功",
+        "已上传",
+        STATUS_PACKED_PENDING_UPLOAD,
+        STATUS_UPLOADED,
+    }
+    rows = (
+        db.session.query(PackHistory.task_name)
+        .filter(PackHistory.status.in_(list(blocking_statuses)))
+        .all()
+    )
+    blocked = set()
+    for row in rows:
+        blocked.update(build_task_name_keys(row[0]))
+    return blocked
+
+
+def resolve_pack_history_node_name(row):
+    if not row:
+        return "NAS"
+    info = (row.info or "").strip()
+    if info.lower().startswith("node="):
+        node_name = info.split("=", 1)[1].strip()
+        if node_name:
+            return node_name
+    return row.qb_server.name if row.qb_server else "NAS"
 
 
 def get_global_proxy():
@@ -2250,6 +2296,23 @@ def update_agent_node():
         return jsonify({"error": "更新失败"}), 500
 
 
+@app.route("/api/agent_nodes/toggle_policy", methods=["POST"])
+def toggle_agent_node_policy():
+    payload = request.get_json(force=True) or {}
+    node_name = (payload.get("node") or "").strip()
+    if not node_name:
+        return jsonify({"error": "node 不能为空"}), 400
+
+    row = AgentNode.query.filter_by(node_name=node_name).first()
+    if not row:
+        return jsonify({"error": "节点不存在"}), 404
+
+    current_policy = normalize_agent_upload_policy(getattr(row, "upload_policy", AGENT_UPLOAD_DEFAULT_POLICY))
+    row.upload_policy = "custom" if current_policy == "global" else "global"
+    db.session.commit()
+    return jsonify({"ok": True, "node": serialize_agent_node(row)})
+
+
 @app.route("/api/agent_nodes/<int:node_id>", methods=["DELETE"])
 def delete_agent_node(node_id):
     row = db.session.get(AgentNode, node_id)
@@ -2391,14 +2454,14 @@ def agent_report():
                 "last_update": last_update,
             }
 
-    if status == "finished":
+    if status in {"pending_upload", "finished"}:
         try:
             scrape_name = clean_agent_report_filename(filename)
             if scrape_name and scrape_name != filename:
-                logger.info("Agent finished 刮削名称清洗: %s -> %s", filename, scrape_name)
+                logger.info("Agent %s 刮削名称清洗: %s -> %s", status, filename, scrape_name)
             trigger_auto_scrape_async(filename, search_keyword=scrape_name or filename)
         except Exception:
-            logger.exception("Agent finished 派发 TMDB 刮削失败: node=%s file=%s", node, filename)
+            logger.exception("Agent %s 派发 TMDB 刮削失败: node=%s file=%s", status, node, filename)
     return jsonify({"ok": True, "status": "accepted"})
 
 
@@ -2463,10 +2526,22 @@ def get_agent_config():
     return jsonify(data)
 
 
+@app.route("/api/agent/whitelist_upload", methods=["POST"])
+def whitelist_agent_upload():
+    payload = request.get_json(force=True) or {}
+    safe_name = os.path.basename(str(payload.get("filename") or "").strip())
+    if not safe_name:
+        return jsonify({"error": "filename 不能为空"}), 400
+    with UPLOAD_WHITELIST_LOCK:
+        UPLOAD_WHITELIST.add(safe_name)
+    return jsonify({"ok": True, "filename": safe_name})
+
+
 @app.route("/api/agent/can_upload", methods=["GET"])
 def agent_can_upload():
     token = (request.args.get("token") or "").strip()
     node_name = (request.args.get("node_name") or "").strip()
+    filename = os.path.basename(str(request.args.get("filename") or "").strip())
     if not token or not hmac.compare_digest(token, get_agent_token()):
         return jsonify({"error": "Forbidden"}), 403
     if not node_name:
@@ -2475,6 +2550,12 @@ def agent_can_upload():
     row = AgentNode.query.filter_by(node_name=node_name).first()
     if not row:
         return jsonify({"error": "节点不存在"}), 404
+
+    if filename:
+        with UPLOAD_WHITELIST_LOCK:
+            if filename in UPLOAD_WHITELIST:
+                UPLOAD_WHITELIST.discard(filename)
+                return jsonify({"can_upload": True})
 
     policy = normalize_agent_upload_policy(getattr(row, "upload_policy", AGENT_UPLOAD_DEFAULT_POLICY))
     if policy == "instant":
@@ -3064,13 +3145,25 @@ def list_pending():
                 }
             )
 
-    rows.sort(key=lambda x: x.get("added_on", ""), reverse=True)
-    return jsonify(rows)
+    blocked_names = build_pending_history_block_set()
+    filtered_rows = []
+    for item in rows:
+        title = str(item.get("title") or "").strip()
+        if build_task_name_keys(title) & blocked_names:
+            continue
+        filtered_rows.append(item)
+
+    filtered_rows.sort(key=lambda x: x.get("added_on", ""), reverse=True)
+    return jsonify(filtered_rows)
 
 
 @app.route("/api/pending_uploads", methods=["GET"])
 def list_pending_uploads():
     rows = []
+    agent_policy_map = {
+        row.node_name: normalize_agent_upload_policy(row.upload_policy)
+        for row in AgentNode.query.all()
+    }
     names = get_upload_list_files()
     for name in names:
         file_path = os.path.join(OUTPUT_DIR, name)
@@ -3090,7 +3183,8 @@ def list_pending_uploads():
             .order_by(PackHistory.id.desc())
             .first()
         )
-        node_name = history_row.qb_server.name if history_row and history_row.qb_server else "NAS"
+        node_name = resolve_pack_history_node_name(history_row)
+        node_policy = agent_policy_map.get(node_name, "")
 
         rows.append(
             {
@@ -3098,6 +3192,7 @@ def list_pending_uploads():
                 "size": size_gb,
                 "size_gb": size_gb,
                 "node": node_name,
+                "node_policy": node_policy,
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(name)),
                 "display_name": build_display_name(os.path.splitext(name)[0]),
