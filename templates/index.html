@@ -13,7 +13,7 @@
     .sidebar .text-secondary { color: #94a3b8 !important; }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 18px 14px; } .main { margin-left: var(--sidebar-w); padding: 18px; } }
     @media (max-width: 991.98px) { .sidebar.offcanvas-start { width: 260px !important; } .sidebar { padding: 14px; } .main { margin-left: 0; padding: 14px; } }
-    .sidebar .nav-pills .nav-link { color: #94a3b8; font-weight: 500; border-radius: 8px; margin-bottom: 2px; }
+    .sidebar .nav-pills .nav-link { color: #94a3b8; font-weight: 500; border-radius: 8px; margin-bottom: 2px; cursor: pointer; }
     .sidebar .nav-pills .nav-link.active, .sidebar .nav-pills .nav-link:hover { color: #fff; background: rgba(255,255,255,0.1); }
     .card { border: 0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
     .stats-line-wrap { overflow-x: auto; padding-bottom: 4px; }
@@ -87,6 +87,7 @@
       <div class="small text-secondary mb-2 d-none d-lg-block">NAS 原盘封装中控台</div>
       <ul class="nav nav-pills flex-column gap-1" id="sideNav">
         <li class="nav-item"><a class="nav-link active" data-view="viewDashboard"><i class="bi bi-speedometer2 me-2"></i>仪表盘</a></li>
+        <li class="nav-item"><a class="nav-link" data-view="viewAgentNodes"><i class="bi bi-hdd-network me-2"></i>边缘节点</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewSettings"><i class="bi bi-sliders me-2"></i>系统设置</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewHistory"><i class="bi bi-clock-history me-2"></i>历史记录</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewScrape"><i class="bi bi-film me-2"></i>刮削记录</a></li>
@@ -97,9 +98,9 @@
 
   <main class="main">
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h5 id="pageTitle" class="mb-0">仪表盘</h5>
+      <h5 id="pageTitle" class="mb-0 fw-bold">仪表盘</h5>
       <div class="d-flex gap-2">
-        <button id="btnViewLogs" class="btn btn-outline-dark btn-sm"><i class="bi bi-journal-text me-1"></i>系统日志</button>
+        <button id="btnViewLogs" class="btn btn-outline-dark btn-sm rounded-pill px-3"><i class="bi bi-journal-text me-1"></i>系统日志</button>
       </div>
     </div>
 
@@ -108,14 +109,14 @@
       <div class="row g-3 mt-1">
         <div class="col-lg-6">
           <div class="card h-100"><div class="card-body">
-            <h6 class="mb-2">封装状态</h6>
+            <h6 class="mb-2 fw-bold text-secondary">封装状态</h6>
             <div id="packingTasks" class="small text-muted">暂无封装任务</div>
           </div></div>
         </div>
         <div class="col-lg-6">
           <div class="card h-100"><div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <h6 class="mb-0">上传状态</h6>
+              <h6 class="mb-0 fw-bold text-secondary">上传状态</h6>
               <div class="d-flex gap-2">
                 <button id="btnUploadPauseResume" class="btn btn-warning btn-sm d-none">暂停</button>
                 <button id="btnUploadAbort" class="btn btn-danger btn-sm d-none">中止</button>
@@ -126,87 +127,97 @@
         </div>
       </div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3">待封装任务</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待封装任务 (跨国集群)</h6>
         <div class="table-responsive">
           <table id="pendingTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:20%"></colgroup>
-            <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
+            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">所属节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">添加时间</th></tr></thead>
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
       </div></div>
       <div class="card mt-3"><div class="card-body">
-        <h6 class="mb-3">待上传任务</h6>
+        <h6 class="mb-3 fw-bold text-secondary">待上传任务 (NAS本地)</h6>
         <div class="table-responsive">
           <table id="pendingUploadsTable" class="table table-sm table-hover table-fixed resizable-table align-middle" style="min-width: 1000px;">
             <colgroup><col style="width:4%"><col style="width:8%"><col style="width:18%"><col style="width:34%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:14%"></colgroup>
-            <thead><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
+            <thead class="table-light"><tr><th class="text-center align-middle">序号</th><th class="text-center align-middle">节点</th><th class="align-middle">名称</th><th class="align-middle">文件名</th><th class="text-center align-middle">大小(GB)</th><th class="text-center align-middle">状态</th><th class="text-center align-middle">自动上传</th><th class="text-center align-middle">操作</th></tr></thead>
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
       </div></div>
     </section>
 
+    <section id="viewAgentNodes" class="app-view d-none">
+      <div class="alert border-0 shadow-sm d-flex align-items-center mb-4 text-white" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+        <i class="bi bi-hdd-network fs-3 me-3"></i>
+        <div>
+          <strong class="fs-6">分布式集群控制中心</strong><br>
+          <span style="opacity: 0.9;">在此管理所有海外 VPS 节点。修改配置保存后，VPS 脚本将在下一次轮询时自动拉取并生效。</span>
+        </div>
+      </div>
+      <div class="row g-4">
+        <div class="col-lg-4">
+          <form id="agentNodeForm" class="row g-3 bg-white p-3 rounded shadow-sm border">
+            <h6 class="fw-bold mb-0 text-dark border-bottom pb-2" id="agentFormTitle"><i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点</h6>
+            <input type="hidden" name="agent_id" id="agent_id">
+            <div class="col-12"><label class="form-label small text-muted mb-1">节点名称 (全局唯一)</label><input class="form-control form-control-sm" name="node_name" placeholder="如：美国 VPS" required></div>
+            <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" name="qb_url" value="http://127.0.0.1:8080" required></div>
+            <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" name="qb_user" value="admin"></div>
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">qB 密码</label>
+              <div class="input-group input-group-sm">
+                <input class="form-control border-end-0" type="password" name="qb_pass" id="agent_qb_pass" value="adminadmin">
+                <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'agent_qb_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
+              </div>
+            </div>
+            <div class="col-12"><label class="form-label fw-bold text-dark mb-1">VPS 本地临时打包目录</label><div class="small text-muted mb-1" style="font-size:0.75rem;">VPS上的高速硬盘路径，脚本会自动创建</div><input class="form-control form-control-sm border-primary" name="temp_path" placeholder="VPS临时盘路径" value="/opt/autoiso_agent/temp" required></div>
+            <div class="col-12">
+              <label class="form-label fw-bold text-danger mb-0">CD2 底层挂载根目录 (切勿套娃)</label>
+              <div class="small text-muted mb-1 mt-1" style="font-size:0.75rem; line-height: 1.3;">
+                <b>正确示例：</b><code>/CloudNAS/CloudDrive/115small</code><br>
+                <b>错误示例：</b>包含115内的文件夹名，如 <code>.../VPS接收站</code>
+              </div>
+              <input class="form-control form-control-sm border-danger text-danger fw-semibold" name="cd2_path" placeholder="必须是底层挂载的根目录" value="/CloudNAS/CloudDrive/115small" required>
+            </div>
+            <div class="col-12">
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input shadow-sm cursor-pointer" type="checkbox" id="agent_auto_upload" checked style="width: 2.5rem; height: 1.25rem;">
+                <label class="form-check-label fw-bold ms-2 mt-1" for="agent_auto_upload">启用此节点的自动处理与上传</label>
+              </div>
+            </div>
+            <div class="col-12 d-flex justify-content-between mt-3 pt-3 border-top">
+                <button class="btn btn-light btn-sm px-3 shadow-sm rounded-pill" type="button" onclick="resetAgentForm()">重置清空</button>
+                <button class="btn btn-primary btn-sm px-4 shadow-sm rounded-pill" type="submit">保存节点</button>
+            </div>
+          </form>
+        </div>
+        <div class="col-lg-8">
+          <div class="table-responsive bg-white rounded shadow-sm border h-100">
+            <table class="table table-hover align-middle mb-0 m-2" style="width: calc(100% - 1rem);">
+              <thead class="table-light"><tr><th class="ps-3">节点名称</th><th>服务状态</th><th>CD2 挂载路径</th><th class="text-end pe-3">操作</th></tr></thead>
+              <tbody id="agentNodeList"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="viewSettings" class="app-view d-none">
       <div class="card"><div class="card-body">
         <ul class="nav nav-tabs flex-nowrap text-nowrap overflow-x-auto" role="tablist" style="scrollbar-width: none;">
-          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabQb" type="button">qBittorrent 设置</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUser" type="button">用户设置</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">上传设置</button></li>
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabQb" type="button">qBittorrent 设置 (NAS)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUpload" type="button">上传设置 (NAS)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUser" type="button">安全设置</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTelegram" type="button">Telegram</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabProxy" type="button">代理设置</button></li>
-          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削设置</button></li>
-          <li class="nav-item"><button class="nav-link text-primary fw-bold" data-bs-toggle="tab" data-bs-target="#tabVpsDeploy" type="button"><i class="bi bi-hdd-network me-1"></i>边缘节点管理</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScraper" type="button">刮削与代理</button></li>
         </ul>
         <div class="tab-content pt-3">
-          
-          <div class="tab-pane fade" id="tabVpsDeploy">
-            <div class="alert alert-info border-0 shadow-sm d-flex align-items-center mb-4">
-              <i class="bi bi-hdd-network fs-4 me-3 text-primary"></i>
-              <div>
-                <strong>集中式配置中心 (Master-Agent 架构)</strong><br>
-                在此管理所有海外 VPS 节点。生成的“部署代码”极度纯净，仅包含身份秘钥。qB密码、挂载路径等配置将由 VPS 自动向此 NAS 拉取，<strong>修改配置即时生效，无需在 VPS 重装！</strong>
-              </div>
-            </div>
-            <div class="row g-4">
-              <div class="col-lg-4">
-                <form id="agentNodeForm" class="row g-3 bg-white p-3 rounded shadow-sm border">
-                  <h6 class="fw-bold mb-0 text-dark border-bottom pb-2" id="agentFormTitle"><i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点</h6>
-                  <input type="hidden" name="agent_id" id="agent_id">
-                  <div class="col-12"><label class="form-label small text-muted mb-1">节点名称 (唯一标识)</label><input class="form-control form-control-sm" name="node_name" placeholder="如：日本 HostDzire" required></div>
-                  <div class="col-12"><label class="form-label small text-muted mb-1">VPS 本地 qB URL</label><input class="form-control form-control-sm" name="qb_url" value="http://127.0.0.1:8080" required></div>
-                  <div class="col-6"><label class="form-label small text-muted mb-1">qB 账号</label><input class="form-control form-control-sm" name="qb_user" value="admin"></div>
-                  <div class="col-6">
-                    <label class="form-label small text-muted mb-1">qB 密码</label>
-                    <div class="input-group input-group-sm">
-                      <input class="form-control border-end-0" type="password" name="qb_pass" id="agent_qb_pass" value="adminadmin">
-                      <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'agent_qb_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
-                    </div>
-                  </div>
-                  <div class="col-12"><label class="form-label fw-bold text-dark mb-1">本地打包缓存目录</label><div class="small text-muted mb-1" style="font-size:0.75rem;">VPS上的临时高速硬盘路径，脚本将自动创建</div><input class="form-control form-control-sm border-primary" name="temp_path" placeholder="VPS临时盘路径" value="/opt/autoiso_agent/temp" required></div>
-                  <div class="col-12"><label class="form-label fw-bold text-dark mb-1">115小号 CD2 挂载路径</label><div class="small text-muted mb-1" style="font-size:0.75rem;">该节点的CD2对应的115小号绝对路径</div><input class="form-control form-control-sm border-primary" name="cd2_path" placeholder="VPS上的CD2绝对路径" value="/CloudNAS/CloudDrive/115small/影视库/115中转" required></div>
-                  <div class="col-12 d-flex justify-content-between mt-3 pt-3 border-top">
-                     <button class="btn btn-light btn-sm px-3 shadow-sm" type="button" onclick="resetAgentForm()">重置清空</button>
-                     <button class="btn btn-primary btn-sm px-4 shadow-sm" type="submit">保存节点配置</button>
-                  </div>
-                </form>
-              </div>
-              <div class="col-lg-8">
-                <div class="table-responsive bg-white rounded shadow-sm border h-100">
-                  <table class="table table-sm table-hover align-middle mb-0 m-2" style="width: calc(100% - 1rem);">
-                    <thead class="table-light"><tr><th class="ps-3">节点名称</th><th>qB 地址</th><th>缓存目录</th><th class="text-end pe-3">操作</th></tr></thead>
-                    <tbody id="agentNodeList"></tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <div class="tab-pane fade show active" id="tabQb">
             <form id="qbForm" class="row g-3">
               <input type="hidden" name="qb_id">
-              <div class="col-md-6"><label class="form-label">节点名称</label><input class="form-control" name="alias" required></div>
-              <div class="col-md-6"><label class="form-label">节点 URL</label><input class="form-control" name="url" placeholder="http://127.0.0.1:8080" required></div>
+              <div class="col-md-6"><label class="form-label">NAS 节点名称</label><input class="form-control" name="alias" required></div>
+              <div class="col-md-6"><label class="form-label">NAS 本地 URL</label><input class="form-control" name="url" placeholder="http://127.0.0.1:8080" required></div>
               <div class="col-md-6"><label class="form-label">账号</label><input class="form-control" name="username" required></div>
               <div class="col-md-6">
                   <label class="form-label">密码</label>
@@ -215,8 +226,8 @@
                       <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'sys_qb_pass')"><i class="bi bi-eye-slash text-muted"></i></span>
                   </div>
               </div>
-              <div class="col-md-6"><label class="form-label">监控标签</label><input id="qb_monitor_tag" class="form-control" placeholder="待封装"></div>
-              <div class="col-md-6 d-flex align-items-end gap-2"><button class="btn btn-primary" type="submit">保存</button><button class="btn btn-outline-info" type="button" id="btnTestQb">连接测试</button></div>
+              <div class="col-md-6"><label class="form-label">全局监控标签</label><input id="qb_monitor_tag" class="form-control" placeholder="待封装"></div>
+              <div class="col-md-6 d-flex align-items-end gap-2"><button class="btn btn-primary rounded-pill px-4" type="submit">保存</button><button class="btn btn-outline-info rounded-pill px-4" type="button" id="btnTestQb">测试</button></div>
             </form>
             <hr>
             <div class="table-responsive">
@@ -246,16 +257,16 @@
                       <span class="input-group-text bg-white border-start-0 cursor-pointer" onclick="togglePwd(this, 'sys_auth_pass_confirm')"><i class="bi bi-eye-slash text-muted"></i></span>
                   </div>
               </div>
-              <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
+              <div class="col-12"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button></div>
             </form>
           </div>
           <div class="tab-pane fade" id="tabUpload">
             <form id="uploadForm" class="row g-3">
-              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">开启全局自动上传</label></div></div>
+              <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked><label class="form-check-label fw-bold text-dark" for="global_auto_upload">NAS 开启全局自动上传</label></div></div>
               <div class="col-md-6"><label class="form-label">自动上传时间 (Cron)</label><input class="form-control" name="upload_cron" placeholder="0 2 * * *"></div>
-              <div class="col-md-6"><label class="form-label">CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
+              <div class="col-md-6"><label class="form-label">NAS CloudDrive 挂载路径</label><input class="form-control" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="delete_after_upload" type="checkbox" name="delete_after_upload"><label class="form-check-label" for="delete_after_upload">上传后彻底删除本地源文件</label></div></div>
-              <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
+              <div class="col-12"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button></div>
             </form>
           </div>
           <div class="tab-pane fade" id="tabTelegram">
@@ -266,22 +277,17 @@
               <div class="col-md-3"><div class="form-check form-switch mt-2"><input class="form-check-input" id="notify_pack_end" type="checkbox"><label class="form-check-label" for="notify_pack_end">封装完成</label></div></div>
               <div class="col-md-3"><div class="form-check form-switch mt-2"><input class="form-check-input" id="notify_upload_start" type="checkbox"><label class="form-check-label" for="notify_upload_start">上传开始</label></div></div>
               <div class="col-md-3"><div class="form-check form-switch mt-2"><input class="form-check-input" id="notify_upload_end" type="checkbox"><label class="form-check-label" for="notify_upload_end">上传完成</label></div></div>
-              <div class="col-12 d-flex gap-2"><button class="btn btn-success" type="submit">保存</button><button class="btn btn-outline-info" type="button" id="btnTestTg">测试</button><button class="btn btn-outline-danger" type="button" id="btnClearTg">清空配置</button></div>
-            </form>
-          </div>
-          <div class="tab-pane fade" id="tabProxy">
-            <form id="proxyForm" class="row g-3">
-              <div class="col-md-6"><label class="form-label">全局代理 (HTTP/SOCKS5)</label><input class="form-control" name="global_proxy" placeholder="如 http://127.0.0.1:7890"></div>
-              <div class="col-12"><button class="btn btn-success" type="submit">保存</button></div>
+              <div class="col-12 d-flex gap-2"><button class="btn btn-success rounded-pill px-4" type="submit">保存</button><button class="btn btn-outline-info rounded-pill px-4" type="button" id="btnTestTg">测试通知</button><button class="btn btn-outline-danger rounded-pill px-4" type="button" id="btnClearTg">清空配置</button></div>
             </form>
           </div>
           <div class="tab-pane fade" id="tabScraper">
             <form id="scrapeForm" class="row g-3">
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" id="enable_tmdb" type="checkbox" name="enable_tmdb"><label class="form-check-label" for="enable_tmdb">开启 TMDB 自动刮削</label></div></div>
               <div class="col-md-6"><label class="form-label">TMDB API Key</label><input class="form-control" name="tmdb_api_key" placeholder="输入 v3 API Key"></div>
+              <div class="col-md-6"><label class="form-label">群晖全局代理 (HTTP/SOCKS5)</label><input class="form-control" id="sys_global_proxy" name="global_proxy" placeholder="如 http://127.0.0.1:7890 (仅供 NAS 刮削使用)"></div>
               <div class="col-12 d-flex gap-2">
-                <button class="btn btn-success" type="submit">保存</button>
-                <button class="btn btn-outline-info" type="button" id="btnTestTmdb">测试连接</button>
+                <button class="btn btn-success rounded-pill px-4" type="submit">保存</button>
+                <button class="btn btn-outline-info rounded-pill px-4" type="button" id="btnTestTmdb">测试连接</button>
               </div>
             </form>
           </div>
@@ -436,7 +442,8 @@
             qb_user: agentNodeForm.qb_user.value.trim(),
             qb_pass: agentNodeForm.qb_pass.value.trim(),
             temp_path: agentNodeForm.temp_path.value.trim(),
-            cd2_path: agentNodeForm.cd2_path.value.trim()
+            cd2_path: agentNodeForm.cd2_path.value.trim(),
+            auto_upload: $('agent_auto_upload').checked
         };
         try {
             if (data.id) { await api('/api/agent_nodes/update', { method: 'POST', body: JSON.stringify(data) }); notify('节点更新成功', 'success'); } 
@@ -447,6 +454,7 @@
 
     window.resetAgentForm = function() {
         agentNodeForm.reset(); agentNodeForm.agent_id.value = '';
+        $('agent_auto_upload').checked = true;
         $('agentFormTitle').innerHTML = '<i class="bi bi-plus-circle-fill text-primary me-2"></i>添加/编辑节点';
         if ($('agent_qb_pass').type === 'text') { togglePwd($('agent_qb_pass').nextElementSibling, 'agent_qb_pass'); }
     }
@@ -455,6 +463,7 @@
         const editBtn = e.target.closest('button[data-act="edit"]');
         if (editBtn) {
             const d = editBtn.dataset; agentNodeForm.agent_id.value = d.id; agentNodeForm.node_name.value = d.name; agentNodeForm.qb_url.value = d.url; agentNodeForm.qb_user.value = d.user; agentNodeForm.qb_pass.value = d.pass; agentNodeForm.temp_path.value = d.temp; agentNodeForm.cd2_path.value = d.cd2;
+            $('agent_auto_upload').checked = (d.autoupload !== 'false');
             $('agentFormTitle').innerHTML = '<i class="bi bi-pencil-square text-primary me-2"></i>正在编辑：' + esc(d.name);
             return;
         }
@@ -469,18 +478,21 @@
     async function loadAgentNodes() {
         try {
             const rows = await api('/api/agent_nodes');
-            $('agentNodeList').innerHTML = rows.length ? rows.map(x => `
+            $('agentNodeList').innerHTML = rows.length ? rows.map(x => {
+                const autoFlag = x.auto_upload !== false;
+                const statusBadge = autoFlag ? '<span class="badge bg-success rounded-pill px-2">自动处理中</span>' : '<span class="badge bg-secondary rounded-pill px-2">已暂停</span>';
+                return `
                 <tr>
-                    <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}</td>
-                    <td class="small text-secondary">${esc(x.qb_url)}</td>
-                    <td class="small text-secondary"><i class="bi bi-folder2-open me-1"></i>${esc(x.temp_path)}</td>
-                    <td class="text-end pe-3">
-                        <button class="btn btn-sm btn-success text-nowrap me-1 shadow-sm rounded-pill px-3" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal me-1"></i>部署</button>
-                        <button class="btn btn-sm btn-light text-primary me-1 rounded-circle" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}"><i class="bi bi-pencil"></i></button>
+                    <td class="ps-3 fw-bold text-dark">${esc(x.node_name)}<br><span class="small text-muted fw-normal">${esc(x.qb_url)}</span></td>
+                    <td>${statusBadge}</td>
+                    <td class="small text-secondary"><i class="bi bi-folder2-open me-1"></i>${esc(x.cd2_path)}</td>
+                    <td class="text-end pe-3 text-nowrap">
+                        <button class="btn btn-sm btn-success shadow-sm rounded-pill px-3 me-1" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal me-1"></i>代码</button>
+                        <button class="btn btn-sm btn-light text-primary me-1 rounded-circle" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-autoupload="${autoFlag}"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-light text-danger rounded-circle" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>
-            `).join('') : '<tr><td colspan="4" class="text-center text-muted py-4">暂无边缘节点，请在左侧添加</td></tr>';
+            `}).join('') : '<tr><td colspan="4" class="text-center text-muted py-4">暂无边缘节点，请在左侧添加</td></tr>';
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
@@ -569,6 +581,7 @@ def do_work():
     qb_url = config.get("qb_url", "").rstrip('/')
     temp_path = config.get("temp_path")
     cd2_path = config.get("cd2_path")
+    auto_upload_enabled = config.get("auto_upload", True)
     
     if not qb_url or not temp_path or not cd2_path:
         log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
@@ -576,7 +589,6 @@ def do_work():
 
     if not os.path.exists(temp_path):
         os.makedirs(temp_path, exist_ok=True)
-        log(f"已自动创建缓存文件夹: {temp_path}")
 
     session = requests.Session()
     try:
@@ -595,6 +607,31 @@ def do_work():
         log(f"获取 qB 任务失败: {e}")
         return
 
+    # 【新增功能】将 VPS 本地的待处理任务汇报给 NAS 主控端展示
+    pending_tasks = []
+    for t in torrents:
+        if '待封装' in t.get('tags', ''):
+            pending_tasks.append({
+                "title": t['name'],
+                "display_name": t['name'],
+                "size_gb": t.get('size', 0) / (1024**3),
+                "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
+                "node_alias": identity["node_name"]
+            })
+    
+    try:
+        requests.post(f"{identity['master_url']}/api/agent/pending", json={
+            "token": identity["token"],
+            "node": identity["node_name"],
+            "tasks": pending_tasks
+        }, timeout=10)
+    except Exception as e:
+        pass
+
+    if not auto_upload_enabled and len(pending_tasks) > 0:
+        log("此节点的【自动处理与上传】开关已关闭，仅汇报待处理列表，暂停干活。")
+        return
+
     for t in torrents:
         if '待封装' not in t.get('tags', ''):
             continue
@@ -609,7 +646,7 @@ def do_work():
         iso_dest = os.path.join(cd2_path, iso_name)
 
         if not os.path.exists(cd2_path):
-            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
+            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2 挂载。")
             return
 
         log(f"====== 开始处理任务: {name} ======")
@@ -775,7 +812,7 @@ echo "------------------------------------------------"
             const badgeHtml=isProcessing?'<span class="badge text-bg-info shadow-sm">处理中</span>':'<span class="badge text-bg-secondary">排队中</span>';
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
-              <td class="text-center align-middle">${esc(x.node_alias||'-')}</td>
+              <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node_alias||'-')}</span></td>
               <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
               <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.title||'')}">${esc(x.title||'')}</div></td>
               <td class="text-center align-middle">${Number(x.size_gb||0).toFixed(3)}</td>
@@ -796,7 +833,7 @@ echo "------------------------------------------------"
             const autoIcon=`<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
             return `<tr>
               <td class="text-center align-middle">${i+1}</td>
-              <td class="text-center align-middle">${esc(x.node||'NAS')}</td>
+              <td class="text-center align-middle"><span class="badge bg-light text-dark border">${esc(x.node||'NAS')}</span></td>
               <td class="align-middle"><div class="text-clamp-2 fw-semibold text-dark" title="${esc(x.display_name||'')}">${esc(x.display_name||'-')}</div></td>
               <td class="align-middle"><div class="text-clamp-2 text-muted" style="font-size:0.85rem;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
@@ -931,21 +968,28 @@ echo "------------------------------------------------"
         notify_upload_end.checked=!!sys.notify_upload_end;
         tgForm.tg_token.value=tg.tg_token||'';
         tgForm.tg_chat_id.value=tg.tg_chat_id||'';
-        $('proxyForm').global_proxy.value=sys.global_proxy||'';
+        $('sys_global_proxy').value=sys.global_proxy||'';
         $('scrapeForm').enable_tmdb.checked=!!sys.enable_tmdb;
         $('scrapeForm').tmdb_api_key.value=sys.tmdb_api_key||'';
         
         await loadQbServers();
-        if (!$('viewSettings').classList.contains('d-none')) { 
+        if (!$('viewAgentNodes').classList.contains('d-none')) { 
             await loadAgentNodes(); 
         }
     }
     
-    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('proxyForm').global_proxy.value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
+    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td class="ellipsis-cell" title="${esc(x.url)}">${esc(x.url)}</td><td>${esc(x.username||'')}</td><td><button class="btn btn-outline-primary btn-sm me-1" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}">编辑</button><button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="${x.id}">删除</button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted">暂无节点</td></tr>';}
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
     
-    sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');$('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':(vid==='viewHistory'?'历史记录':'刮削记录'));if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }if(vid==='viewSettings')await loadSettings();if(vid==='viewHistory')await loadHistory();if(vid==='viewScrape')await loadScrapeRecords();});});
+    sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');
+    $('pageTitle').textContent=vid==='viewDashboard'?'仪表盘':(vid==='viewSettings'?'系统设置':(vid==='viewAgentNodes'?'边缘节点管理':(vid==='viewHistory'?'历史记录':'刮削记录')));
+    if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }
+    if(vid==='viewSettings')await loadSettings();
+    if(vid==='viewAgentNodes')await loadAgentNodes();
+    if(vid==='viewHistory')await loadHistory();
+    if(vid==='viewScrape')await loadScrapeRecords();});});
+    
     $('btnForceCloseSidebar')?.addEventListener('click', () => { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); });
     $('btnUploadPauseResume').addEventListener('click',async()=>{try{const action=currentUploadStatus==='paused'?'resume':'pause';await api('/api/upload/control',{method:'POST',body:JSON.stringify({action})});notify(action==='pause'?'已暂停':'已继续','success');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险：确定中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('已中止','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
@@ -956,9 +1000,8 @@ echo "------------------------------------------------"
     uploadForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
     tgForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/telegram',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
-    $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('proxyForm').global_proxy.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = proxyForm.global_proxy.value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
+    $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value, global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
+    $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
     $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});

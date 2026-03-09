@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.5"
+APP_VERSION = "v0.8.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -60,6 +60,8 @@ SCRAPE_INFLIGHT = set()
 SCRAPE_INFLIGHT_LOCK = threading.Lock()
 AGENT_TASKS = {}
 AGENT_TASKS_LOCK = threading.Lock()
+AGENT_PENDING_TASKS = {}
+AGENT_PENDING_TASKS_LOCK = threading.Lock()
 AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "180"))
 current_uploading_file = None
 upload_command = "running"
@@ -173,6 +175,7 @@ class AgentNode(db.Model):
     qb_pass = db.Column(db.String(255), nullable=False)
     temp_path = db.Column(db.String(512), nullable=False)
     cd2_path = db.Column(db.String(512), nullable=False)
+    auto_upload = db.Column(db.Boolean, nullable=False, default=True)
 
 
 def setup_logging():
@@ -224,6 +227,8 @@ def auth_guard():
     if endpoint in public_endpoints:
         return
     if request.path == "/api/agent/report":
+        return
+    if request.path == "/api/agent/pending":
         return
     if request.path == "/api/agent/config":
         return
@@ -297,12 +302,17 @@ def ensure_schema():
                     qb_user VARCHAR(128) NOT NULL,
                     qb_pass VARCHAR(255) NOT NULL,
                     temp_path VARCHAR(512) NOT NULL,
-                    cd2_path VARCHAR(512) NOT NULL
+                    cd2_path VARCHAR(512) NOT NULL,
+                    auto_upload BOOLEAN NOT NULL DEFAULT 1
                 )
                 """
             )
         )
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_nodes_node_name ON agent_nodes(node_name)"))
+        agent_result = conn.execute(text("PRAGMA table_info(agent_nodes)"))
+        agent_columns = {row[1] for row in agent_result.fetchall()}
+        if "auto_upload" not in agent_columns:
+            conn.execute(text("ALTER TABLE agent_nodes ADD COLUMN auto_upload BOOLEAN NOT NULL DEFAULT 1"))
 
 
 def get_setting(key):
@@ -2050,6 +2060,7 @@ def serialize_agent_node(row):
         "qb_pass": row.qb_pass,
         "temp_path": row.temp_path,
         "cd2_path": row.cd2_path,
+        "auto_upload": bool(getattr(row, "auto_upload", True)),
     }
 
 
@@ -2068,6 +2079,7 @@ def add_agent_node():
     qb_pass = (payload.get("qb_pass") or "").strip()
     temp_path = (payload.get("temp_path") or "").strip()
     cd2_path = (payload.get("cd2_path") or "").strip()
+    auto_upload = parse_bool(payload.get("auto_upload"), default=True)
 
     if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
         return jsonify({"error": "参数不完整"}), 400
@@ -2082,6 +2094,7 @@ def add_agent_node():
             qb_pass=qb_pass,
             temp_path=temp_path,
             cd2_path=cd2_path,
+            auto_upload=auto_upload,
         )
         db.session.add(row)
         db.session.commit()
@@ -2107,6 +2120,7 @@ def update_agent_node():
     qb_pass = (payload.get("qb_pass") or "").strip()
     temp_path = (payload.get("temp_path") or "").strip()
     cd2_path = (payload.get("cd2_path") or "").strip()
+    auto_upload = parse_bool(payload.get("auto_upload"), default=True)
     if not all([node_name, qb_url, qb_user, qb_pass, temp_path, cd2_path]):
         return jsonify({"error": "参数不完整"}), 400
 
@@ -2125,6 +2139,7 @@ def update_agent_node():
         row.qb_pass = qb_pass
         row.temp_path = temp_path
         row.cd2_path = cd2_path
+        row.auto_upload = auto_upload
         db.session.commit()
         return jsonify({"ok": True, "node": serialize_agent_node(row)})
     except Exception:
@@ -2278,6 +2293,50 @@ def agent_report():
         except Exception:
             logger.exception("Agent finished 派发 TMDB 刮削失败: node=%s file=%s", node, filename)
     return jsonify({"ok": True, "status": "accepted"})
+
+
+@app.route("/api/agent/pending", methods=["POST"])
+def agent_pending_report():
+    payload = request.get_json(force=True) or {}
+    token = str(payload.get("token") or "").strip()
+    expected_token = (get_setting("agent_token") or "").strip()
+    if not expected_token or not token or not hmac.compare_digest(token, expected_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    node = str(payload.get("node") or "").strip() or "VPS"
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, list):
+        return jsonify({"error": "tasks must be a list"}), 400
+
+    normalized = []
+    for item in tasks:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        display_name = str(item.get("display_name") or "").strip()
+        added_on = str(item.get("added_on") or "").strip()
+        node_alias = str(item.get("node_alias") or "").strip() or node
+        try:
+            size_gb = float(item.get("size_gb", 0) or 0)
+        except (TypeError, ValueError):
+            size_gb = 0.0
+        normalized.append(
+            {
+                "title": title,
+                "display_name": display_name or title,
+                "size_gb": round(max(0.0, size_gb), 3),
+                "added_on": added_on,
+                "node_alias": node_alias,
+            }
+        )
+
+    with AGENT_PENDING_TASKS_LOCK:
+        AGENT_PENDING_TASKS[node] = {
+            "updated_at": now_local(),
+            "tasks": normalized,
+        }
+
+    return jsonify({"ok": True, "node": node, "count": len(normalized)})
 
 
 @app.route("/api/agent/config", methods=["GET"])
@@ -2850,6 +2909,22 @@ def list_pending():
                     "node_alias": server.name,
                     "added_on": added_dt,
                     "display_name": build_display_name(getattr(torrent, "name", "")),
+                }
+            )
+
+    with AGENT_PENDING_TASKS_LOCK:
+        pending_snapshot = dict(AGENT_PENDING_TASKS)
+    for node_name, payload in pending_snapshot.items():
+        for task in payload.get("tasks", []):
+            if not isinstance(task, dict):
+                continue
+            rows.append(
+                {
+                    "title": str(task.get("title") or "").strip(),
+                    "size_gb": round(float(task.get("size_gb", 0) or 0), 3),
+                    "node_alias": str(task.get("node_alias") or node_name).strip() or node_name,
+                    "added_on": str(task.get("added_on") or "").strip(),
+                    "display_name": str(task.get("display_name") or task.get("title") or "").strip(),
                 }
             )
 
