@@ -19,9 +19,12 @@
     .stats-line-wrap { overflow-x: auto; padding-bottom: 4px; }
     .stats-line { display: grid; grid-template-columns: 80px repeat(6, minmax(160px, 1fr)); gap: 12px; min-width: 1080px; }
     .stats-head { border-radius: 12px; background: #dbe3ef; color: #334155; font-size: 1.05rem; font-weight: 800; display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding-left: .65rem; }
-    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 8px 24px rgba(15,23,42,.06); padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; height: 100%; transition: transform 0.2s; }
+    
+    /* 全新高级指标卡设计 */
+    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 8px 24px rgba(15,23,42,.06); padding: 12px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; }
     .stats-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(15,23,42,.1); }
     .stat-title { color: #64748b; font-size: .85rem; letter-spacing: 1px; }
+    
     .resizable-table { table-layout: fixed; width: 100%; }
     .table-responsive { overflow-x: auto; }
     .table-fixed th, .table-fixed td { vertical-align: middle; }
@@ -76,7 +79,7 @@
     .vps-policy-switch:checked::after { content: attr(data-on); left: 0.4rem; right: auto; }
     
     /* 历史记录里的原始名称换行显示 */
-    .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.85rem; line-height: 1.3; min-width: 140px; }
+    .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.82rem; line-height: 1.3; min-width: 140px; }
   </style>
 </head>
 <body>
@@ -425,7 +428,8 @@
     const $ = (id) => document.getElementById(id);
     const toastEl = $('toast'), toast = new bootstrap.Toast(toastEl);
     const confirmModalEl = $('confirmModal'), confirmModal = new bootstrap.Modal(confirmModalEl);
-    const logModal = new bootstrap.Modal($('logModal')), manualScrapeModal = new bootstrap.Modal($('manualScrapeModal'));
+    const logModal = new bootstrap.Modal(document.getElementById('logModal')); 
+    const manualScrapeModal = new bootstrap.Modal(document.getElementById('manualScrapeModal'));
     let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
     let currentPackingTasks = [], currentScrapeTarget = '';
     
@@ -563,6 +567,272 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
+    // 这里修复了点击代码弹不出来的 Bug！(转义了所有的 $ 符号)
+    window.openDeployModal = function(nodeName) {
+        const masterUrl = window.location.origin;
+        const token = window.globalAgentToken || 'autoiso_secret_token';
+        $('deployModalTitle').textContent = nodeName;
+        
+        const bash = `# ==========================================
+# AutoISO 边缘节点 (\${nodeName}) 极速部署脚本 
+# ==========================================
+
+# 1. 更新系统并安装环境
+apt-get update
+apt-get install -y curl wget genisoimage fuse python3 python3-requests
+
+# 2. 安全检查并部署 CloudDrive2 容器
+if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | bash; fi
+
+if ! docker container inspect clouddrive2 >/dev/null 2>&1; then
+    docker run -d --name clouddrive2 --restart always \\
+        -v /CloudNAS:/CloudNAS:shared -v /CloudNAS/Config:/Config -p 19798:19798 \\
+        --privileged --device /dev/fuse:mrw cloudnas/clouddrive2
+else
+    docker start clouddrive2 &>/dev/null || true
+fi
+
+# 3. 写入节点身份凭证
+mkdir -p /opt/autoiso_agent
+cat << 'EOF' > /opt/autoiso_agent/identity.json
+{
+  "master_url": "${masterUrl}",
+  "token": "${token}",
+  "node_name": "${nodeName}"
+}
+EOF
+
+# 4. 写入核心挂机脚本 agent.py (全新断点续传+防宕机版)
+cat << 'EOF' > /opt/autoiso_agent/agent.py
+import os, sys, time, json, requests, subprocess, shutil
+
+IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
+
+def log(msg):
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+def get_identity():
+    if not os.path.exists(IDENTITY_FILE):
+        log("未找到 identity.json")
+        sys.exit(1)
+    with open(IDENTITY_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def get_config(identity):
+    url = f"{identity['master_url']}/api/agent/config"
+    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+def report(identity, filename, status, progress=0, size_gb=0):
+    url = f"{identity['master_url']}/api/agent/report"
+    payload = {
+        "token": identity["token"],
+        "node": identity["node_name"],
+        "filename": filename,
+        "status": status,
+        "progress": progress,
+        "size_gb": size_gb,
+        "speed_mbps": 0,
+        "eta_text": "-"
+    }
+    try:
+        requests.post(url, json=payload, timeout=30)
+    except:
+        pass
+
+def do_work():
+    identity = get_identity()
+    try:
+        config = get_config(identity)
+    except Exception as e:
+        log(f"无法获取主控配置: {e}")
+        return
+
+    qb_url = config.get("qb_url", "").rstrip('/')
+    temp_path = config.get("temp_path")
+    cd2_path = config.get("cd2_path")
+    
+    if not qb_url or not temp_path or not cd2_path:
+        log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
+        return
+
+    if not os.path.exists(temp_path):
+        os.makedirs(temp_path, exist_ok=True)
+
+    session = requests.Session()
+    try:
+        res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=30)
+        if res.text != "Ok.":
+            log("VPS 本地 qB 登录失败")
+            return
+    except Exception as e:
+        log(f"无法连接 VPS 本地 qB: {e}")
+        return
+
+    try:
+        res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=30)
+        torrents = res.json()
+    except Exception as e:
+        log(f"获取 qB 任务失败: {e}")
+        return
+
+    pending_tasks = []
+    ready_to_process = []
+    
+    for t in torrents:
+        tags = t.get('tags', '')
+        progress = t.get('progress', 0)
+        
+        # 收集待封装列表发送给群晖
+        if '待封装' in tags:
+            progress_pct = int(progress * 100)
+            status_text = "排队中" if progress_pct == 100 else f"下载中 {progress_pct}%"
+            pending_tasks.append({
+                "title": t['name'],
+                "display_name": t['name'],
+                "size_gb": t.get('size', 0) / (1024**3),
+                "status": status_text,
+                "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
+                "node_alias": identity["node_name"]
+            })
+            
+            if progress == 1:
+                ready_to_process.append((t, 'pack'))
+                
+        # 核心防宕机机制：哪怕重启了，只要看到已封装且ISO存在，立刻恢复排队等待上传！
+        elif '已封装' in tags:
+            iso_path_check = os.path.join(temp_path, f"{t['name']}.iso")
+            if os.path.exists(iso_path_check):
+                ready_to_process.append((t, 'upload'))
+    
+    try:
+        requests.post(f"{identity['master_url']}/api/agent/pending", json={
+            "token": identity["token"],
+            "node": identity["node_name"],
+            "tasks": pending_tasks
+        }, timeout=10)
+    except Exception as e:
+        pass
+
+    for t, action in ready_to_process:
+        name = t['name']
+        size_gb = t.get('size', 0) / (1024**3)
+        save_path = t.get('content_path')
+        if not save_path or not os.path.exists(save_path):
+            save_path = os.path.join(t.get('save_path', ''), name)
+
+        iso_name = f"{name}.iso"
+        iso_temp = os.path.join(temp_path, iso_name)
+        iso_dest = os.path.join(cd2_path, iso_name)
+
+        if not os.path.exists(cd2_path):
+            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
+            return
+
+        if action == 'pack':
+            log(f"====== 开始处理任务: {name} ======")
+            report(identity, iso_name, "packing", 10, size_gb=size_gb)
+            try:
+                log("正在打包生成 ISO...")
+                cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
+                subprocess.run(cmd, check=True)
+            except Exception as e:
+                log(f"打包失败: {e}")
+                report(identity, iso_name, "error", 0, size_gb=size_gb)
+                continue
+                
+            # 打包完成后立即改标签，极大地提升用户安全感
+            try:
+                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                log("打包完毕，标签已更新为[已封装]")
+            except Exception as e:
+                log(f"更新 qB 标签失败: {e}")
+
+        # 进入阻塞上传许可流程
+        log("开始向主控请求上传许可...")
+        report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
+        
+        while True:
+            try:
+                up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
+                if up_res.status_code == 200 and up_res.json().get("can_upload", True):
+                    break
+                else:
+                    log("主控回复: 未到定时时间且无特权。ISO保留在本地等待，1分钟后再次请示...")
+                    time.sleep(60)
+            except Exception as e:
+                log(f"向主控请示失败({e})，为防爆盘，ISO保留在本地等待...")
+                time.sleep(60)
+
+        log("获得许可！开始移动到 CD2...")
+        report(identity, iso_name, "uploading", 50, size_gb=size_gb)
+
+        try:
+            shutil.move(iso_temp, iso_dest)
+        except Exception as e:
+            log(f"移动到 CD2 失败: {e}")
+            report(identity, iso_name, "error", 0, size_gb=size_gb)
+            continue
+
+        log("✅ 上传成功(ISO已自动清理)！")
+        report(identity, iso_name, "finished", 100, size_gb=size_gb)
+
+if __name__ == "__main__":
+    log("🚀 AutoISO 边缘节点启动成功！等待新任务...")
+    while True:
+        try:
+            do_work()
+        except Exception as e:
+            pass
+        time.sleep(60)
+EOF
+
+# 5. 配置为开机自启后台服务并自动重启生效
+cat << 'EOF' > /etc/systemd/system/autoiso-agent.service
+[Unit]
+Description=AutoISO Edge Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/autoiso_agent
+ExecStart=/usr/bin/python3 /opt/autoiso_agent/agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now autoiso-agent
+systemctl restart autoiso-agent
+
+echo "------------------------------------------------"
+echo "✅ 节点 [\${nodeName}] 部署完毕！"
+echo "------------------------------------------------"
+`;
+        $('deployCommandText').value = bash;
+        const modalEl = document.getElementById('deployScriptModal');
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.show();
+    };
+
+    window.copyDeployCommand = function() {
+        const text = $('deployCommandText');
+        text.select();
+        text.setSelectionRange(0, 99999); 
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text.value).then(() => notify('部署代码已成功复制！', 'success')).catch(() => fallbackCopy());
+            } else { fallbackCopy(); }
+        } catch (err) { notify('复制失败，请手动全选复制', 'danger'); }
+        function fallbackCopy() { document.execCommand('copy'); notify('部署代码已成功复制！(Fallback)', 'success'); }
+    }
+
     function initAdvancedSearch(opts) {
       const { input, clearBtn, chevron, dropdown, recentList, getRecent, onSearch } = opts;
       if (!input) return;
@@ -602,7 +872,7 @@
       `;
     }
 
-    // 终极三列指标卡组件渲染
+    // 终极三列指标卡组件渲染 (高级版)
     function statsRow(title, iconClass, data) {
         const cards = [
             ['总次数', data.total_count||0, data.nas_count||0, data.vps_count||0, '次'],
@@ -615,19 +885,11 @@
         return `<div class="stats-line-wrap mb-2"><div class="stats-line"><div class="stats-head"><i class="bi ${iconClass} fs-4 text-black-50 opacity-75 me-2"></i><span>${title}</span></div>` +
         cards.map(c => `
             <div class="stats-card">
-                <div class="stat-title fw-bold mb-2">${c[0]}</div>
-                <div class="d-flex justify-content-between w-100 text-center mb-1" style="font-size:0.75rem;">
-                    <div class="d-flex flex-column w-50 border-end border-light">
-                        <span class="text-primary mb-1" style="opacity:0.8">NAS</span>
-                        <span class="fw-bold text-dark" style="font-size:0.9rem">${esc(c[2])}</span>
-                    </div>
-                    <div class="d-flex flex-column w-50">
-                        <span class="text-info mb-1" style="opacity:0.8">VPS</span>
-                        <span class="fw-bold text-dark" style="font-size:0.9rem">${esc(c[3])}</span>
-                    </div>
-                </div>
-                <div class="border-top w-100 pt-2 mt-auto text-center" style="font-size:0.75rem; color:#94a3b8;">
-                    合计 <span class="text-dark fw-bold ms-1" style="font-size:0.9rem">${esc(c[1])}</span> ${c[4]}
+                <div class="stat-title fw-bold text-muted mb-1">${c[0]}</div>
+                <div class="fw-bolder text-dark mb-2" style="font-size:1.25rem;">${esc(c[1])} <span style="font-size:0.8rem; font-weight:normal; color:#64748b;">${c[4]}</span></div>
+                <div class="d-flex justify-content-center align-items-center gap-2 w-100 mt-auto pt-1" style="font-size:0.75rem;">
+                    <span class="text-primary bg-primary bg-opacity-10 px-2 py-1 rounded-pill">NAS <strong>${esc(c[2])}</strong></span>
+                    <span class="text-info bg-info bg-opacity-10 text-dark px-2 py-1 rounded-pill">VPS <strong>${esc(c[3])}</strong></span>
                 </div>
             </div>
         `).join('') + `</div></div>`;
@@ -704,18 +966,21 @@
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
                 autoIcon = `<div class="d-flex justify-content-center align-items-center">
-                    <input class="vps-policy-switch shadow-sm m-0" type="checkbox" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}" data-on="全局" data-off="独立" title="切换该VPS节点的定时策略">
+                    <input class="vps-policy-switch shadow-sm m-0" type="checkbox" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}" data-on="全局" data-off="独立" title="切换此节点定时策略">
                 </div>`;
             } else {
                 autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
             }
 
+            // 操作按钮恢复紧凑大小
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm px-3" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
+                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm px-2 py-1" style="font-size:0.8rem;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
             } else {
-                actionBtns = `<button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                              <button class="btn btn-sm btn-danger text-nowrap shadow-sm px-3" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>`;
+                actionBtns = `<div class="d-flex gap-1 justify-content-center">
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-2 py-1" style="font-size:0.8rem;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                                <button class="btn btn-sm btn-danger text-nowrap shadow-sm px-2 py-1" style="font-size:0.8rem;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
+                              </div>`;
             }
 
             return `<tr>
@@ -726,7 +991,7 @@
               <td class="text-center align-middle">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center align-middle">${statusBadge}</td>
               <td class="text-center align-middle">${autoIcon}</td>
-              <td class="text-center align-middle"><div class="d-flex flex-row justify-content-center align-items-center gap-2">${actionBtns}</div></td>
+              <td class="text-center align-middle">${actionBtns}</td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted">暂无可上传文件</td></tr>';
     }
