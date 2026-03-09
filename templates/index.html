@@ -7,11 +7,9 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
-    /* 引入更具现代感的系统级字体 */
     :root { --sidebar-w: 240px; }
     body { background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow-anchor: none; color: #334155; }
     
-    /* 侧边栏高级暗色 */
     .sidebar { width: var(--sidebar-w); background: #0f172a !important; color: #f8fafc !important; z-index: 1045; border: none !important; box-shadow: 4px 0 15px rgba(0,0,0,0.05); }
     .sidebar .text-secondary { color: #94a3b8 !important; }
     @media (min-width: 992px) { .sidebar { position: fixed; left: 0; top: 0; height: 100vh; padding: 24px 16px; } .main { margin-left: var(--sidebar-w); padding: 24px; } }
@@ -19,23 +17,17 @@
     .sidebar .nav-pills .nav-link { color: #94a3b8; font-weight: 500; border-radius: 8px; margin-bottom: 4px; cursor: pointer; padding: 10px 16px; transition: all 0.2s ease; }
     .sidebar .nav-pills .nav-link.active, .sidebar .nav-pills .nav-link:hover { color: #fff; background: rgba(255,255,255,0.1); transform: translateX(4px); }
     
-    /* 卡片高级留白与柔和阴影 */
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
-    /* === 极致美学的看板重构 === */
+    /* === 抗换行、超扁平的极致看板重构 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 8px; }
-    .stats-line { display: grid; grid-template-columns: 100px repeat(6, minmax(130px, 1fr)); gap: 16px; min-width: 1000px; align-items: stretch; }
-    
-    /* 左侧大图标区块 */
-    .stats-head { border-radius: 16px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 12px; }
-    
-    /* 数据卡片区块：扁平、紧凑、重点突出 */
-    .stats-card { border-radius: 16px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 16px 12px 12px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; }
+    .stats-line { display: grid; grid-template-columns: 90px repeat(6, minmax(130px, 1fr)); gap: 12px; min-width: 980px; align-items: stretch; }
+    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
+    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 12px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
     .stats-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #e2e8f0; }
-    .stat-title { color: #64748b; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; }
+    .text-nowrap { white-space: nowrap !important; }
     
-    /* 表格高级化 */
     .table { margin-bottom: 0; }
     .table-light { background-color: #f8fafc; }
     .table-light th { border-bottom: 2px solid #e2e8f0; color: #475569; font-weight: 600; font-size: 0.85rem; padding-top: 12px; padding-bottom: 12px; }
@@ -45,7 +37,6 @@
     .table-responsive { overflow-x: auto; }
     .table-fixed th, .table-fixed td { vertical-align: middle; }
     .time-col { white-space: nowrap !important; word-break: normal !important; }
-    .time-cell span { white-space: nowrap !important; word-break: normal !important; }
     .history-cell { font-size: .875rem; color: #64748b; }
     
     .status-console { background: #0f172a; color: #e2e8f0; border: none; border-radius: 12px; min-height: 380px; max-height: 65vh; overflow: auto; padding: 16px; white-space: pre-wrap; font-family: Consolas, Menlo, Monaco, monospace; font-size: .85rem; line-height: 1.5; box-shadow: inset 0 2px 10px rgba(0,0,0,0.5); }
@@ -53,7 +44,6 @@
     .ellipsis-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .text-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; word-break: break-all; }
     
-    /* 标签页高级化 */
     .nav-tabs { border-bottom: 1px solid #e2e8f0; gap: 10px; }
     .nav-tabs .nav-link { color: #64748b; border: none; background: transparent; padding: 10px 16px; font-weight: 500; font-size: 0.95rem; border-radius: 8px 8px 0 0; transition: color 0.2s; }
     .nav-tabs .nav-link:hover { color: #0f172a; }
@@ -89,10 +79,7 @@
     .batch-mode .scrape-check-wrapper { width: 32px; opacity: 1; margin-right: 12px; }
     .scrape-check { width: 1.2rem; height: 1.2rem; cursor: pointer; }
 
-    /* 历史记录里的原始名称换行显示优化 */
     .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.75rem; line-height: 1.4; max-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #64748b; }
-    
-    /* 徽章优化 */
     .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.4em 0.8em; }
   </style>
 </head>
@@ -319,7 +306,7 @@
             <form id="uploadForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-primary bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3" style="width: 3rem; height: 1.5rem;" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked>
+                      <input class="form-check-input me-3 cursor-pointer shadow-sm" style="width: 2.8rem; height: 1.4rem;" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked>
                       <label class="form-check-label fw-bold text-primary fs-6" style="padding-top:2px;" for="global_auto_upload">开启全局定时上传</label>
                   </div>
               </div>
@@ -327,10 +314,10 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">NAS CloudDrive 挂载路径</label><input class="form-control bg-light border-0" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12 p-3 bg-danger bg-opacity-10 rounded-3 mt-4">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3" style="width: 2.5rem; height: 1.25rem;" id="delete_after_upload" type="checkbox" name="delete_after_upload">
+                      <input class="form-check-input me-3 cursor-pointer shadow-sm" style="width: 2.8rem; height: 1.4rem;" id="delete_after_upload" type="checkbox" name="delete_after_upload">
                       <label class="form-check-label fw-bold text-danger" style="padding-top:2px;" for="delete_after_upload">上传后删除已封装文件 (仅NAS)</label>
                   </div>
-                  <div class="text-danger small mt-2 ms-5 opacity-75">注：VPS 拥有防爆盘销毁机制且永远保留 qB 源文件，不受此开关控制。</div>
+                  <div class="text-danger small mt-2 ms-5 opacity-75 fw-medium">注：VPS 拥有防爆盘自动销毁机制，且永远保留 qB 源文件，不受此开关控制。</div>
               </div>
               <div class="col-12 pt-2"><button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button></div>
             </form>
@@ -363,7 +350,7 @@
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-info bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3" style="width: 3rem; height: 1.5rem;" id="enable_tmdb" type="checkbox" name="enable_tmdb">
+                      <input class="form-check-input me-3 cursor-pointer shadow-sm" style="width: 2.8rem; height: 1.4rem;" id="enable_tmdb" type="checkbox" name="enable_tmdb">
                       <label class="form-check-label fw-bold text-dark fs-6" style="padding-top:2px;" for="enable_tmdb">开启 TMDB 自动刮削</label>
                   </div>
               </div>
@@ -406,7 +393,7 @@
         
         <div class="table-responsive bg-white border border-light rounded-4">
           <table id="historyTable" class="table table-hover table-fixed resizable-table align-middle border-0 mb-0" style="min-width: 1200px;">
-            <colgroup><col class="check-col"><col style="width:4%"><col style="width:16%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
+            <colgroup><col class="check-col"><col style="width:3%"><col style="width:16%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
             <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></th><th class="text-center align-middle border-0">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
@@ -504,7 +491,6 @@
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
     
-    // 正则升级：精确提取年份之前的片名，不再保留年份后的分辨率等杂质
     function cleanName(raw) {
         if(!raw) return '-';
         let str = String(raw).replace(/\.iso$/i, '');
@@ -527,22 +513,22 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    // 状态映射器：全统一为3字（除失败外），颜色采用更柔和的高级色
+    // 状态映射器：全统一为3字（除失败外），抗换行极简胶囊
     function badge(s){
         s = String(s||'').trim();
-        if(s === '成功' || s === '已上传至网盘' || s === 'uploaded') return '<span class="badge rounded-pill" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>';
-        if(s === '上传中' || s === 'uploading') return '<span class="badge rounded-pill" style="background-color:#fef3c7; color:#059669; border:1px solid #a7f3d0;">上传中</span>';
-        if(s === '封装完成，待上传' || s === 'pending' || s === '待上传' || s === 'pending_upload' || s.includes('待上传')) return '<span class="badge rounded-pill shadow-sm" style="background-color:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">待上传</span>';
-        if(s === '已封装' || s === 'packed') return '<span class="badge rounded-pill" style="background-color:#e0f2fe; color:#0284c7; border:1px solid #bae6fd;">已封装</span>';
-        if(s === '中止上传' || s === 'aborted' || s === '已中止') return '<span class="badge rounded-pill" style="background-color:#fee2e2; color:#e11d48; border:1px solid #fecaca;">已中止</span>';
-        if(s === '本地已删除' || s === '已删除') return '<span class="badge rounded-pill" style="background-color:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0;">已删除</span>';
-        if(s === 'Failed' || s === '失败') return '<span class="badge rounded-pill" style="background-color:#fee2e2; color:#e11d48; border:1px solid #fecaca;">失败</span>';
-        if(s === '待转移') return '<span class="badge rounded-pill" style="background-color:#f3e8ff; color:#be185d; border:1px solid #e9d5ff;">待转移</span>';
-        if(s === '封装中' || s === 'packing') return '<span class="badge rounded-pill shadow-sm" style="background-color:#eff6ff; color:#2563eb; border:1px solid #bfdbfe;">封装中</span>';
-        if(s.includes('下载中')) return `<span class="badge rounded-pill shadow-sm" style="background-color:#fef3c7; color:#d97706; border:1px solid #fde68a;"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
-        if(s === '排队中') return '<span class="badge rounded-pill" style="background-color:#f1f5f9; color:#64748b; border:1px solid #cbd5e1;">排队中</span>';
-        if(s === '处理中') return '<span class="badge rounded-pill shadow-sm" style="background-color:#f0fdfa; color:#0d9488; border:1px solid #ccfbf1;">处理中</span>';
-        return `<span class="badge rounded-pill" style="background-color:#f8fafc; color:#334155; border:1px solid #e2e8f0;">${esc(s||'处理中')}</span>`;
+        if(s === '成功' || s === '已上传至网盘' || s === 'uploaded') return '<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>';
+        if(s === '上传中' || s === 'uploading') return '<span class="badge rounded-pill text-nowrap" style="background-color:#fef3c7; color:#059669; border:1px solid #a7f3d0;">上传中</span>';
+        if(s === '封装完成，待上传' || s === 'pending' || s === '待上传' || s === 'pending_upload' || s.includes('待上传')) return '<span class="badge rounded-pill text-nowrap shadow-sm" style="background-color:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">待上传</span>';
+        if(s === '已封装' || s === 'packed') return '<span class="badge rounded-pill text-nowrap" style="background-color:#e0f2fe; color:#0284c7; border:1px solid #bae6fd;">已封装</span>';
+        if(s === '中止上传' || s === 'aborted' || s === '已中止') return '<span class="badge rounded-pill text-nowrap" style="background-color:#fee2e2; color:#e11d48; border:1px solid #fecaca;">已中止</span>';
+        if(s === '本地已删除' || s === '已删除') return '<span class="badge rounded-pill text-nowrap" style="background-color:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0;">已删除</span>';
+        if(s === 'Failed' || s === '失败') return '<span class="badge rounded-pill text-nowrap" style="background-color:#fee2e2; color:#e11d48; border:1px solid #fecaca;">失败</span>';
+        if(s === '待转移') return '<span class="badge rounded-pill text-nowrap" style="background-color:#f3e8ff; color:#be185d; border:1px solid #e9d5ff;">待转移</span>';
+        if(s === '封装中' || s === 'packing') return '<span class="badge rounded-pill text-nowrap shadow-sm" style="background-color:#eff6ff; color:#2563eb; border:1px solid #bfdbfe;">封装中</span>';
+        if(s.includes('下载中')) return `<span class="badge rounded-pill text-nowrap shadow-sm" style="background-color:#fef3c7; color:#d97706; border:1px solid #fde68a;"><i class="bi bi-cloud-arrow-down me-1"></i>${esc(s)}</span>`;
+        if(s === '排队中') return '<span class="badge rounded-pill text-nowrap" style="background-color:#f1f5f9; color:#64748b; border:1px solid #cbd5e1;">排队中</span>';
+        if(s === '处理中') return '<span class="badge rounded-pill text-nowrap shadow-sm" style="background-color:#f0fdfa; color:#0d9488; border:1px solid #ccfbf1;">处理中</span>';
+        return `<span class="badge rounded-pill text-nowrap" style="background-color:#f8fafc; color:#334155; border:1px solid #e2e8f0;">${esc(s||'处理中')}</span>`;
     }
     
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
@@ -669,7 +655,7 @@
       `;
     }
 
-    // 极致美学三列指标卡 (主数字极大居中，横排并列图例，扁平卡片)
+    // 极致美学三列指标卡 (抗换行保护)
     function statsRow(title, iconClass, data) {
         const cards = [
             ['总次数', data.total_count||0, data.nas_count||0, data.vps_count||0, '次'],
@@ -680,22 +666,22 @@
             ['本月数据', data.month_size_text||'-', data.nas_month_size_text||'-', data.vps_month_size_text||'-', '']
         ];
         const headHtml = `
-            <div class="stats-head bg-white shadow-sm d-flex flex-column align-items-center justify-content-center py-3" style="min-width:90px;">
-                <i class="bi ${iconClass} fs-3 text-primary mb-1"></i>
-                <span class="fw-bold text-secondary" style="font-size:0.95rem; letter-spacing:1px;">${title}</span>
+            <div class="stats-head bg-white shadow-sm py-2">
+                <i class="bi ${iconClass} fs-4 text-primary mb-1"></i>
+                <span class="fw-bold text-secondary text-nowrap" style="font-size:0.95rem; letter-spacing:1px;">${title}</span>
             </div>
         `;
         const cardsHtml = cards.map(c => `
             <div class="stats-card">
-                <div class="stat-title mb-2">${c[0]}</div>
-                <div class="fw-bolder text-dark mb-3" style="font-size:1.5rem; line-height:1; letter-spacing:-0.5px;">${esc(c[1])} <span class="fw-normal text-muted" style="font-size:0.8rem; letter-spacing:0;">${c[4]}</span></div>
-                <div class="d-flex justify-content-center align-items-center w-100 mt-auto pt-2 border-top" style="border-color:#f1f5f9!important; gap: 8px;">
-                    <span class="text-primary d-flex align-items-center bg-primary bg-opacity-10 px-2 py-1 rounded-2" style="font-size:0.75rem; font-weight:600;"><i class="bi bi-hdd-fill me-1 opacity-75"></i>${esc(c[2])}</span>
-                    <span class="text-info text-darken d-flex align-items-center bg-info bg-opacity-10 px-2 py-1 rounded-2" style="font-size:0.75rem; font-weight:600; color:#0284c7!important;"><i class="bi bi-cloud-fill me-1 opacity-75"></i>${esc(c[3])}</span>
+                <div class="stat-title mb-1 text-nowrap">${c[0]}</div>
+                <div class="fw-bolder text-dark mb-2 text-nowrap" style="font-size:1.3rem; line-height:1; letter-spacing:-0.5px;">${esc(c[1])} <span class="fw-normal text-muted text-nowrap" style="font-size:0.75rem; letter-spacing:0;">${c[4]}</span></div>
+                <div class="d-flex justify-content-center align-items-center w-100 mt-auto pt-2 border-top text-nowrap" style="border-color:#f1f5f9!important; gap: 8px;">
+                    <span class="text-primary d-flex align-items-center bg-primary bg-opacity-10 px-2 py-1 rounded-2 text-nowrap" style="font-size:0.7rem; font-weight:600;"><i class="bi bi-hdd-fill me-1 opacity-75"></i>${esc(c[2])}</span>
+                    <span class="text-info text-darken d-flex align-items-center bg-info bg-opacity-10 px-2 py-1 rounded-2 text-nowrap" style="font-size:0.7rem; font-weight:600; color:#0284c7!important;"><i class="bi bi-cloud-fill me-1 opacity-75"></i>${esc(c[3])}</span>
                 </div>
             </div>
         `).join('');
-        return `<div class="stats-line-wrap mb-4"><div class="stats-line" style="display:grid; grid-template-columns: 100px repeat(6, minmax(130px, 1fr)); gap: 16px; min-width: 1000px; align-items: stretch;">${headHtml}${cardsHtml}</div></div>`;
+        return `<div class="stats-line-wrap mb-3"><div class="stats-line">${headHtml}${cardsHtml}</div></div>`;
     }
     
     async function loadStatsAndProgress(){
@@ -704,33 +690,63 @@
       $('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;
       
       const p=await api('/api/progress');
-      const activeOnly = (p.tasks || []).filter(t => !['pending_upload', '待上传', '待上传 (阻塞中)', 'finished', '成功', '已上传'].includes(t.status));
-      currentPackingTasks = activeOnly.map(t => t.task_name);
       
-      if(!p.active || !activeOnly.length){
+      // 精准切割：VPS的上传进度去右边，封装进度去左边
+      const packingTasks = [];
+      const uploadingVpsTasks = [];
+      (p.tasks || []).forEach(t => {
+          if (['pending_upload', '待上传', '待上传 (阻塞中)', 'finished', '成功', '已上传', 'error', 'aborted'].includes(t.status)) return;
+          if (t.status === 'uploading' || t.status === '上传中') {
+              uploadingVpsTasks.push(t);
+          } else {
+              packingTasks.push(t);
+          }
+      });
+      
+      currentPackingTasks = packingTasks.map(t => t.task_name);
+      
+      // 渲染左侧封装动态
+      if(!packingTasks.length){
         $('packingTasks').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=activeOnly.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark" style="font-size:0.9rem;">${cleanName(t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
+        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${cleanName(t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
       }
       
+      // 渲染右侧上传动态 (聚合 NAS 和 VPS)
       const up=stats.upload_progress||{};
       const cs=stats.current_upload_status||{};
       currentUploadStatus=String(cs.status||'idle');
       const active=Boolean(up.active||cs.active);
-      if(!active){
+      
+      let uploadHtml = '';
+      if(active){
+          const f=up.file_name||cs.file_name||'';
+          const pct=Number(up.percentage||0);
+          const paused=currentUploadStatus==='paused';
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(f)}">${cleanName(f)} <span class="badge bg-light text-secondary border ms-2">NAS</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
+      }
+      
+      uploadingVpsTasks.forEach(t => {
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${cleanName(t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
+      });
+
+      if(!uploadHtml){
         $('uploadTaskStatus').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无上传任务</div>';
         $('btnUploadPauseResume').classList.add('d-none');
         $('btnUploadAbort').classList.add('d-none');
-        return;
+      } else {
+        $('uploadTaskStatus').innerHTML = uploadHtml;
+        if(active) {
+            $('btnUploadPauseResume').classList.remove('d-none');
+            $('btnUploadAbort').classList.remove('d-none');
+            const paused=currentUploadStatus==='paused';
+            $('btnUploadPauseResume').textContent=paused?'继续':'暂停';
+            $('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'} px-3 rounded-pill fw-bold shadow-sm`;
+        } else {
+            $('btnUploadPauseResume').classList.add('d-none');
+            $('btnUploadAbort').classList.add('d-none');
+        }
       }
-      const f=up.file_name||cs.file_name||'';
-      const pct=Number(up.percentage||0);
-      const paused=currentUploadStatus==='paused';
-      $('uploadTaskStatus').innerHTML=`<div class="border rounded-3 p-3 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark" style="font-size:0.9rem;">${cleanName(f)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
-      $('btnUploadPauseResume').classList.remove('d-none');
-      $('btnUploadAbort').classList.remove('d-none');
-      $('btnUploadPauseResume').textContent=paused?'继续':'暂停';
-      $('btnUploadPauseResume').className=`btn btn-sm ${paused?'btn-success':'btn-warning'} px-3 rounded-pill fw-bold shadow-sm`;
     }
     
     async function loadPending(){
@@ -757,21 +773,26 @@
         const rows=await api('/api/pending_uploads');
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
-            const uploadingNow=String(x.filename||'')===currentUploadingFile;
+            // 精准判定当前任务是否正在上传（支持 NAS 和 VPS 两种判定）
+            const uploadingNow = String(x.filename||'') === currentUploadingFile || ['uploading', '上传中'].includes(x.status);
             const isVps = x.node && x.node !== 'NAS'; 
             const disabled = (uploadingNow) ? 'disabled' : ''; 
             
             const autoUpload = x.auto_upload!==false;
-            const statusBadge = up?'<span class="badge rounded-pill" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
+            const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
             
             let autoIcon = '';
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
-                autoIcon = `<div class="d-flex justify-content-center align-items-center">
-                    <input class="vps-policy-switch shadow-sm m-0" type="checkbox" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}" data-on="全局" data-off="独立" title="切换此节点定时策略">
-                </div>`;
+                autoIcon = `
+                    <div class="d-flex justify-content-center align-items-center" title="切换此节点定时策略">
+                        <div class="form-check form-switch m-0 p-0 d-flex align-items-center">
+                            <input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.8rem; height:1.4rem; float:none; margin-left:0 !important;" ${isGlobal?'checked':''} data-act="toggle_vps_policy" data-node="${esc(x.node)}">
+                            <span class="ms-2 fw-bold text-${isGlobal?'primary':'info'} text-nowrap" style="font-size:0.8rem; padding-top:2px;">${isGlobal?'全局':'独立'}</span>
+                        </div>
+                    </div>`;
             } else {
-                autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:3.2rem; height:1.5rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
+                autoIcon = `<div class="d-flex justify-content-center align-items-center"><div class="form-check form-switch m-0 p-0 d-flex"><input class="form-check-input cursor-pointer shadow-sm m-0" type="checkbox" style="width:2.8rem; height:1.4rem; float:none; margin-left:0 !important;" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}"></div></div>`;
             }
 
             let actionBtns = '';
@@ -779,14 +800,14 @@
                 actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
             } else {
                 actionBtns = `<div class="d-flex gap-2 justify-content-center">
-                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重传':'上传'}</button>
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重传':'立即上传'}</button>
                                 <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
                               </div>`;
             }
 
             return `<tr>
               <td class="text-center fw-medium text-muted">${i+1}</td>
-              <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'}">${esc(x.node||'NAS')}</span></td>
+              <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node||'NAS')}</span></td>
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.filename||'')}</div></td>
               <td><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
@@ -812,7 +833,18 @@
       const btn = e.target.closest('button[data-act]');
       if(!btn || !btn.dataset.name || btn.disabled) return;
       if(btn.dataset.act==='whitelist'){
-          try{await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});notify('已加入特权白名单，VPS即将开始上传！','success');await loadStatsAndProgress();}catch(err){notify(err.message,'danger');}
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>放行中';
+          try{
+              await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});
+              notify('已加入特权白名单，VPS即将开始上传！','success');
+              await loadStatsAndProgress();
+              await loadPendingUploads();
+          }catch(err){
+              notify(err.message,'danger');
+              btn.disabled = false;
+              btn.innerHTML = '<i class="bi bi-send-check me-1"></i>立即上传';
+          }
       }
       if(btn.dataset.act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已开始上传','success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}}
       if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地的ISO封装缓存文件吗？(不影响下载源文件)','删除封装缓存'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地ISO','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
@@ -841,7 +873,7 @@
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
         $('historyBody').innerHTML = pageData.length ? pageData.map(x => {
             const isVps = x.qb_server_name && x.qb_server_name !== 'NAS';
-            return `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td><td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td><td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td><td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} px-2 py-1">${esc(x.qb_server_name||'-')}</span></td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell align-middle text-center fw-bold text-secondary">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.duration_seconds)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.upload_duration_seconds)}</td></tr>`
+            return `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td><td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td><td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td><td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell align-middle text-center fw-bold text-secondary">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.duration_seconds)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.upload_duration_seconds)}</td></tr>`
         }).join('') : '<tr><td colspan="13" class="text-center text-muted py-5 border-0">暂无历史记录</td></tr>';
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
@@ -966,7 +998,6 @@
     tgForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/telegram',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value, global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
