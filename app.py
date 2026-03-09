@@ -19,7 +19,7 @@ from flask import Flask, has_app_context, jsonify, redirect, render_template, re
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 
-APP_VERSION = "v0.8.3"
+APP_VERSION = "v0.8.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -941,37 +941,74 @@ def get_or_create_agent_server_id(node_name):
     return server.id
 
 
-def upsert_agent_finished_history(node_name, file_name, file_size_gb=0.0):
+def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
     safe_name = os.path.basename(str(file_name or "").strip())
     if not safe_name:
         return None
+
+    safe_status = (status or "").strip().lower()
+    status_map = {
+        "packing": "封装中",
+        "uploading": "上传中",
+        "finished": "成功",
+        "error": "失败",
+    }
+    mapped_status = status_map.get(safe_status)
+    if not mapped_status:
+        return None
+
     now_dt = now_local()
     node_label = (node_name or "").strip() or "VPS"
-    server_id = get_or_create_agent_server_id(node_name)
+    server_id = get_or_create_agent_server_id(node_label)
+    task_name_no_ext = os.path.splitext(safe_name)[0]
     row = (
-        PackHistory.query.filter_by(task_name=safe_name, qb_server_id=server_id)
+        PackHistory.query.filter(
+            PackHistory.qb_server_id == server_id,
+            PackHistory.task_name.in_([safe_name, task_name_no_ext]),
+        )
         .order_by(PackHistory.id.desc())
         .first()
     )
+
+    if safe_status == "packing":
+        if not row:
+            row = PackHistory(
+                task_name=safe_name[:255],
+                qb_server_id=server_id,
+                status=mapped_status,
+                start_time=now_dt,
+                message="Agent report: packing",
+                info=f"node={node_label}",
+            )
+            db.session.add(row)
+            db.session.commit()
+            return row
+        row.status = mapped_status
+        if not row.start_time:
+            row.start_time = now_dt
+        row.message = "Agent report: packing"
+        row.info = f"node={node_label}"
+        db.session.commit()
+        return row
+
     if not row:
         row = PackHistory(
             task_name=safe_name[:255],
             qb_server_id=server_id,
-            status="待转移",
+            status=mapped_status,
             start_time=now_dt,
-            end_time=now_dt,
-            file_size_gb=max(0.0, float(file_size_gb or 0.0)),
-            message=f"Agent finished: {safe_name}",
+            message=f"Agent report: {safe_status}",
             info=f"node={node_label}",
         )
         db.session.add(row)
-    else:
-        row.status = "待转移"
+
+    row.status = mapped_status
+    row.message = f"Agent report: {safe_status}"
+    row.info = f"node={node_label}"
+    if file_size_gb:
+        row.file_size_gb = max(0.0, float(file_size_gb))
+    if safe_status == "finished":
         row.end_time = now_dt
-        if file_size_gb:
-            row.file_size_gb = max(0.0, float(file_size_gb))
-        row.message = f"Agent finished: {safe_name}"
-        row.info = f"node={node_label}"
     db.session.commit()
     return row
 
@@ -2104,12 +2141,15 @@ def test_tmdb_connection():
 def agent_report():
     payload = request.get_json(force=True) or {}
     token = str(payload.get("token") or "").strip()
-    if not token or not hmac.compare_digest(token, get_agent_token()):
+    expected_token = (get_setting("agent_token") or "").strip()
+    if not expected_token or not token or not hmac.compare_digest(token, expected_token):
         return jsonify({"error": "forbidden"}), 403
 
     node = str(payload.get("node") or "").strip() or "VPS"
     filename = os.path.basename(str(payload.get("filename") or "").strip())
     status = str(payload.get("status") or "").strip().lower()
+    if status not in {"packing", "uploading", "finished", "error"}:
+        return jsonify({"error": "invalid status"}), 400
     if not filename:
         return jsonify({"error": "filename 不能为空"}), 400
 
@@ -2124,35 +2164,41 @@ def agent_report():
     eta_text = str(payload.get("eta_text") or "-").strip() or "-"
     last_update = now_local()
 
-    # finished: 入历史并从内存进度中移除
-    if status == "finished":
+    file_size_gb = 0.0
+    try:
+        if payload.get("file_size_gb") is not None:
+            file_size_gb = float(payload.get("file_size_gb") or 0)
+        elif payload.get("file_size_bytes") is not None:
+            file_size_gb = float(payload.get("file_size_bytes") or 0) / GB
+    except (TypeError, ValueError):
         file_size_gb = 0.0
-        try:
-            if payload.get("file_size_gb") is not None:
-                file_size_gb = float(payload.get("file_size_gb") or 0)
-            elif payload.get("file_size_bytes") is not None:
-                file_size_gb = float(payload.get("file_size_bytes") or 0) / GB
-        except (TypeError, ValueError):
-            file_size_gb = 0.0
-        try:
-            upsert_agent_finished_history(node, filename, file_size_gb=file_size_gb)
-        except Exception:
-            logger.exception("Agent finished 入库失败: node=%s file=%s", node, filename)
-            return jsonify({"error": "history update failed"}), 500
+
+    try:
+        upsert_agent_history_status(node, filename, status, file_size_gb=file_size_gb)
+    except Exception:
+        logger.exception("Agent 状态入库失败: node=%s file=%s status=%s", node, filename, status)
+        return jsonify({"error": "history update failed"}), 500
+
+    if status in {"finished", "error"}:
         with AGENT_TASKS_LOCK:
             AGENT_TASKS.pop(filename, None)
-        return jsonify({"ok": True, "status": "accepted"})
+    else:
+        with AGENT_TASKS_LOCK:
+            AGENT_TASKS[filename] = {
+                "node": node,
+                "filename": filename,
+                "status": status,
+                "progress": progress,
+                "speed_mbps": speed_mbps,
+                "eta_text": eta_text,
+                "last_update": last_update,
+            }
 
-    with AGENT_TASKS_LOCK:
-        AGENT_TASKS[filename] = {
-            "node": node,
-            "filename": filename,
-            "status": status or "packing",
-            "progress": progress,
-            "speed_mbps": speed_mbps,
-            "eta_text": eta_text,
-            "last_update": last_update,
-        }
+    if status == "finished":
+        try:
+            trigger_auto_scrape_async(filename)
+        except Exception:
+            logger.exception("Agent finished 派发 TMDB 刮削失败: node=%s file=%s", node, filename)
     return jsonify({"ok": True, "status": "accepted"})
 
 
@@ -2671,6 +2717,8 @@ def get_progress():
                 "speed_mbps": round(speed_mbps, 2),
                 "eta_seconds": None,
                 "eta_text": eta_text,
+                "status": task.get("status", "packing"),
+                "from_agent": True,
             }
         )
 
@@ -2939,6 +2987,45 @@ def get_stats():
     except ZeroDivisionError:
         upload_avg_rate_mbps = 0.0
 
+    now_dt_agent = now_local()
+    stale_agent_keys = []
+    agent_tasks = []
+    with AGENT_TASKS_LOCK:
+        agent_snapshot = dict(AGENT_TASKS)
+    for filename, task in agent_snapshot.items():
+        last_update = task.get("last_update")
+        try:
+            if not isinstance(last_update, datetime):
+                stale_agent_keys.append(filename)
+                continue
+            if (now_dt_agent - last_update).total_seconds() > AGENT_TASK_TTL_SECONDS:
+                stale_agent_keys.append(filename)
+                continue
+        except Exception:
+            stale_agent_keys.append(filename)
+            continue
+
+        progress = max(0.0, min(100.0, float(task.get("progress", 0) or 0)))
+        speed_mbps = float(task.get("speed_mbps", 0) or 0)
+        eta_text = str(task.get("eta_text") or "-").strip() or "-"
+        agent_tasks.append(
+            {
+                "id": f"agent:{filename}",
+                "task_name": filename,
+                "server_name": task.get("node", "VPS"),
+                "status": task.get("status", "packing"),
+                "progress": round(progress, 2),
+                "speed_mbps": round(speed_mbps, 2),
+                "eta_text": eta_text,
+                "updated_at": format_db_time(last_update),
+            }
+        )
+
+    if stale_agent_keys:
+        with AGENT_TASKS_LOCK:
+            for key in stale_agent_keys:
+                AGENT_TASKS.pop(key, None)
+
     return jsonify(
         {
             "pack": {
@@ -2968,6 +3055,11 @@ def get_stats():
             "current_uploading_file": current_uploading_file,
             "current_upload_status": get_current_upload_status_snapshot(),
             "upload_progress": get_upload_progress_snapshot(),
+            "agent_progress": {
+                "active": len(agent_tasks) > 0,
+                "count": len(agent_tasks),
+                "tasks": agent_tasks,
+            },
         }
     )
 
