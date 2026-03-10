@@ -20,13 +20,11 @@
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
-    /* === 完美右侧对齐的指标卡 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; -ms-overflow-style: none; }
     .stats-line-wrap::-webkit-scrollbar { display: none; }
-    /* width设为100%并调整内部分配，实现完美撑满对齐 */
-    .stats-line { display: grid; grid-template-columns: 85px 1fr 1.15fr 1fr 1fr 1fr 1.15fr; gap: 12px; width: 100%; min-width: 1050px; align-items: stretch; }
-    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
-    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 8px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
+    .stats-line { display: grid; grid-template-columns: 85px repeat(6, minmax(130px, 1fr)); gap: 12px; min-width: 1050px; align-items: stretch; }
+    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; }
+    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 6px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
     .stats-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #e2e8f0; }
     .text-nowrap { white-space: nowrap !important; }
     
@@ -201,7 +199,7 @@
             <i class="bi bi-hdd-network fs-1 me-4 opacity-75"></i>
             <div>
               <h5 class="fw-bold mb-1">分布式集群控制中心</h5>
-              <p class="mb-0 text-white-50" style="font-size:0.9rem;">在此管理所有海外 VPS 节点。修改配置保存后，VPS 脚本将在下一次轮询时自动拉取并生效。</p>
+              <p class="mb-0 text-white-50" style="font-size:0.9rem;">在此管理所有 VPS 节点。修改配置保存后，VPS 脚本将在下一次轮询时自动拉取并生效。</p>
             </div>
         </div>
       </div>
@@ -224,10 +222,10 @@
             <div class="col-12 mt-3">
               <label class="form-label fw-bold text-danger mb-0">CD2 底层挂载根目录</label>
               <div class="small text-muted mb-2 mt-1" style="font-size:0.75rem; line-height: 1.4;">
-                <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>正确：</span><code>/CloudNAS/CloudDrive/115small</code><br>
+                <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>正确：</span><code>/CloudNAS/CloudDrive/115vps</code><br>
                 <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>错误：</span>包含网盘内部文件夹名，如 <code>.../VPS接收站</code>
               </div>
-              <input class="form-control form-control-sm border-danger text-danger fw-semibold" style="background:#fef2f2;" name="cd2_path" placeholder="必须是底层挂载的根目录" value="/CloudNAS/CloudDrive/115small" required>
+              <input class="form-control form-control-sm border-danger text-danger fw-semibold" style="background:#fef2f2;" name="cd2_path" placeholder="必须是底层挂载的根目录" value="/CloudNAS/CloudDrive/115vps" required>
             </div>
             
             <div class="col-12 mt-4 p-3 bg-light rounded-3">
@@ -414,8 +412,8 @@
         
         <div class="table-responsive bg-white border border-light rounded-4">
           <table id="historyTable" class="table table-hover table-fixed resizable-table align-middle border-0 mb-0" style="min-width: 950px;">
-            <colgroup><col class="check-col"><col style="width:3%"><col style="width:16%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:5%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"><col style="width:5%"></colgroup>
-            <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></th><th class="text-center align-middle border-0">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">操作</th></tr></thead>
+            <colgroup><col class="check-col"><col style="width:4%"><col style="width:15%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:5%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"><col style="width:6%"></colgroup>
+            <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></th><th class="text-center align-middle border-0 text-nowrap">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">操作</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -520,10 +518,12 @@
     const toastEl = $('toast'), toast = new bootstrap.Toast(toastEl);
     const confirmModalEl = $('confirmModal'), confirmModal = new bootstrap.Modal(confirmModalEl);
     
-    let logModal, manualScrapeModal;
+    let logModal, manualScrapeModal, deployModal, uninstallModal;
     document.addEventListener("DOMContentLoaded", () => {
         logModal = new bootstrap.Modal(document.getElementById('logModal'));
         manualScrapeModal = new bootstrap.Modal(document.getElementById('manualScrapeModal'));
+        deployModal = new bootstrap.Modal(document.getElementById('deployScriptModal'));
+        uninstallModal = new bootstrap.Modal(document.getElementById('uninstallScriptModal'));
     });
     
     let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
@@ -534,6 +534,19 @@
     let waitingVpsTasks = new Set();
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
+    
+    function cleanName(raw) {
+        if(!raw) return '-';
+        let str = String(raw).replace(/\.iso$/i, '');
+        let m = str.match(/^(.*?(?:19|20)\d{2})/i);
+        if (m && m[1]) {
+            let clean = m[1].replace(/\./g, ' ').replace(/-/g, ' ').trim();
+            if(clean) return esc(clean);
+        }
+        let m2 = str.match(/^(.*?)(?:\.(?:2160p|1080p|1080i|720p|Blu-?ray|WEB-DL|WEB|Remux|AVC|HEVC|H\.?264|H\.?265|x264|x265))/i);
+        let clean = m2 ? m2[1] : str;
+        return esc(clean.replace(/\./g, ' ').replace(/-/g, ' ').trim());
+    }
     
     function rawTaskName(raw) {
         if(!raw) return '-';
@@ -563,7 +576,18 @@
     
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
     $('confirmOkBtn').addEventListener('click',()=>{if(askResolve)askResolve(true);askResolve=null;confirmModal.hide();});
-    confirmModalEl.addEventListener('hidden.bs.modal',()=>{if(askResolve)askResolve(false);askResolve=null;});
+    
+    // 彻底修复嵌套弹窗导致的日志空白 Bug
+    confirmModalEl.addEventListener('hidden.bs.modal',()=>{
+        if(askResolve) askResolve(false);
+        askResolve=null;
+        setTimeout(() => {
+            if (document.querySelector('.modal.show')) {
+                document.body.classList.add('modal-open');
+            }
+        }, 10);
+    });
+
     async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
     
     window.togglePwd = function(btn, inputId) {
@@ -669,7 +693,7 @@
     window.openUninstallModal = function(nodeName) {
         $('uninstallModalTitle').textContent = nodeName;
         const bash = `# ==========================================
-# AutoISO 边缘节点 (\\${nodeName}) 终极卸载脚本
+# AutoISO 边缘节点 (${nodeName}) 终极卸载脚本
 # ==========================================
 
 # 1. 停止并禁用后台守护进程
@@ -684,11 +708,11 @@ systemctl daemon-reload
 rm -rf /opt/autoiso_agent
 
 echo "------------------------------------------------"
-echo "✅ 节点 [\\${nodeName}] 已彻底卸载并清理干净！"
+echo "✅ 节点 [${nodeName}] 已彻底卸载并清理干净！"
 echo "------------------------------------------------"
 `;
         $('uninstallCommandText').value = bash;
-        new bootstrap.Modal(document.getElementById('uninstallScriptModal')).show();
+        uninstallModal.show();
     };
 
     window.copyUninstallCommand = function() {
@@ -717,7 +741,7 @@ echo "------------------------------------------------"
         $('deployModalTitle').textContent = nodeName;
         
         const bash = `# ==========================================
-# AutoISO 边缘节点 (\${nodeName}) 极速部署脚本 
+# AutoISO 边缘节点 (${nodeName}) 极速部署脚本 
 # ==========================================
 
 # 1. 更新系统并安装环境
@@ -947,10 +971,11 @@ systemctl enable --now autoiso-agent
 systemctl restart autoiso-agent
 
 echo "------------------------------------------------"
-echo "✅ 节点 [\${nodeName}] 部署完毕！"
+echo "✅ 节点 [${nodeName}] 部署完毕！"
 echo "------------------------------------------------"
 `;
         $('deployCommandText').value = bash;
+        deployModal.show();
     };
 
     window.copyDeployCommand = function() {
@@ -1125,7 +1150,6 @@ echo "------------------------------------------------"
     async function loadPendingUploads(){
         const rows=await api('/api/pending_uploads');
         
-        // 自动清理等待中的白名单
         const currentPendingNames = new Set(rows.map(x => x.filename));
         for(let name of waitingVpsTasks) {
             const row = rows.find(x => x.filename === name);
@@ -1163,14 +1187,14 @@ echo "------------------------------------------------"
             let actionBtns = '';
             if (isVps) {
                 if (isWaiting || vpsUploading) {
-                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-secondary text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" disabled><i class="bi bi-hourglass-split me-1"></i>等待指令</button></div>`;
+                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-secondary text-nowrap shadow-sm px-0 rounded-pill" style="font-size:0.75rem; font-weight:600; width:82px;" disabled><span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;border-width:0.12em;margin-right:2px;"></span>等待指令</button></div>`;
                 } else {
-                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
+                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-0 rounded-pill" style="font-size:0.75rem; font-weight:600; width:82px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
                 }
             } else {
                 actionBtns = `<div class="d-flex gap-2 justify-content-center">
-                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; min-width:76px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-0 rounded-pill" style="font-size:0.75rem; font-weight:600; width:82px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-0 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; width:82px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
                               </div>`;
             }
 
@@ -1205,7 +1229,7 @@ echo "------------------------------------------------"
       if(btn.dataset.act==='whitelist'){
           waitingVpsTasks.add(btn.dataset.name);
           btn.disabled = true;
-          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>等待指令';
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.7rem;height:0.7rem;border-width:0.12em;margin-right:2px;"></span>等待指令';
           try{
               await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});
               notify('已发指令，VPS即将开始上传！','success');
@@ -1263,7 +1287,7 @@ echo "------------------------------------------------"
             const isVps = x.qb_server_name && x.qb_server_name !== 'NAS';
             return `<tr>
               <td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td>
-              <td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td>
+              <td class="history-cell text-muted fw-medium align-middle text-center text-nowrap">${x.id}</td>
               <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}</td>
               <td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td>
               <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
@@ -1380,6 +1404,19 @@ echo "------------------------------------------------"
     
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td class="ps-4 text-muted fw-medium">${x.id}</td><td class="fw-bold text-dark">${esc(x.name)}</td><td class="ellipsis-cell font-monospace text-secondary" style="font-size:0.8rem;" title="${esc(x.url)}">${esc(x.url)}</td><td class="fw-medium">${esc(x.username||'')}</td><td class="text-end pe-4"><button class="btn btn-light bg-white border text-primary btn-sm me-2 rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}"><i class="bi bi-pencil"></i></button><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted py-5 border-0">暂无节点</td></tr>';}
+    
+    $('btnClearLogs').addEventListener('click', async () => {
+        if(!await ask('确定清空日志吗？')) return;
+        try {
+            await api('/api/logs/clear', {method: 'POST'});
+            $('logContent').textContent = '暂无日志'; 
+            await loadLogs();
+            notify('已清空', 'success');
+        } catch(err) {
+            notify(err.message, 'danger');
+        }
+    });
+    
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
     
     sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');
@@ -1407,14 +1444,12 @@ echo "------------------------------------------------"
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
     $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
-    $('btnClearLogs').addEventListener('click',async()=>{if(!await ask('确定清空日志吗？'))return;try{await api('/api/logs/clear',{method:'POST'});await loadLogs();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     
     window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-5 fw-medium border rounded-4 bg-light">请输入关键字后点击搜索</div>'; manualScrapeModal.show(); };
     $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-5"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8" font-weight="bold">无图</text></svg>'; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-3 border border-light align-items-center bg-white shadow-sm"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark mb-1" style="font-size:1.05rem;">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1" style="font-size:0.9rem;">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="text-secondary line-clamp-2 mt-1" style="font-size:0.85rem; line-height:1.4;">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-light bg-white border text-primary rounded-pill px-4 ms-2 text-nowrap fw-bold shadow-sm" onclick="bindScrapeResult('${dataStr}')">绑定此项</button></div>`; }).join('') : '<div class="text-center text-danger py-5 border rounded-4 bg-light fw-medium"><i class="bi bi-emoji-frown me-2"></i>未找到相关结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-5 border rounded-4 bg-light fw-medium">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>搜索'; } });
     $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
     window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); manualScrapeModal.hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
     
-    confirmModalEl.addEventListener('shown.bs.modal',()=>{setTimeout(()=>{const b=document.querySelectorAll('.modal-backdrop');if(b.length)b[b.length-1].classList.add('confirm-backdrop');},0);});
     async function boot(){try{await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPending();await loadPendingUploads();}catch(_e){}}},5000);}
     boot();
   </script>
