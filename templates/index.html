@@ -20,12 +20,11 @@
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
-    /* === 手机端抗溢出的极限压缩指标卡 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; -ms-overflow-style: none; }
     .stats-line-wrap::-webkit-scrollbar { display: none; }
-    .stats-line { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; width: max-content; padding-right: 16px; }
-    .stats-head { flex: 0 0 auto; width: 105px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
-    .stats-card { flex: 0 0 auto; width: 145px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 8px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
+    .stats-line { display: grid; grid-template-columns: 85px repeat(6, minmax(130px, 1fr)); gap: 12px; min-width: 1050px; align-items: stretch; }
+    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; }
+    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 6px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
     .stats-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #e2e8f0; }
     .text-nowrap { white-space: nowrap !important; }
     
@@ -83,13 +82,12 @@
     .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.75rem; line-height: 1.4; max-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #64748b; }
     .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.4em 0.8em; }
 
-    /* === 统一开关尺寸与文字内嵌 === */
+    .custom-nas-switch { width: 3.6rem !important; height: 1.6rem !important; border-radius: 1rem !important; }
     .vps-policy-switch, .nas-auto-switch {
         position: relative; width: 3.6rem; height: 1.6rem; -webkit-appearance: none; appearance: none; border-radius: 1rem; outline: none; cursor: pointer; transition: background-color 0.3s; border: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); margin: 0 !important;
     }
     .vps-policy-switch { background-color: #0dcaf0; }
     .vps-policy-switch:checked { background-color: #0d6efd; }
-    
     .nas-auto-switch { background-color: #cbd5e1; }
     .nas-auto-switch:checked { background-color: #10b981; }
 
@@ -252,7 +250,7 @@
         <div class="col-lg-8">
           <div class="card h-100 bg-white"><div class="card-body p-0">
             <div class="table-responsive h-100">
-              <table class="table table-hover align-middle mb-0 border-0" style="min-width: 600px;">
+              <table class="table table-hover align-middle mb-0 border-0" style="min-width: 800px;">
                 <thead class="table-light"><tr><th class="ps-4 py-3">节点名称</th><th class="py-3">上传策略</th><th class="py-3">CD2 挂载路径</th><th class="text-end pe-4 py-3">操作</th></tr></thead>
                 <tbody id="agentNodeList"></tbody>
               </table>
@@ -327,7 +325,7 @@
             <form id="uploadForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-primary bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3 cursor-pointer shadow-sm" style="width: 2.8rem; height: 1.4rem;" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked>
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="global_auto_upload" type="checkbox" name="global_auto_upload" data-on="开" data-off="关" checked>
                       <label class="form-check-label fw-bold text-primary fs-6" style="padding-top:2px;" for="global_auto_upload">开启全局定时上传</label>
                   </div>
               </div>
@@ -335,7 +333,7 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">NAS CloudDrive 挂载路径</label><input class="form-control bg-light border-0" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12 p-3 bg-danger bg-opacity-10 rounded-3 mt-4">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3 cursor-pointer shadow-sm" style="width: 2.8rem; height: 1.4rem;" id="delete_after_upload" type="checkbox" name="delete_after_upload">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="delete_after_upload" type="checkbox" name="delete_after_upload" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-danger" style="padding-top:2px;" for="delete_after_upload">上传后删除已封装文件 (仅NAS)</label>
                   </div>
                   <div class="text-danger small mt-2 ms-5 opacity-75 fw-medium">注：VPS 上传后自动删除封装文件，不受此开关控制。</div>
@@ -355,10 +353,10 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">Chat ID</label><input class="form-control bg-light border-0" name="tg_chat_id" required></div>
               
               <div class="col-12 mt-4"><label class="form-label text-muted small fw-bold mb-3">通知事件开关</label></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm" id="notify_pack_start" type="checkbox"><label class="form-check-label ms-1" for="notify_pack_start">封装开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm" id="notify_pack_end" type="checkbox"><label class="form-check-label ms-1" for="notify_pack_end">封装完成</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm" id="notify_upload_start" type="checkbox"><label class="form-check-label ms-1" for="notify_upload_start">上传开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm" id="notify_upload_end" type="checkbox"><label class="form-check-label ms-1" for="notify_upload_end">上传完成</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
               
               <div class="col-12 pt-4 d-flex gap-3">
                   <button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button>
@@ -371,7 +369,7 @@
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-info bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3" style="width: 2.8rem; height: 1.4rem;" id="enable_tmdb" type="checkbox" name="enable_tmdb">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="enable_tmdb" type="checkbox" name="enable_tmdb" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-dark fs-6" style="padding-top:2px;" for="enable_tmdb">开启 TMDB 自动刮削</label>
                   </div>
               </div>
@@ -467,6 +465,23 @@
         </div>
         <div class="modal-footer border-0 p-4" style="background: #0f172a;">
           <button class="btn btn-success px-5 py-2 rounded-pill shadow fw-bold fs-6 mx-auto d-flex align-items-center gap-2" onclick="copyDeployCommand()"><i class="bi bi-clipboard"></i> 一键复制完整代码</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="uninstallScriptModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+        <div class="modal-header text-white border-0 pb-3 pt-4 px-4" style="background: #470f1a;">
+          <h5 class="modal-title fw-bold d-flex align-items-center"><i class="bi bi-trash3-fill me-3 fs-4" style="color:#ef4444;"></i><span id="uninstallModalTitle"></span> <span class="ms-2 fw-normal opacity-75 fs-6">彻底卸载代码</span></h5>
+          <button type="button" class="btn-close btn-close-white opacity-75 shadow-none" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0 position-relative bg-dark">
+          <textarea id="uninstallCommandText" class="form-control border-0 bg-transparent text-danger font-monospace p-4 rounded-0 shadow-none" style="font-size: 0.85rem; min-height: 250px; resize: none;" readonly></textarea>
+        </div>
+        <div class="modal-footer border-0 p-4" style="background: #470f1a;">
+          <button class="btn btn-danger px-5 py-2 rounded-pill shadow fw-bold fs-6 mx-auto d-flex align-items-center gap-2" onclick="copyUninstallCommand()"><i class="bi bi-clipboard"></i> 复制卸载清理代码</button>
         </div>
       </div>
     </div>
@@ -632,13 +647,80 @@
                     <td>${b}</td>
                     <td class="small text-secondary font-monospace" style="font-size:0.8rem;"><i class="bi bi-folder2-open me-2 text-primary"></i>${esc(x.cd2_path)}</td>
                     <td class="text-end pe-4 text-nowrap">
-                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-3 me-2 fw-medium text-success" data-bs-toggle="modal" data-bs-target="#deployScriptModal" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal me-1"></i>部署代码</button>
-                        <button class="btn btn-sm btn-light bg-white border text-primary me-2 rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-policy="${p}" data-cron="${esc(x.upload_cron||'')}"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" data-bs-toggle="modal" data-bs-target="#deployScriptModal" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-danger" onclick="openUninstallModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-minus me-1"></i>卸载</button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志命令</button>
+                        
+                        <button class="btn btn-sm btn-light bg-white border text-primary me-1 rounded-circle shadow-sm" style="width:30px;height:30px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-policy="${p}" data-cron="${esc(x.upload_cron||'')}"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:30px;height:30px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>
             `}).join('') : '<tr><td colspan="4" class="text-center text-muted py-5 border-0">暂无边缘节点，请在左侧添加</td></tr>';
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-5 border-0">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
+    }
+    
+    // 一键复制日志命令
+    window.copyLogCommand = function() {
+        const cmd = "journalctl -u autoiso-agent -f";
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(cmd).then(() => notify('日志命令已复制到剪贴板！请在 VPS 执行查看', 'success'));
+            } else {
+                const input = document.createElement('input');
+                input.value = cmd;
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                notify('日志命令已复制到剪贴板！请在 VPS 执行查看', 'success');
+            }
+        } catch(e) { notify('复制失败，请手动输入: ' + cmd, 'danger'); }
+    };
+
+    // 卸载脚本弹窗触发
+    window.openUninstallModal = function(nodeName) {
+        $('uninstallModalTitle').textContent = nodeName;
+        const bash = `# ==========================================
+# AutoISO 边缘节点 (\\${nodeName}) 终极卸载脚本
+# ==========================================
+
+# 1. 停止并禁用后台守护进程
+systemctl stop autoiso-agent
+systemctl disable autoiso-agent
+
+# 2. 删除系统服务文件并重载
+rm -f /etc/systemd/system/autoiso-agent.service
+systemctl daemon-reload
+
+# 3. 彻底删除核心代码与本地临时 ISO 缓存
+rm -rf /opt/autoiso_agent
+
+echo "------------------------------------------------"
+echo "✅ 节点 [\\${nodeName}] 已彻底卸载并清理干净！"
+echo "------------------------------------------------"
+`;
+        $('uninstallCommandText').value = bash;
+        new bootstrap.Modal(document.getElementById('uninstallScriptModal')).show();
+    };
+
+    window.copyUninstallCommand = function() {
+        const text = $('uninstallCommandText');
+        text.select();
+        text.setSelectionRange(0, 99999); 
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text.value).then(() => notify('卸载代码已成功复制！', 'success')).catch(() => fallbackCopy(text.value));
+            } else { fallbackCopy(text.value); }
+        } catch (err) { notify('复制失败，请手动全选复制', 'danger'); }
+        function fallbackCopy(val) { 
+            const input = document.createElement('textarea');
+            input.value = val;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            notify('卸载代码已成功复制！(Fallback)', 'success'); 
+        }
     }
 
     window.fillDeployCode = function(nodeName) {
@@ -967,13 +1049,11 @@ echo "------------------------------------------------"
       const stats=await api('/api/stats');
       currentUploadingFile=String(stats.current_uploading_file||'');
       
-      // 核心修复：记录当前的横向滚动位置
       const scrollWraps = document.querySelectorAll('#statsBoard .stats-line-wrap');
       const scrollPositions = Array.from(scrollWraps).map(w => w.scrollLeft);
 
       $('statsBoard').innerHTML=`${statsRow('封装','bi-box-seam',stats.pack||{})}${statsRow('上传','bi-cloud-upload',stats.upload||{})}`;
       
-      // 核心修复：恢复更新前的滚动位置，防止手机端回弹
       const newWraps = document.querySelectorAll('#statsBoard .stats-line-wrap');
       newWraps.forEach((w, i) => { if(scrollPositions[i] !== undefined) w.scrollLeft = scrollPositions[i]; });
       
@@ -1075,18 +1155,18 @@ echo "------------------------------------------------"
                     </div>`;
             } else {
                 autoIcon = `
-                    <div class="d-flex justify-content-center align-items-center w-100" title="切换此任务自动上传">
-                        <input class="nas-auto-switch shadow-sm m-0" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}" data-on="开" data-off="关">
+                    <div class="d-flex justify-content-center align-items-center w-100">
+                        <input class="form-check-input cursor-pointer shadow-sm m-0 custom-nas-switch" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}" data-on="开" data-off="关">
                     </div>`;
             }
 
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
+                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
             } else {
                 actionBtns = `<div class="d-flex gap-2 justify-content-center">
-                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; min-width:76px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; width:76px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
                               </div>`;
             }
 
@@ -1334,4 +1414,3 @@ echo "------------------------------------------------"
   </script>
 </body>
 </html>
-}

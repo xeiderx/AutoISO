@@ -1,5 +1,4 @@
-﻿
-import atexit
+﻿import atexit
 import hmac
 import logging
 import os
@@ -282,7 +281,6 @@ def ensure_schema():
         if "auto_upload" not in upload_columns:
             conn.execute(text("ALTER TABLE upload_history ADD COLUMN auto_upload BOOLEAN"))
 
-        # Backward-compatible migration requirement for legacy schema.
         for sql in (
             "ALTER TABLE tasks ADD COLUMN upload_start_time TEXT",
             "ALTER TABLE tasks ADD COLUMN upload_end_time TEXT",
@@ -527,7 +525,6 @@ def init_task_auto_upload(filename, task_id=None):
     else:
         if task_id is not None:
             row.task_id = task_id
-        # 新任务初始化时，强制跟随当前全局开关，避免同名旧记录残留
         row.auto_upload = global_enabled
     db.session.commit()
     return global_enabled
@@ -598,7 +595,6 @@ def clean_filename(name):
 
     year_match = SCRAPE_YEAR_RE.search(raw)
     year_token = year_match.group(1) if year_match else ""
-    # 优先取年份之前的片名主体，丢弃后续编码/压制组杂质
     core = raw[: year_match.start()] if year_match else raw
 
     text_name = core.replace(".", " ").replace("_", " ").replace("-", " ")
@@ -742,7 +738,6 @@ def search_tmdb_candidates(keyword, limit=10, year=None):
             if len(results) >= limit:
                 break
 
-    # 如果已提取年份，优先按标题+年份精准检索电影/剧集
     if year_token:
         resp = tmdb_request(
             "/search/movie",
@@ -1005,9 +1000,6 @@ def mark_upload_status(filename, status, message="", task_id=None):
     global_auto_upload = bool(get_global_auto_upload())
     row = UploadHistory.query.filter_by(task_id=task_id).first() if task_id else None
     if not row:
-        # upload_history.filename has a unique constraint in legacy schema.
-        # If same filename is repacked, keep upload_history as "latest filename state"
-        # while pack_history status updates stay strictly id-based.
         row = UploadHistory.query.filter_by(filename=filename).first()
     if not row:
         row = UploadHistory(
@@ -1023,7 +1015,6 @@ def mark_upload_status(filename, status, message="", task_id=None):
         if task_id is not None:
             row.task_id = task_id
         if is_new_task_cycle:
-            # 绑定到新任务时，强制重置为当前全局自动上传配置
             row.auto_upload = global_auto_upload
         row.filename = filename
         row.status = status
@@ -1170,7 +1161,6 @@ def finalize_pack_history_after_upload(file_name, dst_path, task_id=None):
         db.session.commit()
         return
 
-    # 外部文件补录，确保历史页面可见
     ext_server_id = get_or_create_external_server_id()
     now_dt = now_local()
     safe_task_name = file_name[:255]
@@ -1375,7 +1365,7 @@ def format_seconds(seconds):
 
 
 def format_data_size(gb_value):
-    if gb_value >= (1024 * 1024):
+    if gb_value >= (1000 * 1024):
         val = gb_value / (1024 * 1024)
         unit = "PB"
     elif gb_value >= 1000:
@@ -1988,7 +1978,6 @@ def process_all_qbs():
             for torrent in torrents:
                 if not has_waiting_tag(getattr(torrent, "tags", "")):
                     continue
-                # 在扫描到待封装任务时立即异步触发刮削，提前准备展示名
                 try:
                     trigger_auto_scrape_async(getattr(torrent, "name", ""))
                 except Exception:
@@ -2454,11 +2443,50 @@ def agent_report():
     except (TypeError, ValueError):
         file_size_gb = 0.0
 
+    # ---------------------------------------------------------
+    # 新增：提前获取老状态，用于检测是否发生实质性状态变更以触发 TG 通知
+    # ---------------------------------------------------------
+    server_id = get_or_create_external_server_id()
+    task_name_no_ext = os.path.splitext(filename)[0]
+    old_row = (
+        PackHistory.query.filter(
+            PackHistory.qb_server_id == server_id,
+            PackHistory.task_name.in_([filename, task_name_no_ext]),
+            PackHistory.message.like("Agent report:%"),
+            PackHistory.info == f"node={node}",
+        )
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+    old_status = old_row.status if old_row else None
+
     try:
-        upsert_agent_history_status(node, filename, status, file_size_gb=file_size_gb)
+        updated_row = upsert_agent_history_status(node, filename, status, file_size_gb=file_size_gb)
+        new_status = updated_row.status if updated_row else None
     except Exception:
         logger.exception("Agent 状态入库失败: node=%s file=%s status=%s", node, filename, status)
         return jsonify({"error": "history update failed"}), 500
+
+    # ---------------------------------------------------------
+    # 新增：比较新老状态，精准触发系统原生的 TG 报警通道
+    # ---------------------------------------------------------
+    if new_status and old_status != new_status:
+        if new_status == "封装中":
+            if get_notify_flag("notify_pack_start", True):
+                send_tg_notification(f"[AutoISO] 开始封装 | 节点: {node} | 任务: {filename}")
+        elif new_status == "待上传 (阻塞中)":
+            if get_notify_flag("notify_pack_end", True):
+                send_tg_notification(f"[AutoISO] 封装成功，排队等候上传 | 节点: {node} | 任务: {filename}")
+        elif new_status == "上传中":
+            if get_notify_flag("notify_upload_start", True):
+                send_tg_notification(f"[AutoISO] 开始转移至网盘 | 节点: {node} | 任务: {filename}")
+        elif new_status == "成功":
+            if get_notify_flag("notify_upload_end", True):
+                send_tg_notification(f"[AutoISO] 🎉 转移完成 | 节点: {node} | 任务: {filename} 已送达网盘挂载目录。")
+        elif new_status == "失败":
+            if get_notify_flag("notify_pack_end", True) or get_notify_flag("notify_upload_end", True):
+                send_tg_notification(f"[AutoISO] ❌ 任务处理失败 | 节点: {node} | 任务: {filename}")
+
 
     if status in {"finished", "error"}:
         with AGENT_TASKS_LOCK:
@@ -3400,14 +3428,12 @@ def get_stats():
     month_start = datetime(now_dt.year, now_dt.month, 1)
     month_start_text = month_start.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 辅助函数：区分该条历史记录是 NAS 还是 VPS 节点产生的
     def is_vps(row):
         info = (row.info or "").strip().lower()
         return info.startswith("node=")
 
     all_rows = PackHistory.query.all()
 
-    # 数据容器
     pack_data = {
         "nas": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
         "vps": {"count": 0, "size": 0, "dur": 0, "mb": 0, "mc": 0, "msize": 0, "vc": 0},
@@ -3430,14 +3456,12 @@ def get_stats():
         size_gb = float(r.file_size_gb or 0.0)
         cat = "vps" if is_vps(r) else "nas"
 
-        # Total Pack stats (all records)
         pack_data[cat]["count"] += 1
         pack_data[cat]["size"] += size_gb
         if r.start_time and r.start_time >= month_start:
             pack_data[cat]["mc"] += 1
             pack_data[cat]["msize"] += size_gb
 
-        # Pack Duration & Speed (only valid packs)
         if r.start_time and r.end_time and r.status in pack_success_statuses:
             delta = (r.end_time - r.start_time).total_seconds()
             if delta > 0:
@@ -3445,7 +3469,6 @@ def get_stats():
                 pack_data[cat]["dur"] += delta
                 pack_data[cat]["mb"] += size_gb * 1024.0
 
-        # Upload stats
         if r.status in {STATUS_UPLOADED, "已上传", "成功"}:
             up_data[cat]["count"] += 1
             up_data[cat]["size"] += size_gb
@@ -3462,7 +3485,6 @@ def get_stats():
                     up_data[cat]["dur"] += delta
                     up_data[cat]["mb"] += size_gb * 1024.0
 
-    # 编译为前端所需的三列结构 (NAS / VPS / Total)
     def compile_stats(d):
         res = {}
         for cat in ["nas", "vps"]:
@@ -3475,7 +3497,6 @@ def get_stats():
             avg_spd = (d[cat]["mb"] / d[cat]["dur"]) if d[cat]["dur"] > 0 else 0.0
             res[f"{cat}_avg_rate_text"] = f"{avg_spd:.0f} MB/s"
 
-        # Totals
         res["total_count"] = d["nas"]["count"] + d["vps"]["count"]
         res["total_size_text"] = format_data_size(d["nas"]["size"] + d["vps"]["size"])
         res["month_count"] = d["nas"]["mc"] + d["vps"]["mc"]
@@ -3582,7 +3603,7 @@ with app.app_context():
         set_setting("agent_token", DEFAULT_AGENT_TOKEN)
     if not get_setting("global_auto_upload"):
         set_setting("global_auto_upload", "1")
-    # 启动时清理僵尸上传状态，避免历史记录卡死
+    
     PackHistory.query.filter_by(status=STATUS_UPLOADING).update(
         {
             "status": STATUS_PACKED_PENDING_UPLOAD,
