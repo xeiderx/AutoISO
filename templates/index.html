@@ -20,11 +20,12 @@
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
+    /* === 手机端抗溢出的极限压缩指标卡 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; -ms-overflow-style: none; }
     .stats-line-wrap::-webkit-scrollbar { display: none; }
-    .stats-line { display: grid; grid-template-columns: 85px repeat(6, minmax(130px, 1fr)); gap: 12px; min-width: 1050px; align-items: stretch; }
-    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; }
-    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 6px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
+    .stats-line { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; width: max-content; padding-right: 16px; }
+    .stats-head { flex: 0 0 auto; width: 105px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
+    .stats-card { flex: 0 0 auto; width: 145px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 8px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
     .stats-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #e2e8f0; }
     .text-nowrap { white-space: nowrap !important; }
     
@@ -82,12 +83,14 @@
     .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.75rem; line-height: 1.4; max-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #64748b; }
     .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.4em 0.8em; }
 
-    .custom-nas-switch { width: 3.6rem !important; height: 1.6rem !important; border-radius: 1rem !important; }
+    /* === 统一开关尺寸与文字内嵌 === */
     .vps-policy-switch, .nas-auto-switch {
         position: relative; width: 3.6rem; height: 1.6rem; -webkit-appearance: none; appearance: none; border-radius: 1rem; outline: none; cursor: pointer; transition: background-color 0.3s; border: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); margin: 0 !important;
     }
     .vps-policy-switch { background-color: #0dcaf0; }
     .vps-policy-switch:checked { background-color: #0d6efd; }
+    
+    /* NAS 状态：开=绿色，关=灰色 */
     .nas-auto-switch { background-color: #cbd5e1; }
     .nas-auto-switch:checked { background-color: #10b981; }
 
@@ -659,7 +662,6 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-5 border-0">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
     
-    // 一键复制日志命令
     window.copyLogCommand = function() {
         const cmd = "journalctl -u autoiso-agent -f";
         try {
@@ -677,7 +679,6 @@
         } catch(e) { notify('复制失败，请手动输入: ' + cmd, 'danger'); }
     };
 
-    // 卸载脚本弹窗触发
     window.openUninstallModal = function(nodeName) {
         $('uninstallModalTitle').textContent = nodeName;
         const bash = `# ==========================================
@@ -1155,18 +1156,18 @@ echo "------------------------------------------------"
                     </div>`;
             } else {
                 autoIcon = `
-                    <div class="d-flex justify-content-center align-items-center w-100">
-                        <input class="form-check-input cursor-pointer shadow-sm m-0 custom-nas-switch" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}" data-on="开" data-off="关">
+                    <div class="d-flex justify-content-center align-items-center w-100" title="切换此任务自动上传">
+                        <input class="nas-auto-switch shadow-sm m-0" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}" data-on="开" data-off="关">
                     </div>`;
             }
 
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
+                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
             } else {
                 actionBtns = `<div class="d-flex gap-2 justify-content-center">
-                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; width:76px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; min-width:76px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
                               </div>`;
             }
 
