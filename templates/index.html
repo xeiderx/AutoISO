@@ -20,12 +20,13 @@
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
-    /* === 手机端抗溢出的极限压缩指标卡 === */
+    /* === 完美右侧对齐的指标卡 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; -ms-overflow-style: none; }
     .stats-line-wrap::-webkit-scrollbar { display: none; }
-    .stats-line { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; width: max-content; padding-right: 16px; }
-    .stats-head { flex: 0 0 auto; width: 105px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
-    .stats-card { flex: 0 0 auto; width: 145px; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 8px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
+    /* width设为100%并调整内部分配，实现完美撑满对齐 */
+    .stats-line { display: grid; grid-template-columns: 85px 1fr 1.15fr 1fr 1fr 1fr 1.15fr; gap: 12px; width: 100%; min-width: 1050px; align-items: stretch; }
+    .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
+    .stats-card { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 10px 8px 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: transform 0.2s; border: 1px solid transparent; }
     .stats-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #e2e8f0; }
     .text-nowrap { white-space: nowrap !important; }
     
@@ -83,14 +84,12 @@
     .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.75rem; line-height: 1.4; max-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #64748b; }
     .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.4em 0.8em; }
 
-    /* === 统一开关尺寸与文字内嵌 === */
+    .custom-nas-switch { width: 3.6rem !important; height: 1.6rem !important; border-radius: 1rem !important; }
     .vps-policy-switch, .nas-auto-switch {
         position: relative; width: 3.6rem; height: 1.6rem; -webkit-appearance: none; appearance: none; border-radius: 1rem; outline: none; cursor: pointer; transition: background-color 0.3s; border: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); margin: 0 !important;
     }
     .vps-policy-switch { background-color: #0dcaf0; }
     .vps-policy-switch:checked { background-color: #0d6efd; }
-    
-    /* NAS 状态：开=绿色，关=灰色 */
     .nas-auto-switch { background-color: #cbd5e1; }
     .nas-auto-switch:checked { background-color: #10b981; }
 
@@ -532,21 +531,9 @@
     
     let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
     let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
+    let waitingVpsTasks = new Set();
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
-    
-    function cleanName(raw) {
-        if(!raw) return '-';
-        let str = String(raw).replace(/\.iso$/i, '');
-        let m = str.match(/^(.*?(?:19|20)\d{2})/i);
-        if (m && m[1]) {
-            let clean = m[1].replace(/\./g, ' ').replace(/-/g, ' ').trim();
-            if(clean) return esc(clean);
-        }
-        let m2 = str.match(/^(.*?)(?:\.(?:2160p|1080p|1080i|720p|Blu-?ray|WEB-DL|WEB|Remux|AVC|HEVC|H\.?264|H\.?265|x264|x265))/i);
-        let clean = m2 ? m2[1] : str;
-        return esc(clean.replace(/\./g, ' ').replace(/-/g, ' ').trim());
-    }
     
     function rawTaskName(raw) {
         if(!raw) return '-';
@@ -650,7 +637,7 @@
                     <td>${b}</td>
                     <td class="small text-secondary font-monospace" style="font-size:0.8rem;"><i class="bi bi-folder2-open me-2 text-primary"></i>${esc(x.cd2_path)}</td>
                     <td class="text-end pe-4 text-nowrap">
-                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" data-bs-toggle="modal" data-bs-target="#deployScriptModal" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-danger" onclick="openUninstallModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-minus me-1"></i>卸载</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志命令</button>
                         
@@ -1076,7 +1063,7 @@ echo "------------------------------------------------"
       if(!packingTasks.length){
         $('packingTasks').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${cleanName(t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
+        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
       }
       
       const up=stats.upload_progress||{};
@@ -1089,11 +1076,11 @@ echo "------------------------------------------------"
           const f=up.file_name||cs.file_name||'';
           const pct=Number(up.percentage||0);
           const paused=currentUploadStatus==='paused';
-          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(f)}">${cleanName(f)} <span class="badge bg-light text-secondary border ms-2">NAS</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(f)}">${esc(f)} <span class="badge bg-light text-secondary border ms-2">NAS</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
       }
       
       uploadingVpsTasks.forEach(t => {
-          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${cleanName(t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
       });
 
       if(!uploadHtml){
@@ -1126,7 +1113,7 @@ echo "------------------------------------------------"
             return `<tr>
               <td class="text-center fw-medium text-muted">${i+1}</td>
               <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node_alias||'-')}</span></td>
-              <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.title||'')}</div></td>
+              <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.title||'')}</div></td>
               <td><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.title||'')}">${esc(x.title||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||0).toFixed(3)}</td>
               <td class="text-center">${badgeHtml}</td>
@@ -1137,12 +1124,24 @@ echo "------------------------------------------------"
     
     async function loadPendingUploads(){
         const rows=await api('/api/pending_uploads');
+        
+        // 自动清理等待中的白名单
+        const currentPendingNames = new Set(rows.map(x => x.filename));
+        for(let name of waitingVpsTasks) {
+            const row = rows.find(x => x.filename === name);
+            if (!row || ['uploading', '上传中', 'uploaded', '成功'].includes(row.status)) {
+                waitingVpsTasks.delete(name);
+            }
+        }
+
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
             const vpsUploading = ['uploading', '上传中'].includes(x.status);
             const isVps = x.node && x.node !== 'NAS'; 
-            const disabled = (uploadingNow || vpsUploading) ? 'disabled' : ''; 
+            
+            const isWaiting = waitingVpsTasks.has(x.filename);
+            const disabled = (uploadingNow || vpsUploading || isWaiting) ? 'disabled' : ''; 
             
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
@@ -1163,7 +1162,11 @@ echo "------------------------------------------------"
 
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
+                if (isWaiting || vpsUploading) {
+                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-secondary text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" disabled><i class="bi bi-hourglass-split me-1"></i>等待指令</button></div>`;
+                } else {
+                    actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
+                }
             } else {
                 actionBtns = `<div class="d-flex gap-2 justify-content-center">
                                 <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; min-width:76px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
@@ -1174,7 +1177,7 @@ echo "------------------------------------------------"
             return `<tr>
               <td class="text-center fw-medium text-muted">${i+1}</td>
               <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node||'NAS')}</span></td>
-              <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${cleanName(x.display_name||x.filename||'')}</div></td>
+              <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.filename||'')}</div></td>
               <td><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center">${statusBadge}</td>
@@ -1200,16 +1203,18 @@ echo "------------------------------------------------"
       if(!btn || !btn.dataset.name || btn.disabled) return;
       
       if(btn.dataset.act==='whitelist'){
+          waitingVpsTasks.add(btn.dataset.name);
           btn.disabled = true;
-          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>...';
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>等待指令';
           try{
               await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});
-              notify('已加入特权白名单，VPS即将开始上传！','success');
+              notify('已发指令，VPS即将开始上传！','success');
               setTimeout(async () => {
                   await loadStatsAndProgress();
                   await loadPendingUploads();
               }, 1000);
           }catch(err){
+              waitingVpsTasks.delete(btn.dataset.name);
               notify(err.message,'danger');
               btn.disabled = false;
               btn.innerHTML = '立即上传';
@@ -1259,7 +1264,7 @@ echo "------------------------------------------------"
             return `<tr>
               <td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td>
               <td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td>
-              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td>
+              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}</td>
               <td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td>
               <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
               <td class="align-middle text-center">${badge(x.status)}</td>
