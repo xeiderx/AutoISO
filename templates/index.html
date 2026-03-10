@@ -768,23 +768,22 @@ EOF
 
 # 4. 写入核心挂机脚本 agent.py
 cat << 'EOF' > /opt/autoiso_agent/agent.py
-import os, sys, time, json, requests, subprocess, shutil
-
+import os, sys, time, json, requests, subprocess, shutil, threading
 IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
+ERROR_COUNT = 0
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 def get_identity():
     if not os.path.exists(IDENTITY_FILE):
-        log("未找到 identity.json")
         sys.exit(1)
     with open(IDENTITY_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 def get_config(identity):
     url = f"{identity['master_url']}/api/agent/config"
-    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=30)
+    r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
     r.raise_for_status()
     return r.json()
 
@@ -801,148 +800,148 @@ def report(identity, filename, status, progress=0, size_gb=0):
         "eta_text": "-"
     }
     try:
-        requests.post(url, json=payload, timeout=30)
-    except:
+        requests.post(url, json=payload, timeout=10)
+    except Exception:
         pass
 
-def do_work():
-    identity = get_identity()
-    try:
-        config = get_config(identity)
-    except Exception as e:
-        log(f"无法获取主控配置: {e}")
-        return
-
-    qb_url = config.get("qb_url", "").rstrip('/')
-    temp_path = config.get("temp_path")
-    cd2_path = config.get("cd2_path")
-    
-    if not qb_url or not temp_path or not cd2_path:
-        log("配置不完整，请在群晖面板补全 qB地址、缓存目录和CD2挂载路径")
-        return
-
-    if not os.path.exists(temp_path):
-        os.makedirs(temp_path, exist_ok=True)
-
-    session = requests.Session()
-    try:
-        res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=30)
-        if res.text != "Ok.":
-            log("VPS 本地 qB 登录失败")
-            return
-    except Exception as e:
-        log(f"无法连接 VPS 本地 qB: {e}")
-        return
-
-    try:
-        res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=30)
-        torrents = res.json()
-    except Exception as e:
-        log(f"获取 qB 任务失败: {e}")
-        return
-
-    pending_tasks = []
-    ready_to_process = []
-    for t in torrents:
-        tags = t.get('tags', '')
-        progress = t.get('progress', 0)
-        if '待封装' in tags:
-            progress_pct = int(progress * 100)
-            status_text = "排队中" if progress_pct == 100 else f"下载中 {progress_pct}%"
-            pending_tasks.append({
-                "title": t['name'],
-                "display_name": t['name'],
-                "size_gb": t.get('size', 0) / (1024**3),
-                "status": status_text,
-                "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
-                "node_alias": identity["node_name"]
-            })
-            if progress == 1:
-                ready_to_process.append((t, 'pack'))
-        elif '已封装' in tags:
-            iso_path_check = os.path.join(temp_path, f"{t['name']}.iso")
-            if os.path.exists(iso_path_check):
-                ready_to_process.append((t, 'upload'))
-    
-    try:
-        requests.post(f"{identity['master_url']}/api/agent/pending", json={
-            "token": identity["token"],
-            "node": identity["node_name"],
-            "tasks": pending_tasks
-        }, timeout=10)
-    except Exception as e:
-        pass
-
-    for t, action in ready_to_process:
-        name = t['name']
-        size_gb = t.get('size', 0) / (1024**3)
-        save_path = t.get('content_path')
-        if not save_path or not os.path.exists(save_path):
-            save_path = os.path.join(t.get('save_path', ''), name)
-
-        iso_name = f"{name}.iso"
-        iso_temp = os.path.join(temp_path, iso_name)
-        iso_dest = os.path.join(cd2_path, iso_name)
-
-        if not os.path.exists(cd2_path):
-            log(f"错误: 目标路径 {cd2_path} 不存在！请检查 CD2。")
-            return
-            
-        if action == 'pack':
-            log(f"====== 开始处理任务: {name} ======")
-            report(identity, iso_name, "packing", 10, size_gb=size_gb)
-            try:
-                log("正在打包生成 ISO...")
-                cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
-                subprocess.run(cmd, check=True)
-            except Exception as e:
-                log(f"打包失败: {e}")
-                report(identity, iso_name, "error", 0, size_gb=size_gb)
-                continue
-                
-            try:
-                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
-                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
-                log("打包完毕，标签已更新为[已封装]")
-            except Exception as e:
-                log(f"更新 qB 标签失败: {e}")
-
-        log("开始向主控请求上传许可...")
-        report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
-        
-        while True:
-            try:
-                up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
-                if up_res.status_code == 200 and up_res.json().get("can_upload", True):
-                    break
-                else:
-                    log("主控回复: 未到定时时间且无特权。ISO保留在本地等待，1分钟后再次请示...")
-                    time.sleep(60)
-            except Exception as e:
-                log(f"向主控请示失败({e})，为防爆盘，ISO保留在本地等待...")
-                time.sleep(60)
-
-        log("获得许可！开始移动到 CD2...")
-        report(identity, iso_name, "uploading", 50, size_gb=size_gb)
-
-        try:
-            shutil.move(iso_temp, iso_dest)
-        except Exception as e:
-            log(f"移动到 CD2 失败: {e}")
-            report(identity, iso_name, "error", 0, size_gb=size_gb)
-            continue
-
-        log("✅ 上传成功(ISO已自动清理)！")
-        report(identity, iso_name, "finished", 100, size_gb=size_gb)
-
-if __name__ == "__main__":
-    log("🚀 AutoISO 边缘节点启动成功！等待新任务...")
+def reporter_loop():
+    global ERROR_COUNT
+    log("🔄 状态汇报线程启动 (10秒高频)...")
     while True:
         try:
-            do_work()
-        except Exception as e:
+            identity = get_identity()
+            config = get_config(identity)
+            qb_url = config.get("qb_url", "").rstrip('/')
+
+            session = requests.Session()
+            res = session.post(
+                f"{qb_url}/api/v2/auth/login",
+                data={"username": config.get("qb_user"), "password": config.get("qb_pass")},
+                timeout=10
+            )
+            if res.text == "Ok.":
+                res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=10)
+                torrents = res.json()
+                pending_tasks = []
+                for t in torrents:
+                    tags = t.get('tags', '')
+                    if '待封装' in tags:
+                        progress_pct = int(t.get('progress', 0) * 100)
+                        status_text = "排队中" if progress_pct == 100 else f"下载中 {progress_pct}%"
+                        pending_tasks.append({
+                            "title": t['name'],
+                            "display_name": t['name'],
+                            "size_gb": t.get('size', 0) / (1024**3),
+                            "status": status_text,
+                            "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
+                            "node_alias": identity["node_name"]
+                        })
+                requests.post(
+                    f"{identity['master_url']}/api/agent/pending",
+                    json={"token": identity["token"], "node": identity["node_name"], "tasks": pending_tasks},
+                    timeout=10
+                )
+            ERROR_COUNT = 0
+        except Exception:
+            ERROR_COUNT += 1
+            if ERROR_COUNT >= 6:
+                log("🚨 连续通信超时异常达 6 次，触发断网自愈，强制重启进程以重置网络连接池...")
+                os._exit(1)
+        time.sleep(10)
+
+def worker_loop():
+    log("⚙️ 任务处理线程启动...")
+    while True:
+        try:
+            identity = get_identity()
+            config = get_config(identity)
+            qb_url = config.get("qb_url", "").rstrip('/')
+            temp_path = config.get("temp_path")
+            cd2_path = config.get("cd2_path")
+            if not qb_url or not temp_path or not cd2_path:
+                time.sleep(10)
+                continue
+            if not os.path.exists(temp_path):
+                os.makedirs(temp_path, exist_ok=True)
+
+            session = requests.Session()
+            res = session.post(
+                f"{qb_url}/api/v2/auth/login",
+                data={"username": config.get("qb_user"), "password": config.get("qb_pass")},
+                timeout=10
+            )
+            if res.text != "Ok.":
+                time.sleep(10)
+                continue
+
+            res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=10)
+            torrents = res.json()
+            ready_to_process = []
+            for t in torrents:
+                tags = t.get('tags', '')
+                if '待封装' in tags and t.get('progress', 0) == 1:
+                    ready_to_process.append((t, 'pack'))
+                elif '已封装' in tags and os.path.exists(os.path.join(temp_path, f"{t['name']}.iso")):
+                    ready_to_process.append((t, 'upload'))
+
+            for t, action in ready_to_process:
+                name = t['name']
+                size_gb = t.get('size', 0) / (1024**3)
+                save_path = t.get('content_path')
+                if not save_path or not os.path.exists(save_path):
+                    save_path = os.path.join(t.get('save_path', ''), name)
+                iso_name = f"{name}.iso"
+                iso_temp = os.path.join(temp_path, iso_name)
+                iso_dest = os.path.join(cd2_path, iso_name)
+
+                if not os.path.exists(cd2_path):
+                    continue
+
+                if action == 'pack':
+                    log(f"====== 开始处理任务: {name} ======")
+                    report(identity, iso_name, "packing", 10, size_gb=size_gb)
+                    try:
+                        cmd = [
+                            "genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long",
+                            "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path
+                        ]
+                        subprocess.run(cmd, check=True)
+                        session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                        session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                    except Exception:
+                        report(identity, iso_name, "error", 0, size_gb=size_gb)
+                        continue
+
+                report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
+                while True:
+                    try:
+                        up_res = requests.get(
+                            f"{identity['master_url']}/api/agent/can_upload",
+                            params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name},
+                            timeout=10
+                        )
+                        if up_res.status_code == 200 and up_res.json().get("can_upload", True):
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(10)
+
+                report(identity, iso_name, "uploading", 50, size_gb=size_gb)
+                try:
+                    shutil.move(iso_temp, iso_dest)
+                    report(identity, iso_name, "finished", 100, size_gb=size_gb)
+                except Exception:
+                    report(identity, iso_name, "error", 0, size_gb=size_gb)
+        except Exception:
             pass
         time.sleep(10)
+
+if __name__ == "__main__":
+    log("🚀 AutoISO 边缘节点(双线程自愈版) 启动成功！")
+    threading.Thread(target=reporter_loop, daemon=True).start()
+    threading.Thread(target=worker_loop, daemon=True).start()
+    while True:
+        time.sleep(86400)
 EOF
 
 # 5. 配置为开机自启后台服务并自动重启生效
