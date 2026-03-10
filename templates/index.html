@@ -1289,13 +1289,13 @@ echo "------------------------------------------------"
               <td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td>
               <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
               <td class="align-middle text-center">${badge(x.status)}</td>
-              <td class="history-cell align-middle text-center fw-bold text-secondary">${Number(x.file_size_gb||0).toFixed(2)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${Number(x.file_size_gb||0).toFixed(2)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td>
-              <td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.duration_seconds)}</td>
-              <td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.upload_duration_seconds)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${fmtSec(x.duration_seconds)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${fmtSec(x.upload_duration_seconds)}</td>
               <td class="history-cell align-middle text-center"><button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" onclick="deleteHistoryRecord(${x.id})" title="删除此记录"><i class="bi bi-trash"></i></button></td>
             </tr>`
         }).join('') : '<tr><td colspan="14" class="text-center text-muted py-5 border-0">暂无历史记录</td></tr>';

@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.9.6"
+APP_VERSION = "v0.9.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -68,7 +68,7 @@ AGENT_TASKS = {}
 AGENT_TASKS_LOCK = threading.Lock()
 AGENT_PENDING_TASKS = {}
 AGENT_PENDING_TASKS_LOCK = threading.Lock()
-AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "180"))
+AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "3600"))
 UPLOAD_WHITELIST = set()
 UPLOAD_WHITELIST_LOCK = threading.Lock()
 current_uploading_file = None
@@ -2525,24 +2525,24 @@ def agent_pending_report():
         return jsonify({"error": "tasks must be a list"}), 400
 
     normalized = []
-    for item in tasks:
-        if not isinstance(item, dict):
+    for i in payload.get("tasks", []):
+        if not isinstance(i, dict):
             continue
-        title = str(item.get("title") or "").strip()
-        display_name = str(item.get("display_name") or "").strip()
-        added_on = str(item.get("added_on") or "").strip()
-        node_alias = str(item.get("node_alias") or "").strip() or node
-        try:
-            size_gb = float(item.get("size_gb", 0) or 0)
-        except (TypeError, ValueError):
-            size_gb = 0.0
+        title = str(i.get("title") or "").strip()
+        if title:
+            try:
+                scrape_name = clean_agent_report_filename(title)
+                trigger_auto_scrape_async(title, search_keyword=scrape_name or title)
+            except Exception:
+                pass
+
         normalized.append(
             {
                 "title": title,
-                "display_name": display_name or title,
-                "size_gb": round(max(0.0, size_gb), 3),
-                "added_on": added_on,
-                "node_alias": node_alias,
+                "display_name": str(i.get("display_name") or title).strip(),
+                "size_gb": float(i.get("size_gb", 0)),
+                "added_on": str(i.get("added_on") or "").strip(),
+                "node_alias": node,
             }
         )
 
