@@ -20,7 +20,6 @@
     .card { border: 0; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.02); margin-bottom: 20px; }
     .card-body { padding: 20px; }
     
-    /* === 手机端抗溢出的极限压缩指标卡 === */
     .stats-line-wrap { overflow-x: auto; padding-bottom: 8px; }
     .stats-line { display: grid; grid-template-columns: 85px repeat(6, minmax(130px, 1fr)); gap: 12px; min-width: 1050px; align-items: stretch; }
     .stats-head { border-radius: 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; }
@@ -82,19 +81,13 @@
     .raw-task-name { white-space: normal; word-break: break-all; font-size: 0.75rem; line-height: 1.4; max-width: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #64748b; }
     .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.4em 0.8em; }
 
-    /* === 像素级对齐：内嵌文字的高级开关 === */
-    .custom-nas-switch {
-        width: 3.6rem !important;
-        height: 1.6rem !important;
-        border-radius: 1rem !important;
-    }
-    .vps-policy-switch {
+    /* === 统一开关尺寸与文字内嵌 === */
+    .vps-policy-switch, .nas-auto-switch {
         position: relative;
         width: 3.6rem;
         height: 1.6rem;
         -webkit-appearance: none;
         appearance: none;
-        background-color: #0dcaf0;
         border-radius: 1rem;
         outline: none;
         cursor: pointer;
@@ -102,10 +95,14 @@
         border: none;
         box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
     }
-    .vps-policy-switch:checked {
-        background-color: #0d6efd;
-    }
-    .vps-policy-switch::before {
+    .vps-policy-switch { background-color: #0dcaf0; }
+    .vps-policy-switch:checked { background-color: #0d6efd; }
+    
+    /* NAS 状态：开=绿色，关=灰色 */
+    .nas-auto-switch { background-color: #cbd5e1; }
+    .nas-auto-switch:checked { background-color: #10b981; }
+
+    .vps-policy-switch::before, .nas-auto-switch::before {
         content: '';
         position: absolute;
         width: 1.3rem;
@@ -118,10 +115,10 @@
         z-index: 2;
         box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
-    .vps-policy-switch:checked::before {
+    .vps-policy-switch:checked::before, .nas-auto-switch:checked::before {
         transform: translateX(2rem);
     }
-    .vps-policy-switch::after {
+    .vps-policy-switch::after, .nas-auto-switch::after {
         content: attr(data-off);
         position: absolute;
         right: 0.45rem;
@@ -133,7 +130,7 @@
         z-index: 1;
         transition: all 0.3s;
     }
-    .vps-policy-switch:checked::after {
+    .vps-policy-switch:checked::after, .nas-auto-switch:checked::after {
         content: attr(data-on);
         left: 0.45rem;
         right: auto;
@@ -269,7 +266,7 @@
             <div class="col-12 mt-4 p-3 bg-light rounded-3">
               <label class="form-label fw-bold text-dark mb-2"><i class="bi bi-stoplights-fill text-warning me-2"></i>VPS 上传与排队策略</label>
               <select class="form-select form-select-sm border-0 shadow-sm mb-2" name="upload_policy" id="agent_upload_policy" onchange="$('agent_cron_container').classList.toggle('d-none', this.value !== 'custom')">
-                <option value="global">跟随全局定时 (推荐)</option>
+                <option value="global">跟随全局 (推荐)</option>
                 <option value="instant">立即强传</option>
                 <option value="custom">独立定时</option>
               </select>
@@ -363,7 +360,7 @@
             <form id="uploadForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-primary bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3 cursor-pointer shadow-sm custom-nas-switch" id="global_auto_upload" type="checkbox" name="global_auto_upload" checked>
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="global_auto_upload" type="checkbox" name="global_auto_upload" data-on="开" data-off="关" checked>
                       <label class="form-check-label fw-bold text-primary fs-6" style="padding-top:2px;" for="global_auto_upload">开启全局定时上传</label>
                   </div>
               </div>
@@ -371,10 +368,10 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">NAS CloudDrive 挂载路径</label><input class="form-control bg-light border-0" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12 p-3 bg-danger bg-opacity-10 rounded-3 mt-4">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3 cursor-pointer shadow-sm custom-nas-switch" id="delete_after_upload" type="checkbox" name="delete_after_upload">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="delete_after_upload" type="checkbox" name="delete_after_upload" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-danger" style="padding-top:2px;" for="delete_after_upload">上传后删除已封装文件 (仅NAS)</label>
                   </div>
-                  <div class="text-danger small mt-2 ms-5 opacity-75 fw-medium">注：VPS 拥有防爆盘自动销毁机制，且永远保留 qB 源文件，不受此开关控制。</div>
+                  <div class="text-danger small mt-2 ms-5 opacity-75 fw-medium">注：VPS 上传后自动删除封装文件，不受此开关控制。</div>
               </div>
               <div class="col-12 pt-2"><button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button></div>
             </form>
@@ -391,10 +388,10 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">Chat ID</label><input class="form-control bg-light border-0" name="tg_chat_id" required></div>
               
               <div class="col-12 mt-4"><label class="form-label text-muted small fw-bold mb-3">通知事件开关</label></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm custom-nas-switch" style="width:2.8rem!important; height:1.4rem!important;" id="notify_pack_start" type="checkbox"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm custom-nas-switch" style="width:2.8rem!important; height:1.4rem!important;" id="notify_pack_end" type="checkbox"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm custom-nas-switch" style="width:2.8rem!important; height:1.4rem!important;" id="notify_upload_start" type="checkbox"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="form-check-input shadow-sm custom-nas-switch" style="width:2.8rem!important; height:1.4rem!important;" id="notify_upload_end" type="checkbox"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
+              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
               
               <div class="col-12 pt-4 d-flex gap-3">
                   <button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button>
@@ -407,7 +404,7 @@
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-info bg-opacity-10 rounded-3">
                   <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="form-check-input me-3 cursor-pointer shadow-sm custom-nas-switch" id="enable_tmdb" type="checkbox" name="enable_tmdb">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="enable_tmdb" type="checkbox" name="enable_tmdb" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-dark fs-6" style="padding-top:2px;" for="enable_tmdb">开启 TMDB 自动刮削</label>
                   </div>
               </div>
@@ -450,8 +447,8 @@
         
         <div class="table-responsive bg-white border border-light rounded-4">
           <table id="historyTable" class="table table-hover table-fixed resizable-table align-middle border-0 mb-0" style="min-width: 1200px;">
-            <colgroup><col class="check-col"><col style="width:3%"><col style="width:16%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:5%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:6%"><col style="width:6%"></colgroup>
-            <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></th><th class="text-center align-middle border-0">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th></tr></thead>
+            <colgroup><col class="check-col"><col style="width:3%"><col style="width:14%"><col style="width:18%"><col style="width:5%"><col style="width:7%"><col style="width:5%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:5%"><col style="width:5%"><col style="width:5%"></colgroup>
+            <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></th><th class="text-center align-middle border-0">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">操作</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -539,7 +536,6 @@
     const toastEl = $('toast'), toast = new bootstrap.Toast(toastEl);
     const confirmModalEl = $('confirmModal'), confirmModal = new bootstrap.Modal(confirmModalEl);
     
-    // 弹窗初始化修复，防止报错阻断
     let logModal, manualScrapeModal;
     document.addEventListener("DOMContentLoaded", () => {
         logModal = new bootstrap.Modal(document.getElementById('logModal'));
@@ -576,7 +572,6 @@
     function fmtSec(sec){if(sec===null||sec===undefined||Number.isNaN(Number(sec)))return '-';const n=Math.max(0,Number(sec));const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);if(h>0)return `${h}h ${m}m ${s}s`;if(m>0)return `${m}m ${s}s`;return `${s}s`;}
     function fmtDt(raw){const txt=String(raw||'').trim();if(!txt)return '<span class="small text-muted">-</span>';const p=txt.split(' ');return `<div class="small text-secondary time-cell"><span class="d-inline-block">${esc(p[0]||'-')}</span><br><span class="d-inline-block">${esc(p[1]||'-')}</span></div>`;}
     
-    // 状态映射器：全统一为3字（除失败外），抗换行极简胶囊
     function badge(s){
         s = String(s||'').trim();
         if(s === '成功' || s === '已上传至网盘' || s === 'uploaded') return '<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>';
@@ -679,7 +674,6 @@
         } catch (e) { $('agentNodeList').innerHTML = `<tr><td colspan="4" class="text-center text-danger py-5 border-0">请确保已在后端添加 agent_nodes 接口：${esc(e.message)}</td></tr>`; }
     }
 
-    // 绝对修复的一键部署弹窗触发：使用最原始可靠的 Bootstrap 实例化写法
     window.openDeployModal = function(nodeName) {
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
@@ -974,7 +968,6 @@ echo "------------------------------------------------"
       `;
     }
 
-    // 极致美学三列指标卡 (手机抗溢出)
     function statsRow(title, iconClass, data) {
         const cards = [
             ['总次数', data.total_count||0, data.nas_count||0, data.vps_count||0, '次'],
@@ -985,9 +978,9 @@ echo "------------------------------------------------"
             ['本月数据', data.month_size_text||'-', data.nas_month_size_text||'-', data.vps_month_size_text||'-', '']
         ];
         const headHtml = `
-            <div class="stats-head py-2">
+            <div class="stats-head bg-white shadow-sm py-2">
                 <i class="bi ${iconClass} fs-4 text-primary mb-1"></i>
-                <span class="fw-bold text-secondary text-nowrap" style="font-size:0.95rem; letter-spacing:1px;">${title}</span>
+                <span class="fw-bold text-secondary text-nowrap" style="font-size:0.9rem; letter-spacing:1px;">${title}</span>
             </div>
         `;
         const cardsHtml = cards.map(c => `
@@ -1011,7 +1004,6 @@ echo "------------------------------------------------"
       
       const p=await api('/api/progress');
       
-      // 精准切割：VPS的上传进度去右边，封装进度去左边
       const packingTasks = [];
       const uploadingVpsTasks = [];
       (p.tasks || []).forEach(t => {
@@ -1025,14 +1017,12 @@ echo "------------------------------------------------"
       
       currentPackingTasks = packingTasks.map(t => t.task_name);
       
-      // 渲染左侧封装动态
       if(!packingTasks.length){
         $('packingTasks').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无封装任务</div>';
       }else{
         $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${cleanName(t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
       }
       
-      // 渲染右侧上传动态 (聚合 NAS 和 VPS)
       const up=stats.upload_progress||{};
       const cs=stats.current_upload_status||{};
       currentUploadStatus=String(cs.status||'idle');
@@ -1093,7 +1083,6 @@ echo "------------------------------------------------"
         const rows=await api('/api/pending_uploads');
         $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
-            // 精准判定当前任务是否正在上传
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
             const vpsUploading = ['uploading', '上传中'].includes(x.status);
             const isVps = x.node && x.node !== 'NAS'; 
@@ -1102,7 +1091,7 @@ echo "------------------------------------------------"
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
             
-            // 绝妙的内嵌文字开关 (宽高统一 3.6 x 1.6rem)
+            // 全新带文字开关组件，NAS与VPS统一DOM结构大小完美对齐
             let autoIcon = '';
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
@@ -1112,18 +1101,18 @@ echo "------------------------------------------------"
                     </div>`;
             } else {
                 autoIcon = `
-                    <div class="d-flex justify-content-center align-items-center w-100">
-                        <input class="form-check-input cursor-pointer shadow-sm m-0 custom-nas-switch" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}">
+                    <div class="d-flex justify-content-center align-items-center w-100" title="切换此任务自动上传">
+                        <input class="nas-auto-switch shadow-sm m-0" type="checkbox" ${autoUpload?'checked':''} data-act="toggle_auto" data-name="${esc(x.filename)}" data-on="开" data-off="关">
                     </div>`;
             }
 
             let actionBtns = '';
             if (isVps) {
-                actionBtns = `<button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill w-100" style="font-size:0.75rem; font-weight:600;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}><i class="bi bi-send-check me-1"></i>立即上传</button>`;
+                actionBtns = `<div class="d-flex gap-2 justify-content-center"><button class="btn btn-sm btn-success text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:75px;" data-act="whitelist" data-name="${esc(x.filename)}" ${disabled}>立即上传</button></div>`;
             } else {
-                actionBtns = `<div class="d-flex gap-1 justify-content-center">
-                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-2 py-1 rounded-pill" style="font-size:0.75rem; font-weight:600;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
-                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-2 py-1 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
+                actionBtns = `<div class="d-flex gap-2 justify-content-center">
+                                <button class="btn btn-sm ${up?'btn-warning':'btn-primary'} text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; width:75px;" data-act="upload" data-name="${esc(x.filename)}" ${disabled}>${up?'重新上传':'立即上传'}</button>
+                                <button class="btn btn-sm btn-outline-danger text-nowrap shadow-sm px-3 rounded-pill" style="font-size:0.75rem; font-weight:600; background:white; width:75px;" data-act="delete" data-name="${esc(x.filename)}" ${disabled}>删除封装</button>
                               </div>`;
             }
 
@@ -1155,10 +1144,9 @@ echo "------------------------------------------------"
       const btn = e.target.closest('button[data-act]');
       if(!btn || !btn.dataset.name || btn.disabled) return;
       
-      // 防止连点：立刻锁定按钮
       if(btn.dataset.act==='whitelist'){
           btn.disabled = true;
-          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>处理中';
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:0.8rem;height:0.8rem;"></span>...';
           try{
               await api(`/api/agent/whitelist_upload`,{method:'POST', body: JSON.stringify({filename: btn.dataset.name})});
               notify('已加入特权白名单，VPS即将开始上传！','success');
@@ -1169,12 +1157,26 @@ echo "------------------------------------------------"
           }catch(err){
               notify(err.message,'danger');
               btn.disabled = false;
-              btn.innerHTML = '<i class="bi bi-send-check me-1"></i>立即上传';
+              btn.innerHTML = '立即上传';
           }
       }
       if(btn.dataset.act==='upload'){try{await api(`/api/upload_now/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已开始上传','success');await loadStatsAndProgress();await loadPendingUploads();}catch(err){notify(err.message,'danger');}}
       if(btn.dataset.act==='delete'){if(!await ask('危险操作：确定要彻底删除本地的ISO封装缓存文件吗？(不影响下载源文件)','删除封装缓存'))return;try{await api(`/api/delete_local/${encodeURIComponent(btn.dataset.name)}`,{method:'POST'});notify('已删除本地ISO','success');await loadPendingUploads();await loadHistory();}catch(err){notify(err.message,'danger');}}
     });
+
+    window.deleteHistoryRecord = async function(id) { 
+        if (!await ask('确定彻底删除这条历史记录吗？(如为待上传任务，删除后将不再被处理)')) return; 
+        try { 
+            await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ ids: [id] }) }); 
+            notify('记录已删除', 'success'); 
+            await loadHistory(); 
+            if(!$('viewDashboard').classList.contains('d-none')){
+                await loadPendingUploads();
+            }
+        } catch (e) { 
+            notify(e.message, 'danger'); 
+        } 
+    };
 
     async function loadHistory(){
         histAll = await api('/api/history?limit=0') || [];
@@ -1199,8 +1201,23 @@ echo "------------------------------------------------"
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
         $('historyBody').innerHTML = pageData.length ? pageData.map(x => {
             const isVps = x.qb_server_name && x.qb_server_name !== 'NAS';
-            return `<tr><td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td><td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td><td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td><td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td><td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td><td class="align-middle text-center">${badge(x.status)}</td><td class="history-cell align-middle text-center fw-bold text-secondary">${Number(x.file_size_gb||0).toFixed(2)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td><td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.duration_seconds)}</td><td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.upload_duration_seconds)}</td></tr>`
-        }).join('') : '<tr><td colspan="13" class="text-center text-muted py-5 border-0">暂无历史记录</td></tr>';
+            return `<tr>
+              <td class="check-col align-middle text-center"><input type="checkbox" class="history-check form-check-input m-0 shadow-sm" value="${x.id}"></td>
+              <td class="history-cell text-muted fw-medium align-middle text-center">${x.id}</td>
+              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.task_name||'')}">${cleanName(x.task_name||'')}</td>
+              <td class="history-cell align-middle raw-task-name">${rawTaskName(x.task_name)}</td>
+              <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
+              <td class="align-middle text-center">${badge(x.status)}</td>
+              <td class="history-cell align-middle text-center fw-bold text-secondary">${Number(x.file_size_gb||0).toFixed(2)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td>
+              <td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.duration_seconds)}</td>
+              <td class="history-cell align-middle text-center text-nowrap fw-medium">${fmtSec(x.upload_duration_seconds)}</td>
+              <td class="history-cell align-middle text-center"><button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" onclick="deleteHistoryRecord(${x.id})" title="删除此记录"><i class="bi bi-trash"></i></button></td>
+            </tr>`
+        }).join('') : '<tr><td colspan="14" class="text-center text-muted py-5 border-0">暂无历史记录</td></tr>';
         renderPagination(histFiltered.length, histPage, histSize, 'historyPagination', (p, s) => { histPage = p; histSize = s; renderHistory(); });
     }
 

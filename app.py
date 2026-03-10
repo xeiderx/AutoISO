@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.9.3"
+APP_VERSION = "v0.9.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1375,9 +1375,20 @@ def format_seconds(seconds):
 
 
 def format_data_size(gb_value):
-    if gb_value >= 1024:
-        return f"{gb_value / 1024:.2f} TB"
-    return f"{gb_value:.2f} GB"
+    if gb_value >= (1024 * 1024):
+        val = gb_value / (1024 * 1024)
+        unit = "PB"
+    elif gb_value >= 1000:
+        val = gb_value / 1024
+        unit = "TB"
+    else:
+        val = gb_value
+        unit = "GB"
+
+    if val >= 100:
+        return f"{val:.1f} {unit}"
+    else:
+        return f"{val:.2f} {unit}"
 
 
 def format_db_time(dt):
