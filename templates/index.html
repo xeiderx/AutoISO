@@ -518,13 +518,11 @@
     const toastEl = $('toast'), toast = new bootstrap.Toast(toastEl);
     const confirmModalEl = $('confirmModal'), confirmModal = new bootstrap.Modal(confirmModalEl);
     
-    let logModal, manualScrapeModal, deployModal, uninstallModal;
-    document.addEventListener("DOMContentLoaded", () => {
-        logModal = new bootstrap.Modal(document.getElementById('logModal'));
-        manualScrapeModal = new bootstrap.Modal(document.getElementById('manualScrapeModal'));
-        deployModal = new bootstrap.Modal(document.getElementById('deployScriptModal'));
-        uninstallModal = new bootstrap.Modal(document.getElementById('uninstallScriptModal'));
-    });
+    // 采用更稳健的 Modal 管理模式
+    function getModal(id) {
+        const el = document.getElementById(id);
+        return bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    }
     
     let askResolve = null, currentUploadStatus = 'idle', currentUploadingFile = '';
     let currentPackingTasks = [], currentScrapeTarget = '';
@@ -577,7 +575,6 @@
     async function ask(msg,title='确认操作'){ $('confirmTitle').textContent=title; $('confirmMessage').textContent=msg; return new Promise(r=>{askResolve=r;confirmModal.show();}); }
     $('confirmOkBtn').addEventListener('click',()=>{if(askResolve)askResolve(true);askResolve=null;confirmModal.hide();});
     
-    // 彻底修复嵌套弹窗导致的日志空白 Bug
     confirmModalEl.addEventListener('hidden.bs.modal',()=>{
         if(askResolve) askResolve(false);
         askResolve=null;
@@ -661,7 +658,7 @@
                     <td>${b}</td>
                     <td class="small text-secondary font-monospace" style="font-size:0.8rem;"><i class="bi bi-folder2-open me-2 text-primary"></i>${esc(x.cd2_path)}</td>
                     <td class="text-end pe-4 text-nowrap">
-                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" onclick="openDeployModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-danger" onclick="openUninstallModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-minus me-1"></i>卸载</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志命令</button>
                         
@@ -712,7 +709,7 @@ echo "✅ 节点 [${nodeName}] 已彻底卸载并清理干净！"
 echo "------------------------------------------------"
 `;
         $('uninstallCommandText').value = bash;
-        uninstallModal.show();
+        getModal('uninstallScriptModal').show();
     };
 
     window.copyUninstallCommand = function() {
@@ -975,7 +972,7 @@ echo "✅ 节点 [${nodeName}] 部署完毕！"
 echo "------------------------------------------------"
 `;
         $('deployCommandText').value = bash;
-        deployModal.show();
+        getModal('deployScriptModal').show();
     };
 
     window.copyDeployCommand = function() {
@@ -1442,13 +1439,13 @@ echo "------------------------------------------------"
     $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;});});
-    $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();logModal.show();}catch(e){notify(e.message,'danger');}});
+    $('btnViewLogs').addEventListener('click',async()=>{try{await loadLogs();getModal('logModal').show();}catch(e){notify(e.message,'danger');}});
     $('btnExportLogs').addEventListener('click',()=>window.open('/api/logs/export','_blank'));
     
-    window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-5 fw-medium border rounded-4 bg-light">请输入关键字后点击搜索</div>'; manualScrapeModal.show(); };
+    window.openManualScrape = function(encodedName) { currentScrapeTarget = decodeURIComponent(encodedName); $('scrapeTargetName').textContent = currentScrapeTarget; $('manualScrapeKeyword').value = ''; $('tmdbSearchResults').innerHTML = '<div class="text-center text-muted py-5 fw-medium border rounded-4 bg-light">请输入关键字后点击搜索</div>'; getModal('manualScrapeModal').show(); };
     $('btnManualSearch')?.addEventListener('click', async () => { const keyword = $('manualScrapeKeyword').value.trim(); if (!keyword) return notify('请输入搜索关键字', 'warning'); const btn = $('btnManualSearch'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>搜索中'; $('tmdbSearchResults').innerHTML = '<div class="text-center py-5"><div class="spinner-grow text-primary"></div></div>'; try { const resp = await api('/api/scrape/search', { method: 'POST', body: JSON.stringify({ keyword }) }); const results = Array.isArray(resp) ? resp : (resp.results || []); $('tmdbSearchResults').innerHTML = results.length ? results.map(item => { const rawPoster = String(item.poster_url || '').trim(); const imgUrl = rawPoster ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w500${rawPoster}`) : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="90"><rect width="60" height="90" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%2394a3b8" font-weight="bold">无图</text></svg>'; const dataStr = encodeURIComponent(JSON.stringify(item)); return `<div class="tmdb-result-item d-flex gap-3 p-3 border border-light align-items-center bg-white shadow-sm"><img src="${imgUrl}" class="rounded shadow-sm" style="width: 60px; height: 90px; object-fit: cover;" alt="poster"><div class="flex-grow-1 min-w-0"><div class="fw-bold text-dark mb-1" style="font-size:1.05rem;">${esc(item.title || '')} <span class="text-secondary fw-normal ms-1" style="font-size:0.9rem;">${item.year ? `(${esc(item.year)})` : ''}</span></div><div class="text-secondary line-clamp-2 mt-1" style="font-size:0.85rem; line-height:1.4;">${esc(item.overview || '暂无简介')}</div></div><button class="btn btn-light bg-white border text-primary rounded-pill px-4 ms-2 text-nowrap fw-bold shadow-sm" onclick="bindScrapeResult('${dataStr}')">绑定此项</button></div>`; }).join('') : '<div class="text-center text-danger py-5 border rounded-4 bg-light fw-medium"><i class="bi bi-emoji-frown me-2"></i>未找到相关结果</div>'; } catch (err) { $('tmdbSearchResults').innerHTML = `<div class="text-center text-danger py-5 border rounded-4 bg-light fw-medium">${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>搜索'; } });
     $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
-    window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); manualScrapeModal.hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
+    window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); getModal('manualScrapeModal').hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
     
     async function boot(){try{await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPending();await loadPendingUploads();}catch(_e){}}},5000);}
     boot();
