@@ -705,6 +705,23 @@ systemctl daemon-reload
 rm -rf /opt/autoiso_agent
 
 echo "------------------------------------------------"
+echo "🧹 开始清理 CloudDrive2 容器与挂载目录..."
+
+# 停止并删除容器
+docker stop clouddrive2 &>/dev/null || true
+docker rm clouddrive2 &>/dev/null || true
+
+# 强制解除 FUSE 本地挂载（防止设备忙导致无法删除目录）
+umount -f /CloudNAS/CloudDrive &>/dev/null || true
+umount -l /CloudNAS/CloudDrive &>/dev/null || true
+
+# 删除 CD2 映射的根目录及所有配置残留
+rm -rf /CloudNAS &>/dev/null || true
+
+echo " CloudDrive2 已彻底卸载并清理残留！"
+echo "------------------------------------------------"
+
+echo "------------------------------------------------"
 echo "✅ 节点 [${nodeName}] 已彻底卸载并清理干净！"
 echo "------------------------------------------------"
 `;
