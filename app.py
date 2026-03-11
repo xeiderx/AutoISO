@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v0.9.8"
+APP_VERSION = "v0.9.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -785,7 +785,7 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
 
     cached = ScrapeRecord.query.filter_by(original_name=name).first()
     if cached and cached.status == SCRAPE_STATUS_SUCCESS:
-        logger.info("TMDB 刮削命中缓存: %s -> tmdb_id=%s", name, cached.tmdb_id)
+        logger.info("💡 [TMDB刮削] 命中本地缓存: %s -> %s", name, cached.title or cached.tmdb_id)
         return cached
 
     clean_title, clean_year = clean_filename(name)
@@ -804,10 +804,10 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
             matches = search_tmdb_candidates(name, limit=1)
         if matches:
             row = upsert_scrape_record(name, matches[0], SCRAPE_STATUS_SUCCESS)
-            logger.info("TMDB 刮削成功: %s -> %s", name, row.title or row.tmdb_id)
+            logger.info("🎬 [TMDB刮削] 成功匹配: %s -> 《%s》(%s)", name, row.title, row.year)
             return row
         row = upsert_scrape_record(name, {}, SCRAPE_STATUS_FAILED)
-        logger.info("TMDB 刮削无匹配: %s", name)
+        logger.info(" [TMDB刮削] 未找到匹配项，已加入待处理队列: %s", name)
         return row
     except Exception as exc:
         logger.warning("TMDB 刮削异常: %s | 错误: %s", name, exc)
@@ -1639,7 +1639,7 @@ def process_uploads():
                 return
 
             pending_names = get_pending_upload_files()
-            logger.info("开始检查待上传队列，待处理=%s，目标路径=%s，模式=%s", len(pending_names), clouddrive_path, "上传后删除" if delete_after_upload else "上传后保留")
+            logger.info("📡 [定时调度] 触发全局上传任务，开始扫描待处理文件... 当前队列发现 %s 个任务", len(pending_names))
             global_auto_upload = get_global_auto_upload()
 
             for file_name in pending_names:
@@ -1676,6 +1676,7 @@ def process_uploads():
                     if get_notify_flag("notify_upload_start", True):
                         send_tg_notification(f"[AutoISO] 📤 开始转移至网盘：{file_name}")
 
+                    logger.info("🚀 [网盘转移] 开始排队上传: %s", file_name)
                     uploaded_ok = upload_file_with_progress(
                         src_path,
                         dst_path,
@@ -1697,9 +1698,9 @@ def process_uploads():
                         row.info = ""
                         db.session.commit()
                     mark_upload_status(file_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
+                    logger.info("🎉 [网盘转移] 成功送达挂载点: %s", file_name)
                     if get_notify_flag("notify_upload_end", True):
                         send_tg_notification(f"[AutoISO] 🎉 转移完成：{file_name} 已送达网盘。")
-                    logger.info("上传成功，任务=%s，源=%s，目标=%s", task_name, src_path, dst_path)
                 except Exception as exc:
                     mark_upload_status(file_name, "failed", str(exc), task_id=task_id)
                     if row:
@@ -1760,6 +1761,7 @@ def process_single_upload(file_name):
                 if get_notify_flag("notify_upload_start", True):
                     send_tg_notification(f"[AutoISO] 📤 开始转移至网盘：{safe_name}")
 
+                logger.info("🚀 [手动转移] 开始上传: %s", safe_name)
                 uploaded_ok = upload_file_with_progress(
                     src_path,
                     dst_path,
@@ -1783,7 +1785,7 @@ def process_single_upload(file_name):
                 mark_upload_status(safe_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                 if get_notify_flag("notify_upload_end", True):
                     send_tg_notification(f"[AutoISO] 🎉 转移完成：{safe_name} 已送达网盘。")
-                logger.info("手动上传成功: %s", safe_name)
+                logger.info("🎉 [手动转移] 成功送达: %s", safe_name)
             except Exception as exc:
                 mark_upload_status(safe_name, "failed", str(exc), task_id=task_id)
                 if row:
@@ -1855,6 +1857,7 @@ def process_one_torrent(server: QBServer, client, torrent):
     try:
         if os.path.isfile(source_path):
             output_file = os.path.join(OUTPUT_DIR, os.path.basename(source_path))
+            logger.info("📦 [本地封装] 检测到单文件，开始极速转存: %s", torrent.name)
             logger.info(
                 "[节点:%s] 检测到单文件任务，跳过 ISO 封装，直接复制到待上传区：%s",
                 server.name,
@@ -1915,6 +1918,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             return
 
         safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
+        logger.info("💿 [本地封装] 正在将目录打包为 ISO 镜像: %s", torrent.name)
         ok, iso_path, out, err = pack_to_iso(torrent.name, source_path, safe_vol_id)
         finished = now_local()
         duration = format_seconds((finished - started).total_seconds())
@@ -1937,7 +1941,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
                 send_tg_notification(f"[AutoISO] ✅ 封装成功，等待上传 | 节点: {server.name} | 任务: {torrent.name}")
-            logger.info("封装成功，[节点:%s] 任务=%s，耗时=%s", server.name, torrent.name, duration)
+            logger.info(" [本地封装] ISO 生成完毕: %s，耗时: %s", torrent.name, duration)
         else:
             history.status = STATUS_FAILED
             history.end_time = finished
@@ -2469,6 +2473,7 @@ def agent_report():
 
     # 精准发送 Telegram 通知
     if new_status and old_status != new_status:
+        logger.info("🔔 [节点动态] 边缘节点 '%s' 上的任务 '%s' 状态变更为: 【%s】", node, filename, new_status)
         if new_status == "封装中":
             if get_notify_flag("notify_pack_start", True):
                 send_tg_notification(f"[AutoISO] 🚀 开始封装 | 节点: {node} | 任务: {filename}")
@@ -3137,7 +3142,6 @@ def get_progress():
 def list_pending():
     rows = []
     monitor_tag = get_qb_monitor_tag()
-    logger.info("拉取待封装列表，监控标签=%s", monitor_tag)
     servers = QBServer.query.order_by(QBServer.id.asc()).all()
     for server in servers:
         if is_invalid_qb_server_url(getattr(server, "url", "")):
