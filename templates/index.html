@@ -222,9 +222,7 @@
             <div class="col-12 mt-3">
               <label class="form-label fw-bold text-danger mb-0">CD2 底层挂载根目录</label>
               <input class="form-control form-control-sm border-danger text-danger fw-semibold" style="background:#fef2f2;" name="cd2_path" placeholder="/CloudNAS/VPS专用接收站" value="/CloudNAS/VPS专用接收站" required>
-              <div class="form-text text-muted mt-2" style="font-size: 12px;">
-                建议：在网盘根目录新建个空文件夹（如：VPS专用接收站），在 CD2 网页端<span style="color: #ff9800; font-weight: 500;">源目录</span>选择该<span style="color: #409eff; font-weight: 500;">VPS专用接收站</span>，<span style="color: #ff9800; font-weight: 500;">挂载点</span>选至<span style="color: #409eff; font-weight: 500;">CloudNAS</span>，确保最终挂载点路径与下面完全一致。
-              </div>
+              <div class="form-text text-muted mt-2" style="font-size: 12px;">建议：在网盘根目录新建个空文件夹（如：VPS专用接收站），在 CD2 网页端<span style="color: #ff9800; font-weight: 500;">源目录</span>选择该<span style="color: #409eff; font-weight: 500;">VPS专用接收站</span>，<span style="color: #ff9800; font-weight: 500;">挂载点</span>选至<span style="color: #409eff; font-weight: 500;">CloudNAS</span>，确保最终挂载点路径与下面完全一致。</div>
             </div>
             
             <div class="col-12 mt-4 p-3 bg-light rounded-3">
@@ -250,7 +248,7 @@
           <div class="card h-100 bg-white"><div class="card-body p-0">
             <div class="table-responsive h-100">
               <table class="table table-hover align-middle mb-0 border-0" style="min-width: 800px;">
-                <thead class="table-light"><tr><th class="ps-4 py-3">节点名称</th><th class="py-3">上传策略</th><th class="py-3">CD2 挂载路径</th><th class="text-end pe-4 py-3">操作</th></tr></thead>
+                <thead class="table-light"><tr><th class="ps-4 py-3">节点名称</th><th class="py-3">上传策略</th><th class="py-3">CD2 挂载路径</th><th class="text-center pe-4 py-3">操作</th></tr></thead>
                 <tbody id="agentNodeList"></tbody>
               </table>
             </div>
@@ -293,7 +291,7 @@
             </form>
             <div class="table-responsive mt-4 bg-white rounded-4 shadow-sm">
               <table id="qbTable" class="table table-hover align-middle mb-0 border-0">
-                <thead class="table-light"><tr><th class="ps-4">ID</th><th>节点</th><th>URL</th><th>账号</th><th class="text-end pe-4">操作</th></tr></thead>
+                <thead class="table-light"><tr><th class="ps-4">ID</th><th>节点</th><th>URL</th><th>账号</th><th class="text-center pe-4">操作</th></tr></thead>
                 <tbody id="qbList"></tbody>
               </table>
             </div>
@@ -656,7 +654,7 @@
                     <td class="ps-4 fw-bold text-dark">${esc(x.node_name)}<br><span class="small text-muted fw-normal font-monospace" style="font-size:0.75rem;">${esc(x.qb_url)}</span></td>
                     <td>${b}</td>
                     <td class="small text-secondary font-monospace" style="font-size:0.8rem;"><i class="bi bi-folder2-open me-2 text-primary"></i>${esc(x.cd2_path)}</td>
-                    <td class="text-end pe-4 text-nowrap">
+                    <td class="text-center align-middle pe-4 text-nowrap">
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-danger" onclick="openUninstallModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-minus me-1"></i>卸载</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志命令</button>
@@ -1405,7 +1403,7 @@ echo "------------------------------------------------"
     }
     
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
-    async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td class="ps-4 text-muted fw-medium">${x.id}</td><td class="fw-bold text-dark">${esc(x.name)}</td><td class="ellipsis-cell font-monospace text-secondary" style="font-size:0.8rem;" title="${esc(x.url)}">${esc(x.url)}</td><td class="fw-medium">${esc(x.username||'')}</td><td class="text-end pe-4"><button class="btn btn-light bg-white border text-primary btn-sm me-2 rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}"><i class="bi bi-pencil"></i></button><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted py-5 border-0">暂无节点</td></tr>';}
+    async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td class="ps-4 text-muted fw-medium">${x.id}</td><td class="fw-bold text-dark">${esc(x.name)}</td><td class="ellipsis-cell font-monospace text-secondary" style="font-size:0.8rem;" title="${esc(x.url)}">${esc(x.url)}</td><td class="fw-medium">${esc(x.username||'')}</td><td class="text-center align-middle pe-4"><button class="btn btn-light bg-white border text-primary btn-sm me-2 rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}"><i class="bi bi-pencil"></i></button><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted py-5 border-0">暂无节点</td></tr>';}
     
     $('btnClearLogs').addEventListener('click', async () => {
         if(!await ask('确定清空日志吗？')) return;
