@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.2"
+APP_VERSION = "v1.0.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -59,6 +59,7 @@ STATUS_UPLOADED = "已上传至网盘"
 STATUS_FAILED = "Failed"
 PACKING_SUFFIX = ".packing"
 UPLOADING_SUFFIX = ".uploading"
+CLOUDDRIVE_DELIVERY_NOTICE = "文件已成功移入 CloudDrive 底层挂载点，请耐心等待 CloudDrive 在后台努力搬运至云端！🚀"
 
 ACTIVE_TASKS = {}
 ACTIVE_TASKS_LOCK = threading.Lock()
@@ -1674,7 +1675,8 @@ def process_uploads():
                     set_upload_command("running")
                     update_current_upload_status(active=True, file_name=file_name, status="uploading")
                     if get_notify_flag("notify_upload_start", True):
-                        send_tg_notification(f"[AutoISO] 📤 开始转移至网盘：{file_name}")
+                        logger.info("[NAS] 任务 '%s' 开始转移至 CloudDrive。", file_name)
+                        send_tg_notification(f"[AutoISO] 📤 开始转移至 CloudDrive：{file_name}")
 
                     logger.info("🚀 [网盘转移] 开始排队上传: %s", file_name)
                     uploaded_ok = upload_file_with_progress(
@@ -1700,7 +1702,8 @@ def process_uploads():
                     mark_upload_status(file_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                     logger.info("🎉 [网盘转移] 成功送达挂载点: %s", file_name)
                     if get_notify_flag("notify_upload_end", True):
-                        send_tg_notification(f"[AutoISO] 🎉 转移完成：{file_name} 已送达网盘。")
+                        logger.info("[NAS] 任务 '%s' 成功推入 CloudDrive，等待搬运。", file_name)
+                        send_tg_notification(f"[AutoISO] {CLOUDDRIVE_DELIVERY_NOTICE}")
                 except Exception as exc:
                     mark_upload_status(file_name, "failed", str(exc), task_id=task_id)
                     if row:
@@ -1759,7 +1762,8 @@ def process_single_upload(file_name):
                 set_upload_command("running")
                 update_current_upload_status(active=True, file_name=safe_name, status="uploading")
                 if get_notify_flag("notify_upload_start", True):
-                    send_tg_notification(f"[AutoISO] 📤 开始转移至网盘：{safe_name}")
+                    logger.info("[NAS] 任务 '%s' 开始转移至 CloudDrive。", safe_name)
+                    send_tg_notification(f"[AutoISO] 📤 开始转移至 CloudDrive：{safe_name}")
 
                 logger.info("🚀 [手动转移] 开始上传: %s", safe_name)
                 uploaded_ok = upload_file_with_progress(
@@ -1784,7 +1788,8 @@ def process_single_upload(file_name):
                     db.session.commit()
                 mark_upload_status(safe_name, "uploaded", f"uploaded to {dst_path}", task_id=task_id)
                 if get_notify_flag("notify_upload_end", True):
-                    send_tg_notification(f"[AutoISO] 🎉 转移完成：{safe_name} 已送达网盘。")
+                    logger.info("[NAS] 任务 '%s' 成功推入 CloudDrive，等待搬运。", safe_name)
+                    send_tg_notification(f"[AutoISO] {CLOUDDRIVE_DELIVERY_NOTICE}")
                 logger.info("🎉 [手动转移] 成功送达: %s", safe_name)
             except Exception as exc:
                 mark_upload_status(safe_name, "failed", str(exc), task_id=task_id)
@@ -1875,6 +1880,7 @@ def process_one_torrent(server: QBServer, client, torrent):
                 qb_remove_tags(client, torrent_hash, [PACKING_TAG])
                 qb_add_tags(client, torrent_hash, [FAILED_TAG])
                 if get_notify_flag("notify_pack_end", True):
+                    logger.info("[节点:%s] 任务 '%s' 单文件转存失败。", server.name, torrent.name)
                     send_tg_notification(
                         f"[AutoISO] ❌ 单文件转存失败 | 节点: {server.name} | 任务: {torrent.name}"
                     )
@@ -1899,6 +1905,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
+                logger.info("[节点:%s] 任务 '%s' 单文件转存成功，等待上传。", server.name, torrent.name)
                 send_tg_notification(
                     f"[AutoISO] ✅ 转存成功，等待上传 | 节点: {server.name} | 任务: {torrent.name}"
                 )
@@ -1913,6 +1920,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
             if get_notify_flag("notify_pack_end", True):
+                logger.info("[节点:%s] 任务 '%s' 封装失败(目录不存在)。", server.name, torrent.name)
                 send_tg_notification(f"[AutoISO] ❌ 封装失败 (目录不存在) | 节点: {server.name} | 任务: {torrent.name}")
             logger.error("封装失败：源目录不存在，任务=%s，路径=%s", torrent.name, source_path)
             return
@@ -1940,6 +1948,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
+                logger.info("[节点:%s] 任务 '%s' 封装成功，等待上传。", server.name, torrent.name)
                 send_tg_notification(f"[AutoISO] ✅ 封装成功，等待上传 | 节点: {server.name} | 任务: {torrent.name}")
             logger.info(" [本地封装] ISO 生成完毕: %s，耗时: %s", torrent.name, duration)
         else:
@@ -1953,6 +1962,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [FAILED_TAG])
             if get_notify_flag("notify_pack_end", True):
+                logger.info("[节点:%s] 任务 '%s' 封装失败。", server.name, torrent.name)
                 send_tg_notification(f"[AutoISO] ❌ 封装失败 | 节点: {server.name} | 任务: {torrent.name}")
             logger.error("封装失败，[节点:%s] 任务=%s，耗时=%s，原因=%s", server.name, torrent.name, duration, history.message)
     finally:
@@ -1977,6 +1987,7 @@ def process_all_qbs():
                     logger.warning("qB 节点连接失败(已抑制告警): node=%s err=%s", server.name, exc)
                 else:
                     logger.exception("qB 节点连接失败，节点=%s", server.name)
+                    logger.info("[节点:%s] 任务 '未知' 节点连接失败，已发送通知。", server.name)
                     send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
                 continue
 
@@ -1996,6 +2007,7 @@ def process_all_qbs():
                     qb_remove_tags(client, torrent_hash, [monitor_tag])
                     qb_add_tags(client, torrent_hash, [PACKING_TAG])
                     if get_notify_flag("notify_pack_start", True):
+                        logger.info("[节点:%s] 任务 '%s' 开始封装。", server.name, torrent.name)
                         send_tg_notification(f"[AutoISO] 🚀 开始封装 | 节点: {server.name} | 任务: {torrent.name}")
                     logger.info("开始封装任务，[节点:%s] 任务=%s", server.name, getattr(torrent, "name", "unknown"))
                     process_one_torrent(server, client, torrent)
@@ -2024,6 +2036,11 @@ def process_all_qbs():
                             exc,
                         )
                     else:
+                        logger.info(
+                            "[节点:%s] 任务 '%s' 处理异常，已发送通知。",
+                            server.name,
+                            getattr(torrent, "name", "unknown"),
+                        )
                         send_tg_notification(
                             f"[AutoISO] ❌ 任务异常 | 节点: {server.name} | 任务: {getattr(torrent, 'name', 'unknown')}"
                         )
@@ -2476,18 +2493,23 @@ def agent_report():
         logger.info("🔔 [节点动态] 边缘节点 '%s' 上的任务 '%s' 状态变更为: 【%s】", node, filename, new_status)
         if new_status == "封装中":
             if get_notify_flag("notify_pack_start", True):
+                logger.info("[节点:%s] 任务 '%s' 开始封装。", node, filename)
                 send_tg_notification(f"[AutoISO] 🚀 开始封装 | 节点: {node} | 任务: {filename}")
         elif new_status == "待上传 (阻塞中)":
             if get_notify_flag("notify_pack_end", True):
+                logger.info("[节点:%s] 任务 '%s' 封装完成，等待放行。", node, filename)
                 send_tg_notification(f"[AutoISO] ✅ 封装完成，等待放行 | 节点: {node} | 任务: {filename}")
         elif new_status == "上传中":
             if get_notify_flag("notify_upload_start", True):
-                send_tg_notification(f"[AutoISO] 📤 开始转移至网盘 | 节点: {node} | 任务: {filename}")
+                logger.info("[节点:%s] 任务 '%s' 开始转移至 CloudDrive。", node, filename)
+                send_tg_notification(f"[AutoISO] 📤 开始转移至 CloudDrive | 节点: {node} | 任务: {filename}")
         elif new_status == "成功":
             if get_notify_flag("notify_upload_end", True):
-                send_tg_notification(f"[AutoISO] 🎉 转移完成 | 节点: {node} | 任务: {filename} 已送达网盘。")
+                logger.info("[节点:%s] 任务 '%s' 成功推入 CloudDrive，等待搬运。", node, filename)
+                send_tg_notification(f"[AutoISO] {CLOUDDRIVE_DELIVERY_NOTICE}")
         elif new_status == "失败":
             if get_notify_flag("notify_pack_end", True) or get_notify_flag("notify_upload_end", True):
+                logger.info("[节点:%s] 任务 '%s' 处理失败。", node, filename)
                 send_tg_notification(f"[AutoISO] ❌ 任务处理失败 | 节点: {node} | 任务: {filename}")
 
     if status in {"finished", "error"}:
