@@ -221,7 +221,26 @@
             <div class="col-12 mt-4"><label class="form-label fw-bold text-dark mb-0">VPS 本地临时打包目录</label><div class="small text-muted mb-2 mt-1" style="font-size:0.75rem;">VPS上的高速硬盘路径，脚本会自动创建</div><input class="form-control form-control-sm border-primary" style="background:#f0f9ff;" name="temp_path" placeholder="VPS临时盘路径" value="/opt/autoiso_agent/temp" required></div>
             <div class="col-12 mt-3">
               <label class="form-label fw-bold text-danger mb-0">CD2 底层挂载根目录</label>
-              <div class="form-text text-muted mt-2" style="font-size: 12px;">建议：在网盘根目录新建个空文件夹（如：VPS专用接收站），在 CD2 网页端<span style="color: #ff9800; font-weight: 500;">源目录</span>选择该<span style="color: #409eff; font-weight: 500;">VPS专用接收站</span>，<span style="color: #ff9800; font-weight: 500;">挂载点</span>选至<span style="color: #409eff; font-weight: 500;">CloudNAS</span>，确保最终挂载点路径与下面完全一致。</div>
+              <div class="form-text text-muted mb-2 mt-1" style="font-size: 12px; line-height: 1.6;">
+                  <div style="margin-bottom: 2px; color: #94a3b8;">例：</div>
+                  <div style="padding-left: 16px;">
+                      <div style="display: flex;">
+                          <span style="color: #ff9800; width: 75px; text-align: justify; text-align-last: justify; margin-right: 8px;">网盘根目录</span>
+                          <span style="color: #94a3b8; margin-right: 4px;">:</span>
+                          <span style="color: #409eff; font-weight: 500;">VPS专用接收站</span>
+                      </div>
+                      <div style="display: flex;">
+                          <span style="color: #ff9800; width: 75px; text-align: justify; text-align-last: justify; margin-right: 8px;">CD2 源目录</span>
+                          <span style="color: #94a3b8; margin-right: 4px;">:</span>
+                          <span style="color: #409eff; font-weight: 500;">VPS专用接收站</span>
+                      </div>
+                      <div style="display: flex;">
+                          <span style="color: #ff9800; width: 75px; text-align: justify; text-align-last: justify; margin-right: 8px;">CD2挂载点</span>
+                          <span style="color: #94a3b8; margin-right: 4px;">:</span>
+                          <span style="color: #409eff; font-weight: 500;">CloudNAS</span>
+                      </div>
+                  </div>
+              </div>
               <input class="form-control form-control-sm border-danger text-danger fw-semibold" style="background:#fef2f2;" name="cd2_path" placeholder="/CloudNAS/VPS专用接收站" value="/CloudNAS/VPS专用接收站" required>
             </div>
             
