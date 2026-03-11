@@ -850,7 +850,7 @@ def reporter_loop():
         time.sleep(10)
 
 def worker_loop():
-    log("⚙️ 任务处理线程启动...")
+    log(" 任务处理并发线程启动...")
     while True:
         try:
             identity = get_identity()
@@ -861,79 +861,67 @@ def worker_loop():
             if not qb_url or not temp_path or not cd2_path:
                 time.sleep(10)
                 continue
-            if not os.path.exists(temp_path):
-                os.makedirs(temp_path, exist_ok=True)
-
+            if not os.path.exists(temp_path): os.makedirs(temp_path, exist_ok=True)
+            
             session = requests.Session()
-            res = session.post(
-                f"{qb_url}/api/v2/auth/login",
-                data={"username": config.get("qb_user"), "password": config.get("qb_pass")},
-                timeout=10
-            )
+            res = session.post(f"{qb_url}/api/v2/auth/login", data={"username": config.get("qb_user"), "password": config.get("qb_pass")}, timeout=10)
             if res.text != "Ok.":
                 time.sleep(10)
                 continue
-
+                
             res = session.get(f"{qb_url}/api/v2/torrents/info", timeout=10)
             torrents = res.json()
-            ready_to_process = []
+            
+            # 1. 遍历检查并执行封装
             for t in torrents:
                 tags = t.get('tags', '')
                 if '待封装' in tags and t.get('progress', 0) == 1:
-                    ready_to_process.append((t, 'pack'))
-                elif '已封装' in tags and os.path.exists(os.path.join(temp_path, f"{t['name']}.iso")):
-                    ready_to_process.append((t, 'upload'))
-
-            for t, action in ready_to_process:
-                name = t['name']
-                size_gb = t.get('size', 0) / (1024**3)
-                save_path = t.get('content_path')
-                if not save_path or not os.path.exists(save_path):
-                    save_path = os.path.join(t.get('save_path', ''), name)
-                iso_name = f"{name}.iso"
-                iso_temp = os.path.join(temp_path, iso_name)
-                iso_dest = os.path.join(cd2_path, iso_name)
-
-                if not os.path.exists(cd2_path):
-                    continue
-
-                if action == 'pack':
-                    log(f"====== 开始处理任务: {name} ======")
+                    name = t['name']
+                    size_gb = t.get('size', 0) / (1024**3)
+                    iso_name = f"{name}.iso"
+                    iso_temp = os.path.join(temp_path, iso_name)
+                    save_path = t.get('content_path')
+                    if not save_path or not os.path.exists(save_path):
+                        save_path = os.path.join(t.get('save_path', ''), name)
+                    
+                    log(f"====== 开始打包任务: {name} ======")
                     report(identity, iso_name, "packing", 10, size_gb=size_gb)
                     try:
-                        cmd = [
-                            "genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long",
-                            "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path
-                        ]
+                        cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
                         subprocess.run(cmd, check=True)
                         session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                         session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                        log(f" 打包完成，本地已生成 ISO，qB标签已变更为[已封装]: {iso_name}")
                     except Exception:
+                        log(f" 打包失败: {name}")
                         report(identity, iso_name, "error", 0, size_gb=size_gb)
-                        continue
-
-                report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
-                while True:
+                        
+            # 2. 遍历检查并执行上传
+            for t in torrents:
+                tags = t.get('tags', '')
+                name = t['name']
+                iso_name = f"{name}.iso"
+                iso_temp = os.path.join(temp_path, iso_name)
+                iso_dest = os.path.join(cd2_path, iso_name)
+                size_gb = t.get('size', 0) / (1024**3)
+                
+                if '已封装' in tags and os.path.exists(iso_temp) and os.path.exists(cd2_path):
+                    report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
                     try:
-                        up_res = requests.get(
-                            f"{identity['master_url']}/api/agent/can_upload",
-                            params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name},
-                            timeout=10
-                        )
+                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
                         if up_res.status_code == 200 and up_res.json().get("can_upload", True):
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(10)
-
-                report(identity, iso_name, "uploading", 50, size_gb=size_gb)
-                try:
-                    shutil.move(iso_temp, iso_dest)
-                    report(identity, iso_name, "finished", 100, size_gb=size_gb)
-                except Exception:
-                    report(identity, iso_name, "error", 0, size_gb=size_gb)
-        except Exception:
-            pass
+                            log(f" 获得主控放行许可！开始将其移入 CD2 网盘挂载点: {iso_name}")
+                            log(f" (提示: 移动 GB 级大文件至 FUSE 挂载点视同于跨国网络上传，可能需要几分钟至数十分钟。此期间由 CD2 内核默默上传，不会显示在 CD2 网页版的任务列表中，请耐心等待...)")
+                            report(identity, iso_name, "uploading", 50, size_gb=size_gb)
+                            try:
+                                shutil.move(iso_temp, iso_dest)
+                                log(f" 成功移入网盘挂载点！本地临时 ISO 已自动清理: {iso_name}")
+                                report(identity, iso_name, "finished", 100, size_gb=size_gb)
+                            except Exception:
+                                log(f" 移动至网盘挂载点失败: {iso_name}")
+                                report(identity, iso_name, "error", 0, size_gb=size_gb)
+                    except Exception: pass
+        except Exception: pass
         time.sleep(10)
 
 if __name__ == "__main__":
