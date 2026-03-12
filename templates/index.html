@@ -1407,8 +1407,8 @@ echo "------------------------------------------------"
         uploadForm.clouddrive_path.value=sys.clouddrive_path||'';
         uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;
         qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';
-        notify_task_add.checked=!!sys.notify_task_add;
-        notify_task_cancel.checked=!!sys.notify_task_cancel;
+        notify_task_add.checked=(sys.notify_task_add !== false);
+        notify_task_cancel.checked=(sys.notify_task_cancel !== false);
         notify_pack_start.checked=!!sys.notify_pack_start;
         notify_pack_end.checked=!!sys.notify_pack_end;
         notify_upload_start.checked=!!sys.notify_upload_start;

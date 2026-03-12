@@ -2810,6 +2810,8 @@ def get_system_settings():
             "notify_pack_end": get_notify_flag("notify_pack_end", True),
             "notify_upload_start": get_notify_flag("notify_upload_start", True),
             "notify_upload_end": get_notify_flag("notify_upload_end", True),
+            "notify_task_add": get_notify_flag("notify_task_add", True),
+            "notify_task_cancel": get_notify_flag("notify_task_cancel", True),
             "agent_token": get_agent_token(),
             "global_auto_upload": get_global_auto_upload(),
             "global_proxy": get_global_proxy(),
@@ -2844,6 +2846,8 @@ def save_system_settings():
         payload.get("notify_upload_start"), default=get_notify_flag("notify_upload_start", True)
     )
     notify_upload_end = parse_bool(payload.get("notify_upload_end"), default=get_notify_flag("notify_upload_end", True))
+    notify_task_add = parse_bool(payload.get("notify_task_add"), default=get_notify_flag("notify_task_add", True))
+    notify_task_cancel = parse_bool(payload.get("notify_task_cancel"), default=get_notify_flag("notify_task_cancel", True))
     agent_token = (payload.get("agent_token") or "").strip() if "agent_token" in payload else get_agent_token()
     global_auto_upload = parse_bool(payload.get("global_auto_upload"), default=get_global_auto_upload())
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
@@ -2884,6 +2888,8 @@ def save_system_settings():
     set_setting("notify_pack_end", "1" if notify_pack_end else "0")
     set_setting("notify_upload_start", "1" if notify_upload_start else "0")
     set_setting("notify_upload_end", "1" if notify_upload_end else "0")
+    set_setting("notify_task_add", "1" if notify_task_add else "0")
+    set_setting("notify_task_cancel", "1" if notify_task_cancel else "0")
     set_setting("agent_token", agent_token or DEFAULT_AGENT_TOKEN)
     set_setting("global_auto_upload", "1" if global_auto_upload else "0")
     if "global_auto_upload" in payload and global_auto_upload != current_global_auto_upload:
@@ -2903,6 +2909,8 @@ def save_system_settings():
             "notify_pack_end": notify_pack_end,
             "notify_upload_start": notify_upload_start,
             "notify_upload_end": notify_upload_end,
+            "notify_task_add": notify_task_add,
+            "notify_task_cancel": notify_task_cancel,
             "agent_token": agent_token or DEFAULT_AGENT_TOKEN,
             "global_auto_upload": global_auto_upload,
             "global_proxy": global_proxy,
