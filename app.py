@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.3"
+APP_VERSION = "v1.0.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -69,6 +69,8 @@ AGENT_TASKS = {}
 AGENT_TASKS_LOCK = threading.Lock()
 AGENT_PENDING_TASKS = {}
 AGENT_PENDING_TASKS_LOCK = threading.Lock()
+WAITING_TAG_TASKS = {}
+WAITING_TAG_TASKS_LOCK = threading.Lock()
 AGENT_TASK_TTL_SECONDS = int(os.getenv("AGENT_TASK_TTL_SECONDS", "3600"))
 UPLOAD_WHITELIST = set()
 UPLOAD_WHITELIST_LOCK = threading.Lock()
@@ -1974,6 +1976,7 @@ def process_all_qbs():
         servers = QBServer.query.all()
         monitor_tag = get_qb_monitor_tag()
         logger.info("开始轮询 qB 节点，监控标签=%s", monitor_tag)
+        current_waiting_tasks = {}
         for server in servers:
             if is_invalid_qb_server_url(getattr(server, "url", "")):
                 logger.warning("跳过无效 qB 节点 URL: node=%s url=%s", server.name, server.url)
@@ -1994,6 +1997,14 @@ def process_all_qbs():
             for torrent in torrents:
                 if not has_waiting_tag(getattr(torrent, "tags", "")):
                     continue
+                torrent_hash = getattr(torrent, "hash", "") or ""
+                task_key = f"{server.name}:{torrent_hash or getattr(torrent, 'name', '')}"
+                size_bytes = int(getattr(torrent, "size", 0) or getattr(torrent, "total_size", 0) or 0)
+                current_waiting_tasks[task_key] = {
+                    "task_name": getattr(torrent, "name", ""),
+                    "node": server.name,
+                    "size_gb": round(size_bytes / GB, 3),
+                }
                 try:
                     trigger_auto_scrape_async(getattr(torrent, "name", ""))
                 except Exception:
@@ -2002,7 +2013,6 @@ def process_all_qbs():
                 if float(getattr(torrent, "progress", 0)) != 1.0:
                     continue
 
-                torrent_hash = getattr(torrent, "hash", "")
                 try:
                     qb_remove_tags(client, torrent_hash, [monitor_tag])
                     qb_add_tags(client, torrent_hash, [PACKING_TAG])
@@ -2044,6 +2054,34 @@ def process_all_qbs():
                         send_tg_notification(
                             f"[AutoISO] ❌ 任务异常 | 节点: {server.name} | 任务: {getattr(torrent, 'name', 'unknown')}"
                         )
+        with WAITING_TAG_TASKS_LOCK:
+            previous_tasks = dict(WAITING_TAG_TASKS)
+            previous_keys = set(previous_tasks.keys())
+            current_keys = set(current_waiting_tasks.keys())
+            added_keys = current_keys - previous_keys
+            removed_keys = previous_keys - current_keys
+            WAITING_TAG_TASKS.clear()
+            WAITING_TAG_TASKS.update(current_waiting_tasks)
+
+        for key in added_keys:
+            meta = current_waiting_tasks.get(key, {})
+            task_name = meta.get("task_name") or "unknown"
+            node_name = meta.get("node") or "unknown"
+            size_gb = meta.get("size_gb")
+            size_text = f"{size_gb:.2f}GB" if isinstance(size_gb, (int, float)) else "-"
+            msg = f"[系统] 检测到新任务打上标签加入队列: {task_name} | 节点: {node_name} | 大小: {size_text}"
+            logger.info(msg)
+            if get_notify_flag("notify_task_add", True):
+                send_tg_notification(f"[AutoISO] {msg}")
+
+        for key in removed_keys:
+            meta = previous_tasks.get(key, {})
+            task_name = meta.get("task_name") or "unknown"
+            node_name = meta.get("node") or "unknown"
+            msg = f"[系统] 任务被移出待处理队列(取消标签/被删): {task_name} | 节点: {node_name}"
+            logger.info(msg)
+            if get_notify_flag("notify_task_cancel", True):
+                send_tg_notification(f"[AutoISO] {msg}")
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
@@ -3249,6 +3287,34 @@ def list_pending():
             continue
         filtered_rows.append(item)
 
+    scrape_keys = set()
+    for item in filtered_rows:
+        scrape_keys |= build_task_name_keys(item.get("title"))
+
+    if scrape_keys:
+        records = (
+            ScrapeRecord.query.filter(
+                ScrapeRecord.original_name.in_(list(scrape_keys)),
+                ScrapeRecord.status == SCRAPE_STATUS_SUCCESS,
+            )
+            .order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc())
+            .all()
+        )
+        record_map = {str(r.original_name or "").strip().lower(): r for r in records}
+        for item in filtered_rows:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            record = None
+            for key in build_task_name_keys(title):
+                record = record_map.get(str(key or "").strip().lower())
+                if record:
+                    break
+            if record and (record.title or "").strip():
+                year = str(record.year or "").strip()
+                display_title = str(record.title or "").strip()
+                item["display_name"] = f"{display_title} ({year})" if year else display_title
+
     filtered_rows.sort(key=lambda x: x.get("added_on", ""), reverse=True)
     return jsonify(filtered_rows)
 
@@ -3626,6 +3692,10 @@ with app.app_context():
         set_setting("notify_upload_start", "1")
     if not get_setting("notify_upload_end"):
         set_setting("notify_upload_end", "1")
+    if not get_setting("notify_task_add"):
+        set_setting("notify_task_add", "1")
+    if not get_setting("notify_task_cancel"):
+        set_setting("notify_task_cancel", "1")
     if not get_setting("agent_token"):
         set_setting("agent_token", DEFAULT_AGENT_TOKEN)
     if not get_setting("global_auto_upload"):
