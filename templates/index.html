@@ -369,15 +369,17 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">Chat ID</label><input class="form-control bg-light border-0" name="tg_chat_id" required></div>
               
               <div class="col-12 mt-4"><label class="form-label text-muted small fw-bold mb-3">通知事件开关</label></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
-              <div class="col-6 col-md-3"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_add" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_task_add">添加任务</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_cancel" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_task_cancel">取消任务</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
               
-              <div class="col-12 pt-4 d-flex gap-3">
-                  <button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button>
-                  <button class="btn btn-light border bg-white rounded-pill px-4 text-primary fw-medium shadow-sm" type="button" id="btnTestTg"><i class="bi bi-send me-2"></i>测试发送</button>
-                  <button class="btn btn-outline-danger rounded-pill px-4 ms-auto fw-medium shadow-sm" type="button" id="btnClearTg">清空配置</button>
+              <div class="col-12 pt-4 d-flex flex-wrap gap-2 justify-content-between">
+                  <button class="btn btn-primary rounded-pill px-3 fw-bold shadow" type="submit">保存设置</button>
+                  <button class="btn btn-light border bg-white rounded-pill px-3 text-primary fw-medium shadow-sm" type="button" id="btnTestTg"><i class="bi bi-send me-2"></i>测试发送</button>
+                  <button class="btn btn-outline-danger rounded-pill px-3 fw-medium shadow-sm" type="button" id="btnClearTg">清空配置</button>
               </div>
             </form>
           </div>
@@ -1405,6 +1407,8 @@ echo "------------------------------------------------"
         uploadForm.clouddrive_path.value=sys.clouddrive_path||'';
         uploadForm.delete_after_upload.checked=!!sys.delete_after_upload;
         qb_monitor_tag.value=sys.qb_monitor_tag||'待封装';
+        notify_task_add.checked=!!sys.notify_task_add;
+        notify_task_cancel.checked=!!sys.notify_task_cancel;
         notify_pack_start.checked=!!sys.notify_pack_start;
         notify_pack_end.checked=!!sys.notify_pack_end;
         notify_upload_start.checked=!!sys.notify_upload_start;
@@ -1421,7 +1425,7 @@ echo "------------------------------------------------"
         }
     }
     
-    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
+    async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_task_add:!!notify_task_add.checked,notify_task_cancel:!!notify_task_cancel.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
     async function loadQbServers(){const rows=await api('/api/qbservers');$('qbList').innerHTML=rows.length?rows.map(x=>`<tr><td class="ps-4 text-muted fw-medium">${x.id}</td><td class="fw-bold text-dark">${esc(x.name)}</td><td class="ellipsis-cell font-monospace text-secondary" style="font-size:0.8rem;" title="${esc(x.url)}">${esc(x.url)}</td><td class="fw-medium">${esc(x.username||'')}</td><td class="text-center align-middle pe-4"><button class="btn btn-light bg-white border text-primary btn-sm me-2 rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.name)}" data-url="${esc(x.url)}" data-username="${esc(x.username||'')}"><i class="bi bi-pencil"></i></button><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:32px;height:32px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="5" class="text-center text-muted py-5 border-0">暂无节点</td></tr>';}
     
     $('btnClearLogs').addEventListener('click', async () => {
