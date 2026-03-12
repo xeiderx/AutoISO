@@ -266,7 +266,7 @@
         <div class="col-lg-8">
           <div class="card h-100 bg-white"><div class="card-body p-0">
             <div class="table-responsive h-100">
-              <table class="table table-hover align-middle mb-0 border-0" style="min-width: 800px;">
+              <table class="table table-hover align-middle mb-0 border-0" style="min-width: 600px;">
                 <thead class="table-light"><tr><th class="ps-4 py-3">节点名称</th><th class="py-3">上传策略</th><th class="py-3">CD2 挂载路径</th><th class="text-center pe-4 py-3">操作</th></tr></thead>
                 <tbody id="agentNodeList"></tbody>
               </table>
@@ -676,7 +676,7 @@
                     <td class="text-center align-middle pe-4 text-nowrap">
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-success" onclick="fillDeployCode('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-plus me-1"></i>部署</button>
                         <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-1 fw-medium text-danger" onclick="openUninstallModal('${esc(x.node_name).replace(/'/g, "\\'")}')"><i class="bi bi-terminal-minus me-1"></i>卸载</button>
-                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志命令</button>
+                        <button class="btn btn-sm btn-light bg-white border shadow-sm rounded-pill px-2 me-2 fw-medium text-secondary" onclick="copyLogCommand()"><i class="bi bi-journal-code me-1"></i>日志</button>
                         
                         <button class="btn btn-sm btn-light bg-white border text-primary me-1 rounded-circle shadow-sm" style="width:30px;height:30px;padding:0;" data-act="edit" data-id="${x.id}" data-name="${esc(x.node_name)}" data-url="${esc(x.qb_url)}" data-user="${esc(x.qb_user||'')}" data-pass="${esc(x.qb_pass||'')}" data-cd2="${esc(x.cd2_path)}" data-temp="${esc(x.temp_path)}" data-policy="${p}" data-cron="${esc(x.upload_cron||'')}"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:30px;height:30px;padding:0;" data-act="delete" data-id="${x.id}"><i class="bi bi-trash"></i></button>
