@@ -1422,8 +1422,12 @@ echo "------------------------------------------------"
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_end_time)}</td>
-              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${fmtSec(x.duration_seconds)}</td>
-              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${fmtSec(x.upload_duration_seconds)}</td>
+              <td class="history-cell align-middle text-center">
+                <div class="time-col font-monospace text-muted" style="font-size:0.75rem;">${fmtSec(x.duration_seconds)}</div>
+              </td>
+              <td class="history-cell align-middle text-center">
+                <div class="time-col font-monospace text-muted" style="font-size:0.75rem;">${fmtSec(x.upload_duration_seconds)}</div>
+              </td>
               <td class="history-cell align-middle text-center"><button class="btn btn-sm btn-light bg-white border text-danger rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" onclick="deleteHistoryRecord(${x.id})" title="删除此记录"><i class="bi bi-trash"></i></button></td>
             </tr>`
         }).join('') : '<tr><td colspan="14" class="text-center text-muted py-5 border-0">暂无历史记录</td></tr>';
