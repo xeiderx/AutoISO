@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.4"
+APP_VERSION = "v1.0.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3302,7 +3302,7 @@ def list_pending():
     if scrape_keys:
         records = (
             ScrapeRecord.query.filter(
-                ScrapeRecord.original_name.in_(list(scrape_keys)),
+                func.lower(ScrapeRecord.original_name).in_(list(scrape_keys)),
                 ScrapeRecord.status == SCRAPE_STATUS_SUCCESS,
             )
             .order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc())
