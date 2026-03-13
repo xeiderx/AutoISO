@@ -1469,7 +1469,9 @@ echo "------------------------------------------------"
                 </div>
                 <div class="text-muted mb-3" style="font-size: 0.8rem;">
                   <div class="mb-1"><i class="bi bi-hdd me-1"></i>大小: ${Number(x.file_size_gb||0).toFixed(2)} GB</div>
-                  <div class="text-truncate"><i class="bi bi-hash me-1"></i>Hash: ${rawTaskName(x.task_name)}</div>
+                  <div class="text-truncate cursor-pointer" style="word-break: break-all; transition: all 0.3s ease;" onclick="this.classList.toggle('text-truncate')" title="点击展开/折叠">
+                    <i class="bi bi-hash me-1"></i>Hash: ${rawTaskName(x.task_name)}
+                  </div>
                 </div>
                 <div class="p-2 rounded" style="background-color: var(--bs-tertiary-bg); font-size: 0.75rem;">
                   <div class="d-flex justify-content-between text-muted mb-1">
