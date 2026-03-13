@@ -806,6 +806,7 @@ cat << 'EOF' > /opt/autoiso_agent/agent.py
 import os, sys, time, json, requests, subprocess, shutil, threading
 IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
 ERROR_COUNT = 0
+SPEED_STATE = {}
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
@@ -824,6 +825,24 @@ def get_config(identity):
 
 def report(identity, filename, status, progress=0, size_gb=0):
     url = f"{identity['master_url']}/api/agent/report"
+    speed_mbps = 0.0
+    try:
+        total_bytes = float(size_gb) * (1024**3)
+        progress_pct = max(0.0, min(100.0, float(progress or 0.0)))
+        processed_bytes = total_bytes * (progress_pct / 100.0)
+        now_ts = time.time()
+        prev = SPEED_STATE.get(filename)
+        if isinstance(prev, dict):
+            prev_bytes = float(prev.get("last_bytes", 0) or 0)
+            prev_ts = float(prev.get("last_ts", 0) or 0)
+            delta_t = now_ts - prev_ts
+            delta_b = processed_bytes - prev_bytes
+            if delta_t > 0 and delta_b >= 0:
+                speed_mbps = (delta_b / delta_t) / (1024 * 1024)
+        SPEED_STATE[filename] = {"last_bytes": processed_bytes, "last_ts": now_ts}
+    except Exception:
+        speed_mbps = 0.0
+
     payload = {
         "token": identity["token"],
         "node": identity["node_name"],
@@ -831,7 +850,7 @@ def report(identity, filename, status, progress=0, size_gb=0):
         "status": status,
         "progress": progress,
         "size_gb": size_gb,
-        "speed_mbps": 0,
+        "speed_mbps": speed_mbps,
         "eta_text": "-"
     }
     try:

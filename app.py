@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.5"
+APP_VERSION = "v1.0.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -107,6 +107,41 @@ SCRAPE_EPISODE_RE = re.compile(r"(?i)\b(?:S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|第\d
 SCRAPE_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 AGENT_UPLOAD_POLICIES = {"instant", "pause", "global", "custom"}
 AGENT_UPLOAD_DEFAULT_POLICY = "instant"
+
+
+def compute_agent_speed_mbps(previous, progress, file_size_gb, now_dt, fallback_speed=0.0):
+    if not file_size_gb or file_size_gb <= 0:
+        return fallback_speed, None
+
+    try:
+        progress_pct = max(0.0, min(100.0, float(progress or 0.0)))
+    except (TypeError, ValueError):
+        progress_pct = 0.0
+
+    total_bytes = float(file_size_gb) * GB
+    processed_bytes = total_bytes * (progress_pct / 100.0)
+
+    if not isinstance(previous, dict):
+        return fallback_speed, processed_bytes
+
+    prev_bytes = previous.get("last_processed_bytes")
+    prev_time = previous.get("last_update")
+    if not isinstance(prev_time, datetime):
+        return fallback_speed, processed_bytes
+
+    try:
+        prev_bytes_val = float(prev_bytes)
+    except (TypeError, ValueError):
+        return fallback_speed, processed_bytes
+
+    delta_time = (now_dt - prev_time).total_seconds()
+    delta_bytes = processed_bytes - prev_bytes_val
+    if delta_time <= 0 or delta_bytes < 0:
+        return fallback_speed, processed_bytes
+
+    speed_bps = delta_bytes / delta_time
+    speed_mbps = speed_bps / (1024 * 1024)
+    return speed_mbps, processed_bytes
 
 
 class QBServer(db.Model):
@@ -2554,15 +2589,29 @@ def agent_report():
         with AGENT_TASKS_LOCK:
             AGENT_TASKS.pop(filename, None)
     else:
+        previous_task = None
+        with AGENT_TASKS_LOCK:
+            previous_task = AGENT_TASKS.get(filename)
+
+        computed_speed, processed_bytes = compute_agent_speed_mbps(
+            previous_task,
+            progress,
+            file_size_gb,
+            last_update,
+            fallback_speed=speed_mbps,
+        )
+        final_speed = speed_mbps if speed_mbps > 0 else computed_speed
+
         with AGENT_TASKS_LOCK:
             AGENT_TASKS[filename] = {
                 "node": node,
                 "filename": filename,
                 "status": status,
                 "progress": progress,
-                "speed_mbps": speed_mbps,
+                "speed_mbps": final_speed,
                 "eta_text": eta_text,
                 "last_update": last_update,
+                "last_processed_bytes": processed_bytes,
             }
 
     if status in {"pending_upload", "finished"}:
