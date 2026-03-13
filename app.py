@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.8"
+APP_VERSION = "v1.0.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
