@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.0.6"
+APP_VERSION = "v1.0.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1420,6 +1420,18 @@ def format_data_size(gb_value):
         return f"{val:.2f} {unit}"
 
 
+def format_speed_mbps(speed_mbps):
+    try:
+        value = float(speed_mbps or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value <= 0:
+        return "0 MB/s"
+    if value < 1:
+        return f"{value * 1024:.0f} KB/s"
+    return f"{value:.1f} MB/s"
+
+
 def format_db_time(dt):
     if not dt:
         return ""
@@ -2609,6 +2621,7 @@ def agent_report():
                 "status": status,
                 "progress": progress,
                 "speed_mbps": final_speed,
+                "speed_text": format_speed_mbps(final_speed),
                 "eta_text": eta_text,
                 "last_update": last_update,
                 "last_processed_bytes": processed_bytes,
@@ -3681,6 +3694,7 @@ def get_stats():
         progress = max(0.0, min(100.0, float(task.get("progress", 0) or 0)))
         speed_mbps = float(task.get("speed_mbps", 0) or 0)
         eta_text = str(task.get("eta_text") or "-").strip() or "-"
+        speed_text = str(task.get("speed_text") or "").strip() or format_speed_mbps(speed_mbps)
         agent_tasks.append(
             {
                 "id": f"agent:{filename}",
@@ -3689,6 +3703,7 @@ def get_stats():
                 "status": task.get("status", "packing"),
                 "progress": round(progress, 2),
                 "speed_mbps": round(speed_mbps, 2),
+                "speed_text": speed_text,
                 "eta_text": eta_text,
                 "updated_at": format_db_time(last_update),
             }

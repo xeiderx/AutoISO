@@ -807,6 +807,8 @@ import os, sys, time, json, requests, subprocess, shutil, threading
 IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
 ERROR_COUNT = 0
 SPEED_STATE = {}
+GB = 1024**3
+REPORT_INTERVAL = 4.0
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
@@ -857,6 +859,49 @@ def report(identity, filename, status, progress=0, size_gb=0):
         requests.post(url, json=payload, timeout=10)
     except Exception:
         pass
+
+def safe_get_size(path):
+    try:
+        return os.path.getsize(path)
+    except Exception:
+        return 0
+
+def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func, stop_event):
+    def _runner():
+        last_report = 0.0
+        while not stop_event.is_set():
+            now_ts = time.time()
+            if now_ts - last_report >= REPORT_INTERVAL:
+                processed = 0
+                try:
+                    processed = float(get_bytes_func() or 0)
+                except Exception:
+                    processed = 0
+                total_bytes = float(size_gb) * GB if size_gb else 0
+                progress = 0.0
+                if total_bytes > 0:
+                    progress = min(100.0, (processed / total_bytes) * 100.0)
+                report(identity, filename, status, progress, size_gb=size_gb)
+                last_report = now_ts
+            time.sleep(0.5)
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    return t
+
+def copy_with_progress(src_path, dst_path, progress_state, progress_lock):
+    buf_size = 8 * 1024 * 1024
+    with open(src_path, "rb") as fsrc, open(dst_path, "wb") as fdst:
+        while True:
+            chunk = fsrc.read(buf_size)
+            if not chunk:
+                break
+            fdst.write(chunk)
+            with progress_lock:
+                progress_state["bytes"] += len(chunk)
+
+def get_progress_bytes(progress_state, progress_lock):
+    with progress_lock:
+        return progress_state.get("bytes", 0)
 
 def reporter_loop():
     global ERROR_COUNT
@@ -940,6 +985,15 @@ def worker_loop():
                     
                     log(f"====== 开始打包任务: {name} ======")
                     report(identity, iso_name, "packing", 10, size_gb=size_gb)
+                    pack_stop = threading.Event()
+                    pack_reporter = start_progress_reporter(
+                        identity,
+                        iso_name,
+                        "packing",
+                        size_gb,
+                        lambda p=iso_temp: safe_get_size(p),
+                        pack_stop,
+                    )
                     try:
                         cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
                         subprocess.run(cmd, check=True)
@@ -949,6 +1003,12 @@ def worker_loop():
                     except Exception:
                         log(f" 打包失败: {name}")
                         report(identity, iso_name, "error", 0, size_gb=size_gb)
+                    finally:
+                        pack_stop.set()
+                        try:
+                            pack_reporter.join(timeout=2)
+                        except Exception:
+                            pass
                         
             # 2. 遍历检查并执行上传
             for t in torrents:
@@ -968,7 +1028,34 @@ def worker_loop():
                             log(f" (提示: 移动 GB 级大文件至 FUSE 挂载点视同于跨国网络上传，可能需要几分钟至数十分钟。此期间由 CD2 内核默默上传，不会显示在 CD2 网页版的任务列表中，请耐心等待...)")
                             report(identity, iso_name, "uploading", 50, size_gb=size_gb)
                             try:
-                                shutil.move(iso_temp, iso_dest)
+                                if os.path.exists(iso_dest):
+                                    try:
+                                        os.remove(iso_dest)
+                                    except Exception:
+                                        pass
+                                progress_state = {"bytes": 0}
+                                progress_lock = threading.Lock()
+                                upload_stop = threading.Event()
+                                upload_reporter = start_progress_reporter(
+                                    identity,
+                                    iso_name,
+                                    "uploading",
+                                    size_gb,
+                                    lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl),
+                                    upload_stop,
+                                )
+                                try:
+                                    copy_with_progress(iso_temp, iso_dest, progress_state, progress_lock)
+                                finally:
+                                    upload_stop.set()
+                                    try:
+                                        upload_reporter.join(timeout=2)
+                                    except Exception:
+                                        pass
+                                try:
+                                    os.remove(iso_temp)
+                                except Exception:
+                                    pass
                                 log(f" 成功移入网盘挂载点！本地临时 ISO 已自动清理: {iso_name}")
                                 report(identity, iso_name, "finished", 100, size_gb=size_gb)
                             except Exception:
