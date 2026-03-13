@@ -1557,16 +1557,19 @@ echo "------------------------------------------------"
         const btnCancel = $('btnCancelManage');
         const btnConfirm = $('btnConfirmDelete');
         const checkboxes = document.querySelectorAll('.manage-checkbox-wrap');
+        const historyTable = $('historyTable');
 
         if (isEdit) {
             btnEnter.classList.add('d-none');
             btnCancel.classList.remove('d-none');
             btnConfirm.classList.remove('d-none');
+            if (historyTable) historyTable.classList.add('batch-mode');
             checkboxes.forEach(cb => cb.classList.remove('d-none'));
         } else {
             btnEnter.classList.remove('d-none');
             btnCancel.classList.add('d-none');
             btnConfirm.classList.add('d-none');
+            if (historyTable) historyTable.classList.remove('batch-mode');
             checkboxes.forEach(cb => {
                 cb.classList.add('d-none');
                 const input = cb.querySelector('input[type="checkbox"]');
