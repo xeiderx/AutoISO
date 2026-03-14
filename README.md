@@ -20,7 +20,7 @@ AutoISO 是一个专为 PT (Private Tracker) 玩家和影视发烧友设计的**
 ## 🏗️ 系统架构图
 
 ```text
-[ qBittorrent 节点集群 ]        [ AutoISO 边缘节点 (VPS) ]          [ CloudDrive2 (115网盘) ]
+[ qBittorrent 节点集群 ]        [ AutoISO 边缘节点 (VPS) ]          [ CloudDrive2 (网盘) ]
       | (监听状态)                   | (拉取任务/上报心跳)                  | (底层 FUSE 挂载)
       v                              v                                  v
 +-----------------------------------------------------------------------------------+
@@ -32,13 +32,49 @@ AutoISO 是一个专为 PT (Private Tracker) 玩家和影视发烧友设计的**
 
 ## 🚀 部署与安装
 
-### 1. 中央主控部署 (推荐在 NAS / 软路由上运行)
+### 1. 中央主控部署 (推荐使用 Docker)
 
-本项目提供开箱即用的 Flask Web 服务。请确保宿主机已安装 Python 3.8+ 及必要依赖。
+为了保证环境的一致性与最佳体验，强烈推荐使用 Docker Compose 进行一键部署。
 
+**方案一：Docker Compose部署**
+在你的 NAS 或服务器上新建一个目录（例如 `autoiso`），并在下面建个 `data`空文件夹和一个 `docker-compose.yml` 文件，填入以下内容：
+
+```yaml
+version: '3.8'
+
+services:
+  autoiso:
+    # 如果你本地有源码想自己编译，请使用 build: .
+    # 此处默认使用云端预编译的最新镜像
+    build: image: xeiderx/autoiso:latest 
+    container_name: autoiso
+    restart: unless-stopped
+    ports:
+      - "5123:5000"
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/data/autoiso.db
+      - OUTPUT_DIR=/output
+    volumes:
+      # 映射数据库与系统配置 (必填)
+      - ./data:/data
+      
+      # 【请修改】映射 qB 下载完成的路径 (只读)
+      # ⚠️ 注意：冒号右边的路径，必须和你 qBittorrent 容器内的路径完全一致！
+      - /path/to/your/downloads:/Downloads/封装前:ro 
+      
+      # 【请修改】映射 ISO 封装输出的临时存放点
+      - /path/to/your/output:/output
+      
+      # 【请修改】映射 CD2 网盘的底层挂载路径 (rslave 参数必填)
+      - /path/to/your/CloudNAS:/CloudNAS:rslave
+```
+
+**方案二：源码直接运行 (适合开发者)**
+如果你希望直接在宿主机运行，请确保已安装 Python 3.8+。
 ```bash
 # 克隆仓库
-git clone [https://github.com/yourusername/AutoISO.git](https://github.com/yourusername/AutoISO.git)
+git clone [https://github.com/xeiderx/AutoISO.git](https://github.com/xeiderx/AutoISO.git)
 cd AutoISO
 
 # 安装依赖
@@ -50,7 +86,7 @@ python3 app.py
 
 > **注**：默认运行在 `0.0.0.0:5000`。首次访问将自动初始化默认管理员账号（账号：`admin`，密码：`admin123`），请登录后立即前往“系统设置”修改密码。
 
-### 2. 边缘节点部署 (VPS 一键安装)
+### 2. (可选)边缘节点部署 (VPS 一键安装)
 
 **完全无需手动配环境！**
 1. 登录 AutoISO 主控 Web UI。
@@ -76,15 +112,15 @@ python3 app.py
 ## ⚠️ 最佳实践与注意事项
 
 **💡 强烈建议：为 VPS 节点分配专属的“空目录”作为网盘接收站**
-在使用海外 VPS 节点配置 CD2 的底层挂载路径（`cd2_path`）时，**千万不要**将其直接挂载到包含海量老文件的庞大影视库目录中。强烈建议在 115 网盘中新建一个专门的空文件夹（例如：`/VPS_Transfer`），专门作为中转接收站。
+在使用海外 VPS 节点配置 CD2 的底层挂载路径（`cd2_path`）时，**千万不要**将其直接挂载到包含海量老文件的庞大影视库目录中。强烈建议在网盘中新建一个专门的空文件夹（例如：`/VPS_Transfer`），专门作为中转接收站。
 
-* **原理解析（核心避坑）**：由于大多数 VPS 使用的是海外 IP，而 115 网盘对海外 IP 的 API 请求有着极其严格的**风控机制**。如果挂载的目录中包含海量文件，CloudDrive2 在底层同步时会频繁调用 115 的接口去扫描和比对目录树。**这种高频的 API 交互叠加海外 IP，极易触发 115 的风控雷达**，直接导致 VPS 网络假死、上传中断甚至账号限制。而使用**专属的空目录**，能将 API 调用量降到绝对的最低值，让 VPS 像个“透明人”一样只负责底层的数据传输，完美规避网盘风控！
+* **原理解析（核心避坑）**：由于大多数 VPS 使用的是海外 IP，而有些网盘对海外 IP 的 API 请求有着极其严格的**风控机制**。如果挂载的目录中包含海量文件，CloudDrive2 在底层同步时会频繁调用网盘的接口去扫描和比对目录树。**这种高频的 API 交互叠加海外 IP，极易触发这类网盘的风控雷达**，直接导致 VPS 网络假死、上传中断甚至账号限制。而使用**专属的空目录**，能将 API 调用量降到绝对的最低值，让 VPS 像个“透明人”一样只负责底层的数据传输，完美规避网盘风控！
 
 ---
 
 ## 🛠️ 常见问题 (FAQ)
 
-**Q: 为什么在 VPS 上点击“立即上传”后，115 网盘里没有立刻出现文件？**
+**Q: 为什么在 VPS 上点击“立即上传”后，网盘里没有立刻出现文件？**
 A: 这是正常的物理机制。VPS 收到立即上传指令后，脚本会瞬间将数十 GB 的文件移入 CloudDrive2 的本地 FUSE 缓存中（UI 会立刻变绿显示“已上传”）。随后，CD2 会在后台吃满你的 VPS 带宽，将文件通过跨国网络推向国内网盘。这个过程受限于实际网速，可能需要十几分钟至数小时。此时网盘端暂不显示文件，请耐心等待，不必焦虑。
 
 **Q: 为什么重启主控 NAS 的 Docker 容器后，VPS 会在短时间内断联？**

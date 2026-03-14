@@ -13,4 +13,5 @@ __pycache__/
 output/
 .vscode/
 .idea/
+.DS_Store
 docker-compose.yml
