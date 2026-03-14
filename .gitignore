@@ -13,3 +13,4 @@ __pycache__/
 output/
 .vscode/
 .idea/
+docker-compose.yml
