@@ -46,7 +46,7 @@ services:
   autoiso:
     # 如果你本地有源码想自己编译，请使用 build: .
     # 此处默认使用云端预编译的最新镜像
-    build: image: xeiderx/autoiso:latest 
+    image: xeiderx/autoiso:latest 
     container_name: autoiso
     restart: unless-stopped
     ports:
@@ -74,7 +74,7 @@ services:
 如果你希望直接在宿主机运行，请确保已安装 Python 3.8+。
 ```bash
 # 克隆仓库
-git clone [https://github.com/xeiderx/AutoISO.git](https://github.com/xeiderx/AutoISO.git)
+git clone https://github.com/xeiderx/AutoISO.git
 cd AutoISO
 
 # 安装依赖
