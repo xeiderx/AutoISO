@@ -1704,7 +1704,7 @@ def qb_add_tags(client, torrent_hash, tags):
 
 
 def try_bypass_rename(server, client, torrent):
-    if get_setting("rename_enabled") != "1":
+    if get_rename_enabled() != "1":
         return False
     tags_str = getattr(torrent, "tags", "")
     tags = set(parse_qb_tags(tags_str))
