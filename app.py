@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.6"
+APP_VERSION = "v1.1.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -482,13 +482,6 @@ def get_rename_enabled():
     return raw
 
 
-def strip_rename_suffix(text):
-    if not text:
-        return ""
-    cleaned = re.sub(r"\s*(\[.*?\]|【.*?】)", "", str(text))
-    return cleaned.strip()
-
-
 def normalize_agent_upload_policy(value):
     policy = (value or "").strip().lower()
     return policy if policy in AGENT_UPLOAD_POLICIES else AGENT_UPLOAD_DEFAULT_POLICY
@@ -883,9 +876,9 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
         return cached
 
     cleaned_name = strip_rename_suffix(name)
-    clean_title, clean_year = clean_filename(cleaned_name)
-    forced_keyword = strip_rename_suffix((preferred_keyword or "").strip())
-    keyword = forced_keyword or clean_title or cleaned_name or name
+    clean_title, clean_year = clean_filename(name)
+    forced_keyword = (preferred_keyword or "").strip()
+    keyword = forced_keyword or clean_title or name
     search_year = extract_year(forced_keyword) or clean_year
     try:
         matches = search_tmdb_candidates(keyword, limit=1, year=search_year)
@@ -895,8 +888,8 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
             matches = search_tmdb_candidates(clean_title, limit=1, year=clean_year)
         if not matches and clean_title and clean_title != keyword and clean_year:
             matches = search_tmdb_candidates(clean_title, limit=1)
-        if not matches and keyword != cleaned_name:
-            matches = search_tmdb_candidates(cleaned_name, limit=1)
+        if not matches and keyword != name:
+            matches = search_tmdb_candidates(name, limit=1)
         if matches:
             row = upsert_scrape_record(name, matches[0], SCRAPE_STATUS_SUCCESS)
             logger.info("🎬 [TMDB刮削] 成功匹配: %s -> 《%s》(%s)", name, row.title, row.year)
@@ -1683,6 +1676,37 @@ def append_suffix_before_ext(filename, suffix):
     return f"{base}{suffix}{ext}"
 
 
+def insert_suffix_smart(filename, suffix):
+    if not suffix:
+        return filename
+    name_no_ext, ext = os.path.splitext(filename)
+    if ext.lower() not in [".mkv", ".mp4", ".avi", ".ts", ".iso", ".rmvb"]:
+        name_no_ext = filename
+        ext = ""
+
+    import re
+    # 1. 尝试匹配年份 (19xx 或 20xx)
+    year_match = re.search(r"\b(19\d{2}|20\d{2})\b", name_no_ext)
+    if year_match:
+        pos = year_match.end()
+        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
+
+    # 2. 如果没有年份，寻找常见的分辨率/媒介标签作为电影名结束的锚点
+    qual_match = re.search(
+        r"\b(2160p|1080p|720p|4k|8k|bluray|web-dl|webrip|remux|x264|x265|hevc)\b",
+        name_no_ext,
+        re.IGNORECASE,
+    )
+    if qual_match:
+        pos = qual_match.start()
+        if pos > 0 and name_no_ext[pos - 1] in [".", " ", "-"]:
+            pos -= 1
+        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
+
+    # 3. 兜底方案：直接插在名字最后（扩展名之前）
+    return name_no_ext + suffix + ext
+
+
 def qb_remove_tags(client, torrent_hash, tags):
     if not torrent_hash or not tags:
         return
@@ -1750,7 +1774,7 @@ def try_bypass_rename(server, client, torrent):
             rel_dir = os.path.relpath(dirpath, staging_path)
             dest_dir = os.path.join(final_path, rel_dir)
             os.makedirs(dest_dir, exist_ok=True)
-            new_name = append_suffix_before_ext(fname, rename_suffix) if rename_suffix else fname
+            new_name = insert_suffix_smart(fname, rename_suffix)
             src_path = os.path.join(dirpath, fname)
             dst_path = os.path.join(dest_dir, new_name)
             try:
@@ -2023,12 +2047,16 @@ def process_one_torrent(server: QBServer, client, torrent):
         return
 
     try:
-        trigger_auto_scrape_async(getattr(torrent, "name", ""))
+        original_name = getattr(torrent, "name", "")
+        trigger_auto_scrape_async(original_name)
     except Exception:
         logger.exception("TMDB 自动刮削派发异常，任务=%s", getattr(torrent, "name", "unknown"))
 
     tags_str = getattr(torrent, "tags", "")
     rename_suffix = resolve_rename_suffix(tags_str)
+    original_name = getattr(torrent, "name", "")
+    final_name = insert_suffix_smart(original_name, rename_suffix)
+    safe_final_name = os.path.basename(final_name) if final_name else original_name
     source_path = resolve_source_path(torrent)
     source_size_bytes = get_path_size_bytes(source_path)
 
@@ -2042,8 +2070,7 @@ def process_one_torrent(server: QBServer, client, torrent):
     db.session.add(history)
     db.session.commit()
     try:
-        expected_output_name = os.path.basename(source_path) if os.path.isfile(source_path) else f"{torrent.name}.iso"
-        expected_output_name = append_suffix_before_ext(expected_output_name, rename_suffix)
+        expected_output_name = safe_final_name if os.path.isfile(source_path) else f"{safe_final_name}.iso"
         init_task_auto_upload(expected_output_name, history.id)
     except Exception:
         logger.exception("初始化任务自动上传状态失败，任务=%s", torrent.name)
@@ -2051,7 +2078,7 @@ def process_one_torrent(server: QBServer, client, torrent):
     started = now_local()
     torrent_hash = getattr(torrent, "hash", "")
     task_key = f"{server.id}:{torrent_hash or torrent.name}"
-    iso_task_name = f"{torrent.name}{rename_suffix}" if rename_suffix else torrent.name
+    iso_task_name = safe_final_name or torrent.name
     with ACTIVE_TASKS_LOCK:
         ACTIVE_TASKS[task_key] = {
             "task_name": torrent.name,
@@ -2065,9 +2092,7 @@ def process_one_torrent(server: QBServer, client, torrent):
 
     try:
         if os.path.isfile(source_path):
-            output_file = os.path.join(
-                OUTPUT_DIR, append_suffix_before_ext(os.path.basename(source_path), rename_suffix)
-            )
+            output_file = os.path.join(OUTPUT_DIR, safe_final_name or os.path.basename(source_path))
             logger.info("📦 [本地封装] 检测到单文件，开始极速转存: %s", torrent.name)
             logger.info(
                 "[节点:%s] 检测到单文件任务，跳过 ISO 封装，直接复制到待上传区：%s",
