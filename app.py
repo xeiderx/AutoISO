@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.0"
+APP_VERSION = "v1.1.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -48,6 +48,8 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 DEFAULT_UPLOAD_CRON = os.getenv("DEFAULT_UPLOAD_CRON", "0 2 * * *")
 DEFAULT_CLOUDDRIVE_PATH = os.getenv("DEFAULT_CLOUDDRIVE_PATH", "/CloudNAS/115/电影备份")
 DEFAULT_AGENT_TOKEN = os.getenv("AGENT_TOKEN", "autoiso_secret_token")
+DEFAULT_RENAME_TRIGGER_TAGS = os.getenv("RENAME_TRIGGER_TAGS", "MOVIEPILOT, 已整理")
+DEFAULT_RENAME_FINISH_TAG = os.getenv("RENAME_FINISH_TAG", "已重命名")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -228,6 +230,22 @@ class AgentNode(db.Model):
     upload_cron = db.Column(db.String(64), nullable=False, default="")
 
 
+class RenamePath(db.Model):
+    __tablename__ = "rename_paths"
+
+    id = db.Column(db.Integer, primary_key=True)
+    alias = db.Column(db.String(255), nullable=False)
+    path = db.Column(db.String(512), nullable=False)
+
+
+class RenameRule(db.Model):
+    __tablename__ = "rename_rules"
+
+    id = db.Column(db.Integer, primary_key=True)
+    qb_tag = db.Column(db.String(255), nullable=False, unique=True)
+    suffix = db.Column(db.String(255), nullable=False)
+
+
 def setup_logging():
     log_dir = os.path.dirname(LOG_FILE)
     if log_dir:
@@ -391,6 +409,30 @@ def ensure_schema():
         )
         conn.execute(text("DELETE FROM qb_servers WHERE url LIKE 'agent://%'"))
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS rename_paths (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alias VARCHAR(255) NOT NULL,
+                    path VARCHAR(512) NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS rename_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    qb_tag VARCHAR(255) NOT NULL UNIQUE,
+                    suffix VARCHAR(255) NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_rename_rules_qb_tag ON rename_rules(qb_tag)"))
+
 
 def get_setting(key):
     item = SystemSetting.query.filter_by(key=key).first()
@@ -431,6 +473,14 @@ def get_qb_monitor_tag():
 
 def get_agent_token():
     return (get_setting("agent_token") or "").strip() or DEFAULT_AGENT_TOKEN
+
+
+def get_rename_trigger_tags_raw():
+    return (get_setting("rename_trigger_tags") or DEFAULT_RENAME_TRIGGER_TAGS).strip() or DEFAULT_RENAME_TRIGGER_TAGS
+
+
+def get_rename_finish_tag():
+    return (get_setting("rename_finish_tag") or DEFAULT_RENAME_FINISH_TAG).strip() or DEFAULT_RENAME_FINISH_TAG
 
 
 def normalize_agent_upload_policy(value):
@@ -1598,6 +1648,34 @@ def has_waiting_tag(tags_str):
     return monitor_tag in tags
 
 
+def parse_qb_tags(tags_str):
+    return [tag.strip() for tag in (tags_str or "").split(",") if tag.strip()]
+
+
+def get_rename_trigger_tags():
+    raw = get_rename_trigger_tags_raw()
+    return [tag.strip() for tag in raw.split(",") if tag.strip()]
+
+
+def resolve_rename_suffix(tags_str):
+    tags = set(parse_qb_tags(tags_str))
+    if not tags:
+        return ""
+    rules = RenameRule.query.order_by(RenameRule.id.asc()).all()
+    for rule in rules:
+        qb_tag = (rule.qb_tag or "").strip()
+        if qb_tag and qb_tag in tags:
+            return (rule.suffix or "").strip()
+    return ""
+
+
+def append_suffix_before_ext(filename, suffix):
+    if not suffix:
+        return filename
+    base, ext = os.path.splitext(filename)
+    return f"{base}{suffix}{ext}"
+
+
 def qb_remove_tags(client, torrent_hash, tags):
     if not torrent_hash or not tags:
         return
@@ -1616,6 +1694,55 @@ def qb_add_tags(client, torrent_hash, tags):
         client.torrents_add_tags(tags=tags_text, torrent_hashes=torrent_hash)
     except TypeError:
         client.torrents_add_tags(tags=tags_text, hashes=torrent_hash)
+
+
+def try_bypass_rename(server, client, torrent):
+    tags_str = getattr(torrent, "tags", "")
+    tags = set(parse_qb_tags(tags_str))
+    trigger_tags = get_rename_trigger_tags()
+    finish_tag = get_rename_finish_tag()
+    if not trigger_tags:
+        return False
+    if not tags or not all(tag in tags for tag in trigger_tags):
+        return False
+    if finish_tag and finish_tag in tags:
+        return False
+
+    rename_suffix = resolve_rename_suffix(tags_str)
+    if not rename_suffix:
+        return False
+
+    search_paths = RenamePath.query.order_by(RenamePath.id.asc()).all()
+    if not search_paths:
+        return False
+
+    target_base = (getattr(torrent, "name", "") or "").strip()
+    if not target_base:
+        return False
+
+    for row in search_paths:
+        root = (row.path or "").strip()
+        alias = (row.alias or "").strip() or root
+        if not root or not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fname in filenames:
+                if os.path.splitext(fname)[0] != target_base:
+                    continue
+                src_path = os.path.join(dirpath, fname)
+                new_name = append_suffix_before_ext(fname, rename_suffix)
+                dst_path = os.path.join(dirpath, new_name)
+                try:
+                    os.rename(src_path, dst_path)
+                except Exception as exc:
+                    logger.exception("旁路改名失败: %s -> %s, err=%s", src_path, dst_path, exc)
+                    return False
+                logger.info("🔖 [旁路改名] 在[%s]路径下完成改名: %s -> %s", alias, src_path, dst_path)
+                torrent_hash = getattr(torrent, "hash", "") or ""
+                if finish_tag:
+                    qb_add_tags(client, torrent_hash, [finish_tag])
+                return True
+    return False
 
 
 def resolve_source_path(torrent):
@@ -1874,6 +2001,8 @@ def process_one_torrent(server: QBServer, client, torrent):
     except Exception:
         logger.exception("TMDB 自动刮削派发异常，任务=%s", getattr(torrent, "name", "unknown"))
 
+    tags_str = getattr(torrent, "tags", "")
+    rename_suffix = resolve_rename_suffix(tags_str)
     source_path = resolve_source_path(torrent)
     source_size_bytes = get_path_size_bytes(source_path)
 
@@ -1887,9 +2016,8 @@ def process_one_torrent(server: QBServer, client, torrent):
     db.session.add(history)
     db.session.commit()
     try:
-        expected_output_name = (
-            os.path.basename(source_path) if os.path.isfile(source_path) else f"{torrent.name}.iso"
-        )
+        expected_output_name = os.path.basename(source_path) if os.path.isfile(source_path) else f"{torrent.name}.iso"
+        expected_output_name = append_suffix_before_ext(expected_output_name, rename_suffix)
         init_task_auto_upload(expected_output_name, history.id)
     except Exception:
         logger.exception("初始化任务自动上传状态失败，任务=%s", torrent.name)
@@ -1897,20 +2025,23 @@ def process_one_torrent(server: QBServer, client, torrent):
     started = now_local()
     torrent_hash = getattr(torrent, "hash", "")
     task_key = f"{server.id}:{torrent_hash or torrent.name}"
+    iso_task_name = f"{torrent.name}{rename_suffix}" if rename_suffix else torrent.name
     with ACTIVE_TASKS_LOCK:
         ACTIVE_TASKS[task_key] = {
             "task_name": torrent.name,
             "server_name": server.name,
             "source_path": source_path,
             "source_size_bytes": source_size_bytes,
-            "iso_path": os.path.join(OUTPUT_DIR, f"{torrent.name}.iso{PACKING_SUFFIX}"),
+            "iso_path": os.path.join(OUTPUT_DIR, f"{iso_task_name}.iso{PACKING_SUFFIX}"),
             "start_time": started,
             "task_id": history.id,
         }
 
     try:
         if os.path.isfile(source_path):
-            output_file = os.path.join(OUTPUT_DIR, os.path.basename(source_path))
+            output_file = os.path.join(
+                OUTPUT_DIR, append_suffix_before_ext(os.path.basename(source_path), rename_suffix)
+            )
             logger.info("📦 [本地封装] 检测到单文件，开始极速转存: %s", torrent.name)
             logger.info(
                 "[节点:%s] 检测到单文件任务，跳过 ISO 封装，直接复制到待上传区：%s",
@@ -1976,7 +2107,7 @@ def process_one_torrent(server: QBServer, client, torrent):
 
         safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
         logger.info("💿 [本地封装] 正在将目录打包为 ISO 镜像: %s", torrent.name)
-        ok, iso_path, out, err = pack_to_iso(torrent.name, source_path, safe_vol_id)
+        ok, iso_path, out, err = pack_to_iso(iso_task_name, source_path, safe_vol_id)
         finished = now_local()
         duration = format_seconds((finished - started).total_seconds())
 
@@ -2042,6 +2173,11 @@ def process_all_qbs():
                 continue
 
             for torrent in torrents:
+                try:
+                    try_bypass_rename(server, client, torrent)
+                except Exception:
+                    logger.exception("旁路改名流程异常，节点=%s 任务=%s", server.name, getattr(torrent, "name", "unknown"))
+
                 if not has_waiting_tag(getattr(torrent, "tags", "")):
                     continue
                 torrent_hash = getattr(torrent, "hash", "") or ""
@@ -2857,6 +2993,66 @@ def scrape_bind_tmdb():
     )
 
 
+@app.route("/api/rename_paths", methods=["GET"])
+def list_rename_paths():
+    rows = RenamePath.query.order_by(RenamePath.id.desc()).all()
+    return jsonify([{"id": r.id, "alias": r.alias, "path": r.path} for r in rows])
+
+
+@app.route("/api/rename_paths", methods=["POST"])
+def add_rename_path():
+    payload = request.get_json(force=True) or {}
+    alias = (payload.get("alias") or "").strip()
+    path = (payload.get("path") or "").strip()
+    if not alias or not path:
+        return jsonify({"error": "alias 和 path 不能为空"}), 400
+    row = RenamePath(alias=alias, path=path)
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"ok": True, "id": row.id})
+
+
+@app.route("/api/rename_paths/<int:row_id>", methods=["DELETE"])
+def delete_rename_path(row_id):
+    row = RenamePath.query.filter_by(id=row_id).first()
+    if not row:
+        return jsonify({"error": "记录不存在"}), 404
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rename_rules", methods=["GET"])
+def list_rename_rules():
+    rows = RenameRule.query.order_by(RenameRule.id.desc()).all()
+    return jsonify([{"id": r.id, "qb_tag": r.qb_tag, "suffix": r.suffix} for r in rows])
+
+
+@app.route("/api/rename_rules", methods=["POST"])
+def add_rename_rule():
+    payload = request.get_json(force=True) or {}
+    qb_tag = (payload.get("qb_tag") or "").strip()
+    suffix = (payload.get("suffix") or "").strip()
+    if not qb_tag or not suffix:
+        return jsonify({"error": "qb_tag 和 suffix 不能为空"}), 400
+    if RenameRule.query.filter_by(qb_tag=qb_tag).first():
+        return jsonify({"error": "该 qB 标签已存在"}), 400
+    row = RenameRule(qb_tag=qb_tag, suffix=suffix)
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"ok": True, "id": row.id})
+
+
+@app.route("/api/rename_rules/<int:row_id>", methods=["DELETE"])
+def delete_rename_rule(row_id):
+    row = RenameRule.query.filter_by(id=row_id).first()
+    if not row:
+        return jsonify({"error": "记录不存在"}), 404
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/settings/system", methods=["GET"])
 @app.route("/api/config", methods=["GET"])
 def get_system_settings():
@@ -2879,6 +3075,8 @@ def get_system_settings():
             "global_proxy": get_global_proxy(),
             "enable_tmdb": get_enable_tmdb(),
             "tmdb_api_key": get_tmdb_api_key(),
+            "rename_trigger_tags": get_rename_trigger_tags_raw(),
+            "rename_finish_tag": get_rename_finish_tag(),
         }
     )
 
@@ -2915,6 +3113,14 @@ def save_system_settings():
     global_proxy = (payload.get("global_proxy") or "").strip() if "global_proxy" in payload else get_global_proxy()
     enable_tmdb = parse_bool(payload.get("enable_tmdb"), default=get_enable_tmdb())
     tmdb_api_key = (payload.get("tmdb_api_key") or "").strip() if "tmdb_api_key" in payload else get_tmdb_api_key()
+    rename_trigger_tags = (
+        (payload.get("rename_trigger_tags") or "").strip()
+        if "rename_trigger_tags" in payload
+        else get_rename_trigger_tags_raw()
+    )
+    rename_finish_tag = (
+        (payload.get("rename_finish_tag") or "").strip() if "rename_finish_tag" in payload else get_rename_finish_tag()
+    )
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -2959,6 +3165,8 @@ def save_system_settings():
     set_setting("global_proxy", global_proxy)
     set_setting("enable_tmdb", "1" if enable_tmdb else "0")
     set_setting("tmdb_api_key", tmdb_api_key)
+    set_setting("rename_trigger_tags", rename_trigger_tags or DEFAULT_RENAME_TRIGGER_TAGS)
+    set_setting("rename_finish_tag", rename_finish_tag or DEFAULT_RENAME_FINISH_TAG)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -2978,6 +3186,8 @@ def save_system_settings():
             "global_proxy": global_proxy,
             "enable_tmdb": enable_tmdb,
             "tmdb_api_key": tmdb_api_key,
+            "rename_trigger_tags": rename_trigger_tags or DEFAULT_RENAME_TRIGGER_TAGS,
+            "rename_finish_tag": rename_finish_tag or DEFAULT_RENAME_FINISH_TAG,
         }
     )
 
