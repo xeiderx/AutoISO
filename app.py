@@ -1662,11 +1662,12 @@ def resolve_rename_suffix(tags_str):
     if not tags:
         return ""
     rules = RenameRule.query.order_by(RenameRule.id.asc()).all()
+    suffixes = []
     for rule in rules:
         qb_tag = (rule.qb_tag or "").strip()
         if qb_tag and qb_tag in tags:
-            return (rule.suffix or "").strip()
-    return ""
+            suffixes.append((rule.suffix or "").strip())
+    return "".join(suffixes)
 
 
 def append_suffix_before_ext(filename, suffix):
@@ -2092,7 +2093,9 @@ def process_one_torrent(server: QBServer, client, torrent):
 
     try:
         if os.path.isfile(source_path):
-            output_file = os.path.join(OUTPUT_DIR, safe_final_name or os.path.basename(source_path))
+            actual_filename = os.path.basename(source_path)
+            single_final_name = insert_suffix_smart(actual_filename, rename_suffix)
+            output_file = os.path.join(OUTPUT_DIR, single_final_name)
             logger.info("📦 [本地封装] 检测到单文件，开始极速转存: %s", torrent.name)
             logger.info(
                 "[节点:%s] 检测到单文件任务，跳过 ISO 封装，直接复制到待上传区：%s",
