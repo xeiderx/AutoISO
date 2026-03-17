@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.4"
+APP_VERSION = "v1.1.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -52,6 +52,7 @@ DEFAULT_RENAME_TRIGGER_TAGS = os.getenv("RENAME_TRIGGER_TAGS", "MOVIEPILOT, 已�
 DEFAULT_RENAME_FINISH_TAG = os.getenv("RENAME_FINISH_TAG", "已重命名")
 DEFAULT_MP_STAGING_PATH = os.getenv("MP_STAGING_PATH", "/Downloads/MP-LINK缓存区")
 DEFAULT_MP_FINAL_PATH = os.getenv("MP_FINAL_PATH", "/Downloads/115-LINK")
+DEFAULT_RENAME_ENABLED = os.getenv("RENAME_ENABLED", "1")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -474,6 +475,20 @@ def get_mp_final_path():
     return (get_setting("mp_final_path") or DEFAULT_MP_FINAL_PATH).strip() or DEFAULT_MP_FINAL_PATH
 
 
+def get_rename_enabled():
+    raw = (get_setting("rename_enabled") or "").strip()
+    if raw == "":
+        return DEFAULT_RENAME_ENABLED
+    return raw
+
+
+def strip_rename_suffix(text):
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s*(\[.*?\]|【.*?】)", "", str(text))
+    return cleaned.strip()
+
+
 def normalize_agent_upload_policy(value):
     policy = (value or "").strip().lower()
     return policy if policy in AGENT_UPLOAD_POLICIES else AGENT_UPLOAD_DEFAULT_POLICY
@@ -867,9 +882,10 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
         logger.info("💡 [TMDB刮削] 命中本地缓存: %s -> %s", name, cached.title or cached.tmdb_id)
         return cached
 
-    clean_title, clean_year = clean_filename(name)
-    forced_keyword = (preferred_keyword or "").strip()
-    keyword = forced_keyword or clean_title or name
+    cleaned_name = strip_rename_suffix(name)
+    clean_title, clean_year = clean_filename(cleaned_name)
+    forced_keyword = strip_rename_suffix((preferred_keyword or "").strip())
+    keyword = forced_keyword or clean_title or cleaned_name or name
     search_year = extract_year(forced_keyword) or clean_year
     try:
         matches = search_tmdb_candidates(keyword, limit=1, year=search_year)
@@ -879,8 +895,8 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
             matches = search_tmdb_candidates(clean_title, limit=1, year=clean_year)
         if not matches and clean_title and clean_title != keyword and clean_year:
             matches = search_tmdb_candidates(clean_title, limit=1)
-        if not matches and keyword != name:
-            matches = search_tmdb_candidates(name, limit=1)
+        if not matches and keyword != cleaned_name:
+            matches = search_tmdb_candidates(cleaned_name, limit=1)
         if matches:
             row = upsert_scrape_record(name, matches[0], SCRAPE_STATUS_SUCCESS)
             logger.info("🎬 [TMDB刮削] 成功匹配: %s -> 《%s》(%s)", name, row.title, row.year)
@@ -1688,6 +1704,8 @@ def qb_add_tags(client, torrent_hash, tags):
 
 
 def try_bypass_rename(server, client, torrent):
+    if get_setting("rename_enabled") != "1":
+        return False
     tags_str = getattr(torrent, "tags", "")
     tags = set(parse_qb_tags(tags_str))
     trigger_tags = get_rename_trigger_tags()
@@ -3058,6 +3076,7 @@ def get_system_settings():
             "rename_finish_tag": get_rename_finish_tag(),
             "mp_staging_path": get_mp_staging_path(),
             "mp_final_path": get_mp_final_path(),
+            "rename_enabled": get_rename_enabled(),
         }
     )
 
@@ -3106,6 +3125,7 @@ def save_system_settings():
         (payload.get("mp_staging_path") or "").strip() if "mp_staging_path" in payload else get_mp_staging_path()
     )
     mp_final_path = (payload.get("mp_final_path") or "").strip() if "mp_final_path" in payload else get_mp_final_path()
+    rename_enabled = parse_bool(payload.get("rename_enabled"), default=(get_rename_enabled() != "0"))
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -3154,6 +3174,7 @@ def save_system_settings():
     set_setting("rename_finish_tag", rename_finish_tag or DEFAULT_RENAME_FINISH_TAG)
     set_setting("mp_staging_path", mp_staging_path or DEFAULT_MP_STAGING_PATH)
     set_setting("mp_final_path", mp_final_path or DEFAULT_MP_FINAL_PATH)
+    set_setting("rename_enabled", "1" if rename_enabled else "0")
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -3177,6 +3198,7 @@ def save_system_settings():
             "rename_finish_tag": rename_finish_tag or DEFAULT_RENAME_FINISH_TAG,
             "mp_staging_path": mp_staging_path or DEFAULT_MP_STAGING_PATH,
             "mp_final_path": mp_final_path or DEFAULT_MP_FINAL_PATH,
+            "rename_enabled": "1" if rename_enabled else "0",
         }
     )
 

@@ -414,6 +414,12 @@
           <div class="bg-white p-4 rounded-4 shadow-sm mb-4">
             <h6 class="mb-3 fw-bold text-dark d-flex align-items-center"><i class="bi bi-bell-fill me-2 text-warning"></i>全局触发设置</h6>
             <form id="renameSettingsForm" class="row g-4">
+              <div class="col-12">
+                <div class="form-check form-switch d-flex align-items-center gap-3 bg-light rounded-3 px-3 py-2">
+                  <input class="form-check-input m-0" type="checkbox" id="rename_enabled">
+                  <label class="form-check-label form-label text-muted small fw-bold mb-0" for="rename_enabled">启用命名与标签自动处理模块</label>
+                </div>
+              </div>
               <div class="col-md-6">
                 <label class="form-label text-muted small fw-bold">触发监控标签 (逗号分隔)</label>
                 <input id="rename_trigger_tags" class="form-control bg-light border-0" placeholder="MOVIEPILOT, 已整理" required>
@@ -1696,6 +1702,18 @@ echo "------------------------------------------------"
         $('rename_finish_tag').value = sys.rename_finish_tag || '已重命名';
         $('mp_staging_path').value = sys.mp_staging_path || '/Downloads/MP-LINK缓存区';
         $('mp_final_path').value = sys.mp_final_path || '/Downloads/115-LINK';
+        $('rename_enabled').checked = String(sys.rename_enabled || '1') !== '0';
+    }
+    
+    async function saveRenameSettings(){
+        const payload = {
+            rename_trigger_tags: $('rename_trigger_tags').value,
+            rename_finish_tag: $('rename_finish_tag').value,
+            mp_staging_path: $('mp_staging_path').value,
+            mp_final_path: $('mp_final_path').value,
+            rename_enabled: $('rename_enabled').checked ? '1' : '0'
+        };
+        await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });
     }
 
     async function loadRenameRules(){
@@ -1746,7 +1764,8 @@ echo "------------------------------------------------"
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value, global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('renameSettingsForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({rename_trigger_tags:$('rename_trigger_tags').value,rename_finish_tag:$('rename_finish_tag').value,mp_staging_path:$('mp_staging_path').value,mp_final_path:$('mp_final_path').value})});notify('保存成功','success');await loadRenameSettings();}catch(err){notify(err.message,'danger');}});
+    $('renameSettingsForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveRenameSettings();notify('保存成功','success');await loadRenameSettings();}catch(err){notify(err.message,'danger');}});
+    $('rename_enabled')?.addEventListener('change', async () => { try { await saveRenameSettings(); notify('保存成功','success'); await loadRenameSettings(); } catch(err){ notify(err.message,'danger'); } });
     $('renameRuleForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{const f=$('renameRuleForm');await api('/api/rename_rules',{method:'POST',body:JSON.stringify({qb_tag:f.qb_tag.value,suffix:f.suffix.value})});f.reset();notify('新增成功','success');await loadRenameRules();}catch(err){notify(err.message,'danger');}});
     $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
