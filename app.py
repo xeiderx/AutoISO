@@ -1,4 +1,4 @@
-﻿import atexit
+import atexit
 import hmac
 import logging
 import os
