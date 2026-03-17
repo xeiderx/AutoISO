@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.3"
+APP_VERSION = "v1.1.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -50,6 +50,8 @@ DEFAULT_CLOUDDRIVE_PATH = os.getenv("DEFAULT_CLOUDDRIVE_PATH", "/CloudNAS/115/�
 DEFAULT_AGENT_TOKEN = os.getenv("AGENT_TOKEN", "autoiso_secret_token")
 DEFAULT_RENAME_TRIGGER_TAGS = os.getenv("RENAME_TRIGGER_TAGS", "MOVIEPILOT, 已整理")
 DEFAULT_RENAME_FINISH_TAG = os.getenv("RENAME_FINISH_TAG", "已重命名")
+DEFAULT_MP_STAGING_PATH = os.getenv("MP_STAGING_PATH", "/Downloads/MP-LINK缓存区")
+DEFAULT_MP_FINAL_PATH = os.getenv("MP_FINAL_PATH", "/Downloads/115-LINK")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -230,14 +232,6 @@ class AgentNode(db.Model):
     upload_cron = db.Column(db.String(64), nullable=False, default="")
 
 
-class RenamePath(db.Model):
-    __tablename__ = "rename_paths"
-
-    id = db.Column(db.Integer, primary_key=True)
-    alias = db.Column(db.String(255), nullable=False)
-    path = db.Column(db.String(512), nullable=False)
-
-
 class RenameRule(db.Model):
     __tablename__ = "rename_rules"
 
@@ -412,17 +406,6 @@ def ensure_schema():
         conn.execute(
             text(
                 """
-                CREATE TABLE IF NOT EXISTS rename_paths (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    alias VARCHAR(255) NOT NULL,
-                    path VARCHAR(512) NOT NULL
-                )
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
                 CREATE TABLE IF NOT EXISTS rename_rules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     qb_tag VARCHAR(255) NOT NULL UNIQUE,
@@ -481,6 +464,14 @@ def get_rename_trigger_tags_raw():
 
 def get_rename_finish_tag():
     return (get_setting("rename_finish_tag") or DEFAULT_RENAME_FINISH_TAG).strip() or DEFAULT_RENAME_FINISH_TAG
+
+
+def get_mp_staging_path():
+    return (get_setting("mp_staging_path") or DEFAULT_MP_STAGING_PATH).strip() or DEFAULT_MP_STAGING_PATH
+
+
+def get_mp_final_path():
+    return (get_setting("mp_final_path") or DEFAULT_MP_FINAL_PATH).strip() or DEFAULT_MP_FINAL_PATH
 
 
 def normalize_agent_upload_policy(value):
@@ -1701,6 +1692,8 @@ def try_bypass_rename(server, client, torrent):
     tags = set(parse_qb_tags(tags_str))
     trigger_tags = get_rename_trigger_tags()
     finish_tag = get_rename_finish_tag()
+    staging_path = get_mp_staging_path()
+    final_path = get_mp_final_path()
     if not trigger_tags:
         return False
     if not tags or not all(tag in tags for tag in trigger_tags):
@@ -1709,14 +1702,7 @@ def try_bypass_rename(server, client, torrent):
         return False
 
     rename_suffix = resolve_rename_suffix(tags_str)
-    if not rename_suffix:
-        return False
-
     torrent_hash = getattr(torrent, "hash", "") or ""
-    search_paths = RenamePath.query.order_by(RenamePath.id.asc()).all()
-    if not search_paths:
-        return False
-
     target_base = (getattr(torrent, "name", "") or "").strip()
     if not target_base:
         return False
@@ -1726,10 +1712,7 @@ def try_bypass_rename(server, client, torrent):
         try:
             files = client.torrents_files(torrent_hash=torrent_hash)
             for f in files or []:
-                try:
-                    base = os.path.splitext(os.path.basename(getattr(f, "name", "") or ""))[0]
-                except Exception:
-                    base = ""
+                base = os.path.splitext(os.path.basename(getattr(f, "name", "") or ""))[0]
                 if base:
                     target_filenames.add(base)
         except Exception as exc:
@@ -1737,28 +1720,36 @@ def try_bypass_rename(server, client, torrent):
 
     logger.info("旁路改名命中触发条件: task=%s targets=%s", target_base, sorted(target_filenames))
 
-    for row in search_paths:
-        root = (row.path or "").strip()
-        alias = (row.alias or "").strip() or root
-        if not root or not os.path.isdir(root):
-            continue
-        for dirpath, _dirnames, filenames in os.walk(root):
-            for fname in filenames:
-                if os.path.splitext(fname)[0] not in target_filenames:
-                    continue
-                src_path = os.path.join(dirpath, fname)
-                new_name = append_suffix_before_ext(fname, rename_suffix)
-                dst_path = os.path.join(dirpath, new_name)
-                try:
-                    os.rename(src_path, dst_path)
-                except Exception as exc:
-                    logger.exception("旁路改名失败: %s -> %s, err=%s", src_path, dst_path, exc)
-                    return False
-                logger.info("🔖 [旁路改名] 在[%s]路径下完成改名: %s -> %s", alias, src_path, dst_path)
-                if finish_tag:
-                    qb_add_tags(client, torrent_hash, [finish_tag])
-                return True
-    logger.info("🔎 [旁路改名] 未找到匹配的硬链接文件: task=%s", target_base)
+    if not staging_path or not os.path.isdir(staging_path):
+        logger.warning("旁路改名缓存区不存在: %s", staging_path)
+        return False
+
+    moved = []
+    for dirpath, _dirnames, filenames in os.walk(staging_path):
+        for fname in filenames:
+            if os.path.splitext(fname)[0] not in target_filenames:
+                continue
+            rel_dir = os.path.relpath(dirpath, staging_path)
+            dest_dir = os.path.join(final_path, rel_dir)
+            os.makedirs(dest_dir, exist_ok=True)
+            new_name = append_suffix_before_ext(fname, rename_suffix) if rename_suffix else fname
+            src_path = os.path.join(dirpath, fname)
+            dst_path = os.path.join(dest_dir, new_name)
+            try:
+                shutil.move(src_path, dst_path)
+            except Exception as exc:
+                logger.exception("旁路转移失败: %s -> %s, err=%s", src_path, dst_path, exc)
+                continue
+            moved.append((src_path, dst_path))
+
+    if moved:
+        for src_path, dst_path in moved:
+            logger.info("🔖 [旁路转移] 成功移动: %s -> %s", src_path, dst_path)
+        if finish_tag:
+            qb_add_tags(client, torrent_hash, [finish_tag])
+        return True
+
+    logger.info("🔎 [旁路转移] 未找到匹配的缓存区文件: task=%s", target_base)
     return False
 
 
@@ -3010,35 +3001,6 @@ def scrape_bind_tmdb():
     )
 
 
-@app.route("/api/rename_paths", methods=["GET"])
-def list_rename_paths():
-    rows = RenamePath.query.order_by(RenamePath.id.desc()).all()
-    return jsonify([{"id": r.id, "alias": r.alias, "path": r.path} for r in rows])
-
-
-@app.route("/api/rename_paths", methods=["POST"])
-def add_rename_path():
-    payload = request.get_json(force=True) or {}
-    alias = (payload.get("alias") or "").strip()
-    path = (payload.get("path") or "").strip()
-    if not alias or not path:
-        return jsonify({"error": "alias 和 path 不能为空"}), 400
-    row = RenamePath(alias=alias, path=path)
-    db.session.add(row)
-    db.session.commit()
-    return jsonify({"ok": True, "id": row.id})
-
-
-@app.route("/api/rename_paths/<int:row_id>", methods=["DELETE"])
-def delete_rename_path(row_id):
-    row = RenamePath.query.filter_by(id=row_id).first()
-    if not row:
-        return jsonify({"error": "记录不存在"}), 404
-    db.session.delete(row)
-    db.session.commit()
-    return jsonify({"ok": True})
-
-
 @app.route("/api/rename_rules", methods=["GET"])
 def list_rename_rules():
     rows = RenameRule.query.order_by(RenameRule.id.desc()).all()
@@ -3094,6 +3056,8 @@ def get_system_settings():
             "tmdb_api_key": get_tmdb_api_key(),
             "rename_trigger_tags": get_rename_trigger_tags_raw(),
             "rename_finish_tag": get_rename_finish_tag(),
+            "mp_staging_path": get_mp_staging_path(),
+            "mp_final_path": get_mp_final_path(),
         }
     )
 
@@ -3138,6 +3102,10 @@ def save_system_settings():
     rename_finish_tag = (
         (payload.get("rename_finish_tag") or "").strip() if "rename_finish_tag" in payload else get_rename_finish_tag()
     )
+    mp_staging_path = (
+        (payload.get("mp_staging_path") or "").strip() if "mp_staging_path" in payload else get_mp_staging_path()
+    )
+    mp_final_path = (payload.get("mp_final_path") or "").strip() if "mp_final_path" in payload else get_mp_final_path()
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -3184,6 +3152,8 @@ def save_system_settings():
     set_setting("tmdb_api_key", tmdb_api_key)
     set_setting("rename_trigger_tags", rename_trigger_tags or DEFAULT_RENAME_TRIGGER_TAGS)
     set_setting("rename_finish_tag", rename_finish_tag or DEFAULT_RENAME_FINISH_TAG)
+    set_setting("mp_staging_path", mp_staging_path or DEFAULT_MP_STAGING_PATH)
+    set_setting("mp_final_path", mp_final_path or DEFAULT_MP_FINAL_PATH)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -3205,6 +3175,8 @@ def save_system_settings():
             "tmdb_api_key": tmdb_api_key,
             "rename_trigger_tags": rename_trigger_tags or DEFAULT_RENAME_TRIGGER_TAGS,
             "rename_finish_tag": rename_finish_tag or DEFAULT_RENAME_FINISH_TAG,
+            "mp_staging_path": mp_staging_path or DEFAULT_MP_STAGING_PATH,
+            "mp_final_path": mp_final_path or DEFAULT_MP_FINAL_PATH,
         }
     )
 

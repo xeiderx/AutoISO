@@ -422,34 +422,18 @@
                 <label class="form-label text-muted small fw-bold">完成防重标签</label>
                 <input id="rename_finish_tag" class="form-control bg-light border-0" placeholder="已重命名" required>
               </div>
+              <div class="col-md-6">
+                <label class="form-label text-muted small fw-bold">MP 缓存区路径 (源)</label>
+                <input id="mp_staging_path" class="form-control bg-light border-0" placeholder="/Downloads/MP-LINK缓存区" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label text-muted small fw-bold">最终目标路径 (目的)</label>
+                <input id="mp_final_path" class="form-control bg-light border-0" placeholder="/Downloads/115-LINK" required>
+              </div>
               <div class="col-12 pt-2">
                 <button class="btn btn-primary rounded-pill px-5 fw-bold shadow" type="submit">保存设置</button>
               </div>
             </form>
-          </div>
-        </div>
-        <div class="col-lg-6">
-          <div class="bg-white p-4 rounded-4 shadow-sm mb-4 h-100">
-            <h6 class="mb-3 fw-bold text-dark d-flex align-items-center"><i class="bi bi-folder-symlink me-2 text-primary"></i>硬链接搜索目录</h6>
-            <form id="renamePathForm" class="row g-4">
-              <div class="col-md-4">
-                <label class="form-label text-muted small fw-bold">别名</label>
-                <input class="form-control bg-light border-0" name="alias" placeholder="如：115 电影库" required>
-              </div>
-              <div class="col-md-8">
-                <label class="form-label text-muted small fw-bold">路径</label>
-                <input class="form-control bg-light border-0" name="path" placeholder="/Downloads/115-LINK" required>
-              </div>
-              <div class="col-12">
-                <button class="btn btn-outline-primary rounded-pill px-4 fw-bold shadow-sm" type="submit">新增目录</button>
-              </div>
-            </form>
-            <div class="table-responsive mt-4 bg-white rounded-4 shadow-sm">
-              <table class="table table-sm table-hover align-middle mb-0">
-                <thead class="table-light"><tr><th class="text-nowrap ps-4">别名</th><th>路径</th><th class="text-center text-nowrap pe-4">操作</th></tr></thead>
-                <tbody id="renamePathBody"></tbody>
-              </table>
-            </div>
           </div>
         </div>
         <div class="col-lg-6">
@@ -1710,13 +1694,8 @@ echo "------------------------------------------------"
         const sys = await api('/api/settings/system');
         $('rename_trigger_tags').value = sys.rename_trigger_tags || 'MOVIEPILOT, 已整理';
         $('rename_finish_tag').value = sys.rename_finish_tag || '已重命名';
-    }
-
-    async function loadRenamePaths(){
-        const rows = await api('/api/rename_paths');
-        $('renamePathBody').innerHTML = rows.length
-            ? rows.map(r => `<tr><td class="fw-medium text-nowrap ps-4">${esc(r.alias||'')}</td><td class="font-monospace text-secondary text-break" style="font-size:0.75rem; word-break: break-all;">${esc(r.path||'')}</td><td class="text-center text-nowrap pe-4"><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" data-act="delete-path" data-id="${r.id}"><i class="bi bi-trash"></i></button></td></tr>`).join('')
-            : '<tr><td colspan="3" class="text-center text-muted py-4 border-0">暂无目录</td></tr>';
+        $('mp_staging_path').value = sys.mp_staging_path || '/Downloads/MP-LINK缓存区';
+        $('mp_final_path').value = sys.mp_final_path || '/Downloads/115-LINK';
     }
 
     async function loadRenameRules(){
@@ -1751,7 +1730,7 @@ echo "------------------------------------------------"
     if(vid==='viewAgentNodes')await loadAgentNodes();
     if(vid==='viewHistory')await loadHistory();
     if(vid==='viewScrape')await loadScrapeRecords();
-    if(vid==='viewRename'){await loadRenameSettings();await loadRenamePaths();await loadRenameRules();}
+    if(vid==='viewRename'){await loadRenameSettings();await loadRenameRules();}
     });});
     
     $('btnForceCloseSidebar')?.addEventListener('click', () => { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); });
@@ -1759,7 +1738,6 @@ echo "------------------------------------------------"
     $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险：确定中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('已中止','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     qbForm.addEventListener('submit',async(e)=>{e.preventDefault();try{const id=(qbForm.qb_id.value||'').trim();if(id){await api('/api/qb/update',{method:'POST',body:JSON.stringify({id:Number(id),alias:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}else{await api('/api/qbservers',{method:'POST',body:JSON.stringify({name:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}await saveSystem();qbForm.reset();qbForm.qb_id.value='';notify('保存成功','success');await loadQbServers();}catch(err){notify(err.message,'danger');}});
     qbList.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act;if(act==='edit'){qbForm.qb_id.value=btn.dataset.id||'';qbForm.alias.value=btn.dataset.name||'';qbForm.url.value=btn.dataset.url||'';qbForm.username.value=btn.dataset.username||'';qbForm.password.value='';return;}if(act==='delete'){const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该 qB 节点吗？','删除节点'))return;try{await api(`/api/qbservers/${id}`,{method:'DELETE'});notify('已删除','success');await loadQbServers();}catch(err){notify(err.message,'danger');}}});
-    $('renamePathBody')?.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act="delete-path"]');if(!btn)return;const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该搜索目录吗？','删除目录'))return;try{await api(`/api/rename_paths/${id}`,{method:'DELETE'});notify('已删除','success');await loadRenamePaths();}catch(err){notify(err.message,'danger');}});
     $('renameRuleBody')?.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act="delete-rule"]');if(!btn)return;const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该标签规则吗？','删除规则'))return;try{await api(`/api/rename_rules/${id}`,{method:'DELETE'});notify('已删除','success');await loadRenameRules();}catch(err){notify(err.message,'danger');}});
     $('btnTestQb').addEventListener('click',async()=>{try{const d=await api('/api/qb/test',{method:'POST',body:JSON.stringify({url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});notify(d.message||'连接成功','success');}catch(err){notify(err.message,'danger');}});
     userForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
@@ -1768,8 +1746,7 @@ echo "------------------------------------------------"
     $('btnTestTg').addEventListener('click',async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({tg_token:tgForm.tg_token.value,tg_chat_id:tgForm.tg_chat_id.value})});notify('测试通知发送成功','success');}catch(err){notify(err.message,'danger');}});
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value, global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
-    $('renameSettingsForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({rename_trigger_tags:$('rename_trigger_tags').value,rename_finish_tag:$('rename_finish_tag').value})});notify('保存成功','success');await loadRenameSettings();}catch(err){notify(err.message,'danger');}});
-    $('renamePathForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{const f=$('renamePathForm');await api('/api/rename_paths',{method:'POST',body:JSON.stringify({alias:f.alias.value,path:f.path.value})});f.reset();notify('新增成功','success');await loadRenamePaths();}catch(err){notify(err.message,'danger');}});
+    $('renameSettingsForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({rename_trigger_tags:$('rename_trigger_tags').value,rename_finish_tag:$('rename_finish_tag').value,mp_staging_path:$('mp_staging_path').value,mp_final_path:$('mp_final_path').value})});notify('保存成功','success');await loadRenameSettings();}catch(err){notify(err.message,'danger');}});
     $('renameRuleForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{const f=$('renameRuleForm');await api('/api/rename_rules',{method:'POST',body:JSON.stringify({qb_tag:f.qb_tag.value,suffix:f.suffix.value})});f.reset();notify('新增成功','success');await loadRenameRules();}catch(err){notify(err.message,'danger');}});
     $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
