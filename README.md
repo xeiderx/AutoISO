@@ -59,9 +59,9 @@ services:
       # 映射数据库与系统配置 (必填)
       - ./data:/data
       
-      # 【请修改】映射 qB 下载完成的路径 (只读)
+      # 【请修改】映射 qB 下载完成的路径 (可以映射整个文件夹)
       # ⚠️ 注意：冒号右边的路径，必须和你 qBittorrent 容器内的路径完全一致！
-      - /path/to/your/downloads:/Downloads/封装前:ro 
+      - /path/to/your/downloads:/Downloads
       
       # 【请修改】映射 ISO 封装输出的临时存放点
       - /path/to/your/output:/output

@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.2"
+APP_VERSION = "v1.1.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1712,6 +1712,7 @@ def try_bypass_rename(server, client, torrent):
     if not rename_suffix:
         return False
 
+    torrent_hash = getattr(torrent, "hash", "") or ""
     search_paths = RenamePath.query.order_by(RenamePath.id.asc()).all()
     if not search_paths:
         return False
@@ -1720,6 +1721,22 @@ def try_bypass_rename(server, client, torrent):
     if not target_base:
         return False
 
+    target_filenames = {target_base}
+    if torrent_hash:
+        try:
+            files = client.torrents_files(torrent_hash=torrent_hash)
+            for f in files or []:
+                try:
+                    base = os.path.splitext(os.path.basename(getattr(f, "name", "") or ""))[0]
+                except Exception:
+                    base = ""
+                if base:
+                    target_filenames.add(base)
+        except Exception as exc:
+            logger.warning("获取种子文件列表失败: hash=%s err=%s", torrent_hash, exc)
+
+    logger.info("旁路改名命中触发条件: task=%s targets=%s", target_base, sorted(target_filenames))
+
     for row in search_paths:
         root = (row.path or "").strip()
         alias = (row.alias or "").strip() or root
@@ -1727,7 +1744,7 @@ def try_bypass_rename(server, client, torrent):
             continue
         for dirpath, _dirnames, filenames in os.walk(root):
             for fname in filenames:
-                if os.path.splitext(fname)[0] != target_base:
+                if os.path.splitext(fname)[0] not in target_filenames:
                     continue
                 src_path = os.path.join(dirpath, fname)
                 new_name = append_suffix_before_ext(fname, rename_suffix)
@@ -1738,10 +1755,10 @@ def try_bypass_rename(server, client, torrent):
                     logger.exception("旁路改名失败: %s -> %s, err=%s", src_path, dst_path, exc)
                     return False
                 logger.info("🔖 [旁路改名] 在[%s]路径下完成改名: %s -> %s", alias, src_path, dst_path)
-                torrent_hash = getattr(torrent, "hash", "") or ""
                 if finish_tag:
                     qb_add_tags(client, torrent_hash, [finish_tag])
                 return True
+    logger.info("🔎 [旁路改名] 未找到匹配的硬链接文件: task=%s", target_base)
     return False
 
 
