@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.7"
+APP_VERSION = "v1.1.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -875,7 +875,6 @@ def auto_scrape_for_original_name(original_name, preferred_keyword=""):
         logger.info("💡 [TMDB刮削] 命中本地缓存: %s -> %s", name, cached.title or cached.tmdb_id)
         return cached
 
-    cleaned_name = strip_rename_suffix(name)
     clean_title, clean_year = clean_filename(name)
     forced_keyword = (preferred_keyword or "").strip()
     keyword = forced_keyword or clean_title or name
