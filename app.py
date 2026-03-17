@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.5"
+APP_VERSION = "v1.1.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3074,8 +3074,8 @@ def get_system_settings():
             "tmdb_api_key": get_tmdb_api_key(),
             "rename_trigger_tags": get_rename_trigger_tags_raw(),
             "rename_finish_tag": get_rename_finish_tag(),
-            "mp_staging_path": get_mp_staging_path(),
-            "mp_final_path": get_mp_final_path(),
+            "mp_staging_path": get_setting("mp_staging_path") or "/Downloads/MP-LINK缓存区",
+            "mp_final_path": get_setting("mp_final_path") or "/Downloads/115-LINK",
             "rename_enabled": get_rename_enabled(),
         }
     )
@@ -3172,8 +3172,10 @@ def save_system_settings():
     set_setting("tmdb_api_key", tmdb_api_key)
     set_setting("rename_trigger_tags", rename_trigger_tags or DEFAULT_RENAME_TRIGGER_TAGS)
     set_setting("rename_finish_tag", rename_finish_tag or DEFAULT_RENAME_FINISH_TAG)
-    set_setting("mp_staging_path", mp_staging_path or DEFAULT_MP_STAGING_PATH)
-    set_setting("mp_final_path", mp_final_path or DEFAULT_MP_FINAL_PATH)
+    if "mp_staging_path" in payload:
+        set_setting("mp_staging_path", mp_staging_path)
+    if "mp_final_path" in payload:
+        set_setting("mp_final_path", mp_final_path)
     set_setting("rename_enabled", "1" if rename_enabled else "0")
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
