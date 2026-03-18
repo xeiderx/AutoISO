@@ -3685,6 +3685,7 @@ def list_pending_uploads():
 
         rows.append(
             {
+                "id": history_row.id if history_row else 0,
                 "filename": safe_filename,
                 "size": size_gb,
                 "size_gb": size_gb,
@@ -3729,6 +3730,7 @@ def list_pending_uploads():
         node_policy = agent_policy_map.get(node_name, AGENT_UPLOAD_DEFAULT_POLICY)
         rows.append(
             {
+                "id": history_row.id,
                 "filename": filename,
                 "size": size_gb,
                 "size_gb": size_gb,
@@ -3741,7 +3743,8 @@ def list_pending_uploads():
         )
         seen_filenames.add(filename_key)
 
-    rows.sort(key=lambda x: str(x.get("display_name") or "").lower())
+    # 按 ID 升序排列：ID 越小（时间越早）的任务排在越前面
+    rows.sort(key=lambda x: x.get("id", 0))
     return jsonify(rows)
 
 
