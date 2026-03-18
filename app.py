@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.2"
+APP_VERSION = "v1.2.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1795,6 +1795,11 @@ def try_bypass_rename(server, client, torrent):
             logger.info("🔖 [旁路转移] 成功移动: %s -> %s", src_path, dst_path)
         if finish_tag:
             qb_add_tags(client, torrent_hash, [finish_tag])
+        # 新增：为旁路改名成功的任务触发 TMDB 刮削
+        try:
+            trigger_auto_scrape_async(target_base)
+        except Exception as exc:
+            logger.warning("旁路改名后触发刮削失败: task=%s err=%s", target_base, exc)
         return True
 
     logger.info("🔎 [旁路转移] 未找到匹配的缓存区文件: task=%s", target_base)
