@@ -891,6 +891,41 @@ def get_identity():
     with open(IDENTITY_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+def insert_suffix_smart(filename, suffix):
+    if not suffix: return filename
+    name_no_ext, ext = os.path.splitext(filename)
+    if ext.lower() not in ['.mkv', '.mp4', '.avi', '.ts', '.iso', '.rmvb']:
+        name_no_ext = filename
+        ext = ""
+    import re
+    year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', name_no_ext)
+    if year_match:
+        pos = year_match.end()
+        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
+    qual_match = re.search(r'\\b(2160p|1080p|720p|4k|8k|bluray|web-dl|webrip|remux|x264|x265|hevc)\\b', name_no_ext, re.IGNORECASE)
+    if qual_match:
+        pos = qual_match.start()
+        if pos > 0 and name_no_ext[pos-1] in ['.', ' ', '-']: pos -= 1
+        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
+    return name_no_ext + suffix + ext
+
+def resolve_rename_suffix_for_agent(tags_str, server_url, agent_token):
+    if not tags_str: return ""
+    tags = [t.strip() for t in tags_str.split(',') if t.strip()]
+    if not tags: return ""
+    suffixes = []
+    try:
+        resp = requests.get(f"{server_url}/api/agent/rename_rules", params={"token": agent_token}, timeout=10)
+        if resp.status_code == 200:
+            rules = resp.json().get("rules", [])
+            for tag in tags:
+                for rule in rules:
+                    if rule.get("qb_tag") == tag and rule.get("suffix"):
+                        suffixes.append(rule.get("suffix"))
+    except Exception as e:
+        print(f"获取改名规则失败: {e}")
+    return "".join(suffixes)
+
 def get_config(identity):
     url = f"{identity['master_url']}/api/agent/config"
     r = requests.get(url, params={"node_name": identity["node_name"], "token": identity["token"]}, timeout=10)
@@ -1049,91 +1084,103 @@ def worker_loop():
                 if '待封装' in tags and t.get('progress', 0) == 1:
                     name = t['name']
                     size_gb = t.get('size', 0) / (1024**3)
-                    iso_name = f"{name}.iso"
-                    iso_temp = os.path.join(temp_path, iso_name)
                     save_path = t.get('content_path')
                     if not save_path or not os.path.exists(save_path):
                         save_path = os.path.join(t.get('save_path', ''), name)
                     
-                    log(f"====== 开始打包任务: {name} ======")
-                    report(identity, iso_name, "packing", 10, size_gb=size_gb)
-                    pack_stop = threading.Event()
-                    pack_reporter = start_progress_reporter(
-                        identity,
-                        iso_name,
-                        "packing",
-                        size_gb,
-                        lambda p=iso_temp: safe_get_size(p),
-                        pack_stop,
-                    )
-                    try:
-                        cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", iso_temp, save_path]
-                        subprocess.run(cmd, check=True)
-                        session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
-                        session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
-                        log(f" 打包完成，本地已生成 ISO，qB标签已变更为[已封装]: {iso_name}")
-                    except Exception:
-                        log(f" 打包失败: {name}")
-                        report(identity, iso_name, "error", 0, size_gb=size_gb)
-                    finally:
-                        pack_stop.set()
+                    rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
+                    
+                    if os.path.isfile(save_path):
+                        actual_filename = os.path.basename(save_path)
+                        final_name = insert_suffix_smart(actual_filename, rename_suffix)
+                        target_temp = os.path.join(temp_path, final_name)
+                        log(f"====== 开始单文件转存: {name} ======")
+                        report(identity, final_name, "packing", 10, size_gb=size_gb)
                         try:
-                            pack_reporter.join(timeout=2)
-                        except Exception:
-                            pass
-                        
+                            if os.path.abspath(save_path) != os.path.abspath(target_temp):
+                                shutil.copy2(save_path, target_temp)
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            log(f" 转存完成，已生成单文件: {final_name}")
+                        except Exception as e:
+                            log(f" 转存失败: {name}, error: {e}")
+                            report(identity, final_name, "error", 0, size_gb=size_gb)
+                    else:
+                        base_iso_name = insert_suffix_smart(name, rename_suffix)
+                        final_name = f"{base_iso_name}.iso"
+                        target_temp = os.path.join(temp_path, final_name)
+                        log(f"====== 开始打包任务: {name} ======")
+                        report(identity, final_name, "packing", 10, size_gb=size_gb)
+                        pack_stop = threading.Event()
+                        pack_reporter = start_progress_reporter(
+                            identity, final_name, "packing", size_gb, lambda p=target_temp: safe_get_size(p), pack_stop
+                        )
+                        try:
+                            cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", target_temp, save_path]
+                            subprocess.run(cmd, check=True)
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            log(f" 打包完成，已生成 ISO: {final_name}")
+                        except Exception as e:
+                            log(f" 打包失败: {name}, error: {e}")
+                            report(identity, final_name, "error", 0, size_gb=size_gb)
+                        finally:
+                            pack_stop.set()
+                            try: pack_reporter.join(timeout=2)
+                            except Exception: pass
             # 2. 遍历检查并执行上传
             for t in torrents:
                 tags = t.get('tags', '')
                 name = t['name']
-                iso_name = f"{name}.iso"
-                iso_temp = os.path.join(temp_path, iso_name)
-                iso_dest = os.path.join(cd2_path, iso_name)
                 size_gb = t.get('size', 0) / (1024**3)
                 
-                if '已封装' in tags and os.path.exists(iso_temp) and os.path.exists(cd2_path):
-                    report(identity, iso_name, "pending_upload", 100, size_gb=size_gb)
+                rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
+                save_path = t.get('content_path')
+                if not save_path or not os.path.exists(save_path):
+                    save_path = os.path.join(t.get('save_path', ''), name)
+                
+                if os.path.isfile(save_path):
+                    actual_filename = os.path.basename(save_path)
+                    final_name = insert_suffix_smart(actual_filename, rename_suffix)
+                else:
+                    base_iso_name = insert_suffix_smart(name, rename_suffix)
+                    final_name = f"{base_iso_name}.iso"
+            
+                target_temp = os.path.join(temp_path, final_name)
+                target_dest = os.path.join(cd2_path, final_name)
+                
+                if '已封装' in tags and os.path.exists(target_temp) and os.path.exists(cd2_path):
+                    report(identity, final_name, "pending_upload", 100, size_gb=size_gb)
                     try:
-                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": iso_name}, timeout=10)
+                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": final_name}, timeout=10)
                         if up_res.status_code == 200 and up_res.json().get("can_upload", True):
-                            log(f" 获得主控放行许可！开始将其移入 CD2 网盘挂载点: {iso_name}")
-                            log(f" (提示: 移动 GB 级大文件至 FUSE 挂载点视同于跨国网络上传，可能需要几分钟至数十分钟。此期间由 CD2 内核默默上传，不会显示在 CD2 网页版的任务列表中，请耐心等待...)")
-                            report(identity, iso_name, "uploading", 50, size_gb=size_gb)
+                            log(f" 获得主控放行许可！开始移入 CD2: {final_name}")
+                            report(identity, final_name, "uploading", 50, size_gb=size_gb)
                             try:
-                                if os.path.exists(iso_dest):
-                                    try:
-                                        os.remove(iso_dest)
-                                    except Exception:
-                                        pass
+                                if os.path.exists(target_dest):
+                                    try: os.remove(target_dest)
+                                    except Exception: pass
                                 progress_state = {"bytes": 0}
                                 progress_lock = threading.Lock()
                                 upload_stop = threading.Event()
                                 upload_reporter = start_progress_reporter(
-                                    identity,
-                                    iso_name,
-                                    "uploading",
-                                    size_gb,
-                                    lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl),
-                                    upload_stop,
+                                    identity, final_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
                                 )
                                 try:
-                                    copy_with_progress(iso_temp, iso_dest, progress_state, progress_lock)
+                                    copy_with_progress(target_temp, target_dest, progress_state, progress_lock)
                                 finally:
                                     upload_stop.set()
-                                    try:
-                                        upload_reporter.join(timeout=2)
-                                    except Exception:
-                                        pass
-                                try:
-                                    os.remove(iso_temp)
-                                except Exception:
-                                    pass
-                                log(f" 成功移入网盘挂载点！本地临时 ISO 已自动清理: {iso_name}")
-                                report(identity, iso_name, "finished", 100, size_gb=size_gb)
-                            except Exception:
-                                log(f" 移动至网盘挂载点失败: {iso_name}")
-                                report(identity, iso_name, "error", 0, size_gb=size_gb)
+                                    try: upload_reporter.join(timeout=2)
+                                    except Exception: pass
+                                try: os.remove(target_temp)
+                                except Exception: pass
+                                log(f" 成功移入网盘挂载点: {final_name}")
+                                report(identity, final_name, "finished", 100, size_gb=size_gb)
+                            except Exception as e:
+                                log(f" 移入失败: {final_name}, err: {e}")
+                                report(identity, final_name, "error", 0, size_gb=size_gb)
                     except Exception: pass
+
         except Exception: pass
         time.sleep(10)
 

@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.9"
+APP_VERSION = "v1.2.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -291,7 +291,13 @@ def auth_guard():
     public_endpoints = {"login", "static"}
     if endpoint in public_endpoints:
         return
-    if request.path in ["/api/agent/report", "/api/agent/pending", "/api/agent/config", "/api/agent/can_upload"]:
+    if request.path in [
+        "/api/agent/report",
+        "/api/agent/pending",
+        "/api/agent/config",
+        "/api/agent/can_upload",
+        "/api/agent/rename_rules",
+    ]:
         return
     if session.get("logged_in"):
         return
@@ -2886,6 +2892,21 @@ def get_agent_config():
     data = serialize_agent_node(row)
     data["delete_after_upload"] = bool(get_delete_after_upload())
     return jsonify(data)
+
+
+@app.route("/api/agent/rename_rules", methods=["GET"])
+def agent_rename_rules():
+    token = (request.args.get("token") or "").strip()
+    if not token or not hmac.compare_digest(token, get_agent_token()):
+        return jsonify({"error": "Forbidden"}), 403
+
+    rules = RenameRule.query.order_by(RenameRule.id.asc()).all()
+    return jsonify(
+        {
+            "ok": True,
+            "rules": [{"qb_tag": r.qb_tag, "suffix": r.suffix} for r in rules],
+        }
+    )
 
 
 @app.route("/api/agent/whitelist_upload", methods=["POST"])
