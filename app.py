@@ -2825,8 +2825,6 @@ def agent_report():
     if status in {"pending_upload", "finished"}:
         try:
             scrape_name = clean_agent_report_filename(filename)
-            if scrape_name and scrape_name != filename:
-                logger.info("Agent %s 刮削名称清洗: %s -> %s", status, filename, scrape_name)
             trigger_auto_scrape_async(filename, search_keyword=scrape_name or filename)
         except Exception:
             logger.exception("Agent %s 派发 TMDB 刮削失败: node=%s file=%s", status, node, filename)
@@ -3734,8 +3732,7 @@ def list_pending_uploads():
         task_name = os.path.basename(str(history_row.task_name or "").strip())
         if not task_name:
             continue
-        task_base = os.path.splitext(task_name)[0]
-        filename = f"{task_base}.iso"
+        filename = task_name
         filename_key = filename.lower()
         if filename_key in seen_filenames:
             continue
@@ -3759,7 +3756,7 @@ def list_pending_uploads():
                 "node_policy": node_policy,
                 "status": "待上传 (阻塞中)",
                 "auto_upload": True,
-                "display_name": build_display_name(task_base),
+                "display_name": build_display_name(task_name),
             }
         )
         seen_filenames.add(filename_key)
