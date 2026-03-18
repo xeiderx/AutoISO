@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.1.8"
+APP_VERSION = "v1.1.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3669,11 +3669,17 @@ def list_pending_uploads():
         status_text = "uploaded" if upload_status == "uploaded" else "pending"
 
         task_name = os.path.splitext(safe_filename)[0]
-        history_row = (
-            PackHistory.query.filter(PackHistory.task_name.in_([safe_filename, task_name]))
-            .order_by(PackHistory.id.desc())
-            .first()
-        )
+        # 优先通过 task_id 精准查找原始封装记录
+        history_row = PackHistory.query.get(upload_row.task_id) if upload_row and upload_row.task_id else None
+        if not history_row:
+            history_row = (
+                PackHistory.query.filter(PackHistory.task_name.in_([safe_filename, task_name]))
+                .order_by(PackHistory.id.desc())
+                .first()
+            )
+
+        # 提取最原始的任务名（不带标签后缀的干净名字）用于获取刮削中文名
+        original_task_name = history_row.task_name if history_row else task_name
         node_name = resolve_pack_history_node_name(history_row)
         node_policy = agent_policy_map.get(node_name, "")
 
@@ -3686,7 +3692,7 @@ def list_pending_uploads():
                 "node_policy": node_policy,
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(safe_filename)),
-                "display_name": build_display_name(task_name),
+                "display_name": build_display_name(original_task_name),
             }
         )
         seen_filenames.add(filename_key)
@@ -3735,6 +3741,7 @@ def list_pending_uploads():
         )
         seen_filenames.add(filename_key)
 
+    rows.sort(key=lambda x: str(x.get("display_name") or "").lower())
     return jsonify(rows)
 
 
