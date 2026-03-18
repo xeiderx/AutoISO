@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.1"
+APP_VERSION = "v1.2.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3084,6 +3084,38 @@ def add_rename_rule():
     db.session.add(row)
     db.session.commit()
     return jsonify({"ok": True, "id": row.id})
+
+
+@app.route("/api/rename_rules/update", methods=["POST"])
+def update_rename_rule():
+    payload = request.get_json(force=True) or {}
+    rule_id = payload.get("id")
+    qb_tag = (payload.get("qb_tag") or "").strip()
+    suffix = (payload.get("suffix") or "").strip()
+
+    try:
+        rule_id = int(rule_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "id、qb_tag 和 suffix 不能为空"}), 400
+
+    if not rule_id or not qb_tag or not suffix:
+        return jsonify({"error": "id、qb_tag 和 suffix 不能为空"}), 400
+
+    row = RenameRule.query.filter_by(id=rule_id).first()
+    if not row:
+        return jsonify({"error": "记录不存在"}), 404
+
+    conflict = RenameRule.query.filter(
+        RenameRule.qb_tag == qb_tag,
+        RenameRule.id != rule_id,
+    ).first()
+    if conflict:
+        return jsonify({"error": "该 qB 标签已存在"}), 400
+
+    row.qb_tag = qb_tag
+    row.suffix = suffix
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/rename_rules/<int:row_id>", methods=["DELETE"])

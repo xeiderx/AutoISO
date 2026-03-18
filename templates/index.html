@@ -444,6 +444,7 @@
           <div class="bg-white p-4 rounded-4 shadow-sm mb-4 h-100">
             <h6 class="mb-3 fw-bold text-dark d-flex align-items-center"><i class="bi bi-tags-fill me-2 text-success"></i>自定义标签后缀</h6>
             <form id="renameRuleForm" class="row g-4">
+              <input type="hidden" name="rule_id" id="rename_rule_id">
               <div class="col-md-6">
                 <label class="form-label text-muted small fw-bold">qB 标签</label>
                 <input class="form-control bg-light border-0" name="qb_tag" placeholder="如：特效字幕" required>
@@ -452,8 +453,9 @@
                 <label class="form-label text-muted small fw-bold">对应后缀</label>
                 <input class="form-control bg-light border-0" name="suffix" placeholder="[特效字幕]" required>
               </div>
-              <div class="col-12">
-                <button class="btn btn-outline-success rounded-pill px-4 fw-bold shadow-sm" type="submit">新增规则</button>
+              <div class="col-12 d-flex gap-2">
+                <button class="btn btn-outline-success rounded-pill px-4 fw-bold shadow-sm" type="submit" id="btnRenameRuleSubmit">新增规则</button>
+                <button class="btn btn-light border rounded-pill px-4 text-secondary fw-medium shadow-sm d-none" type="button" id="btnRenameRuleCancel">取消编辑</button>
               </div>
             </form>
             <div class="table-responsive mt-4 bg-white rounded-4 shadow-sm">
@@ -1798,8 +1800,22 @@ echo "------------------------------------------------"
     async function loadRenameRules(){
         const rows = await api('/api/rename_rules');
         $('renameRuleBody').innerHTML = rows.length
-            ? rows.map(r => `<tr><td class="fw-medium text-nowrap ps-4">${esc(r.qb_tag||'')}</td><td class="font-monospace text-secondary text-break" style="font-size:0.8rem; word-break: break-all;">${esc(r.suffix||'')}</td><td class="text-center text-nowrap pe-4"><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" data-act="delete-rule" data-id="${r.id}"><i class="bi bi-trash"></i></button></td></tr>`).join('')
+            ? rows.map(r => `<tr><td class="fw-medium text-nowrap ps-4">${esc(r.qb_tag||'')}</td><td class="font-monospace text-secondary text-break" style="font-size:0.8rem; word-break: break-all;">${esc(r.suffix||'')}</td><td class="text-center text-nowrap pe-4"><button class="btn btn-light bg-white border text-primary btn-sm me-1 rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" data-act="edit-rule" data-id="${r.id}" data-qb-tag="${esc(r.qb_tag||'')}" data-suffix="${esc(r.suffix||'')}"><i class="bi bi-pencil"></i></button><button class="btn btn-light bg-white border text-danger btn-sm rounded-circle shadow-sm" style="width:28px;height:28px;padding:0;" data-act="delete-rule" data-id="${r.id}"><i class="bi bi-trash"></i></button></td></tr>`).join('')
             : '<tr><td colspan="3" class="text-center text-muted py-4 border-0">暂无规则</td></tr>';
+    }
+
+    function resetRenameRuleForm(){
+        const f = $('renameRuleForm');
+        if(!f) return;
+        f.reset();
+        f.rule_id.value = '';
+        const submitBtn = $('btnRenameRuleSubmit');
+        if(submitBtn){
+            submitBtn.textContent = '新增规则';
+            submitBtn.classList.remove('btn-primary');
+            submitBtn.classList.add('btn-outline-success');
+        }
+        $('btnRenameRuleCancel')?.classList.add('d-none');
     }
     
     async function saveSystem(){const p1=(userForm.auth_password.value||'').trim(),p2=(userForm.auth_password_confirm.value||'').trim();if((p1||p2)&&p1!==p2)throw new Error('两次密码输入不一致');await api('/api/settings/system',{method:'POST',body:JSON.stringify({auth_username:userForm.auth_username.value,auth_password:p1,auth_password_confirm:p2,global_auto_upload:!!uploadForm.global_auto_upload.checked,upload_cron:uploadForm.upload_cron.value,clouddrive_path:uploadForm.clouddrive_path.value,qb_monitor_tag:qb_monitor_tag.value,delete_after_upload:!!uploadForm.delete_after_upload.checked,notify_task_add:!!notify_task_add.checked,notify_task_cancel:!!notify_task_cancel.checked,notify_pack_start:!!notify_pack_start.checked,notify_pack_end:!!notify_pack_end.checked,notify_upload_start:!!notify_upload_start.checked,notify_upload_end:!!notify_upload_end.checked,global_proxy:$('sys_global_proxy').value,enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value})});userForm.auth_password.value='';userForm.auth_password_confirm.value='';}
@@ -1835,7 +1851,38 @@ echo "------------------------------------------------"
     $('btnUploadAbort').addEventListener('click',async()=>{if(!await ask('危险：确定中止当前上传吗？','中止上传'))return;try{await api('/api/upload/control',{method:'POST',body:JSON.stringify({action:'abort'})});notify('已中止','warning');await loadStatsAndProgress();}catch(e){notify(e.message,'danger');}});
     qbForm.addEventListener('submit',async(e)=>{e.preventDefault();try{const id=(qbForm.qb_id.value||'').trim();if(id){await api('/api/qb/update',{method:'POST',body:JSON.stringify({id:Number(id),alias:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}else{await api('/api/qbservers',{method:'POST',body:JSON.stringify({name:qbForm.alias.value,url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});}await saveSystem();qbForm.reset();qbForm.qb_id.value='';notify('保存成功','success');await loadQbServers();}catch(err){notify(err.message,'danger');}});
     qbList.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act]');if(!btn)return;const act=btn.dataset.act;if(act==='edit'){qbForm.qb_id.value=btn.dataset.id||'';qbForm.alias.value=btn.dataset.name||'';qbForm.url.value=btn.dataset.url||'';qbForm.username.value=btn.dataset.username||'';qbForm.password.value='';return;}if(act==='delete'){const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该 qB 节点吗？','删除节点'))return;try{await api(`/api/qbservers/${id}`,{method:'DELETE'});notify('已删除','success');await loadQbServers();}catch(err){notify(err.message,'danger');}}});
-    $('renameRuleBody')?.addEventListener('click',async(e)=>{const btn=e.target.closest('button[data-act="delete-rule"]');if(!btn)return;const id=Number(btn.dataset.id||0);if(!id)return;if(!await ask('确定删除该标签规则吗？','删除规则'))return;try{await api(`/api/rename_rules/${id}`,{method:'DELETE'});notify('已删除','success');await loadRenameRules();}catch(err){notify(err.message,'danger');}});
+    $('renameRuleBody')?.addEventListener('click',async(e)=>{
+      const btn=e.target.closest('button[data-act]');
+      if(!btn)return;
+      const act=btn.dataset.act;
+      if(act==='edit-rule'){
+        const f=$('renameRuleForm');
+        if(!f)return;
+        f.rule_id.value=btn.dataset.id||'';
+        f.qb_tag.value=btn.dataset.qbTag||'';
+        f.suffix.value=btn.dataset.suffix||'';
+        const submitBtn=$('btnRenameRuleSubmit');
+        if(submitBtn){
+          submitBtn.textContent='保存修改';
+          submitBtn.classList.remove('btn-outline-success');
+          submitBtn.classList.add('btn-primary');
+        }
+        $('btnRenameRuleCancel')?.classList.remove('d-none');
+        f.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      if(act==='delete-rule'){
+        const id=Number(btn.dataset.id||0);
+        if(!id)return;
+        if(!await ask('确定删除该标签规则吗？','删除规则'))return;
+        try{
+          await api(`/api/rename_rules/${id}`,{method:'DELETE'});
+          if(($('renameRuleForm')?.rule_id.value||'')===String(id)) resetRenameRuleForm();
+          notify('已删除','success');
+          await loadRenameRules();
+        }catch(err){notify(err.message,'danger');}
+      }
+    });
     $('btnTestQb').addEventListener('click',async()=>{try{const d=await api('/api/qb/test',{method:'POST',body:JSON.stringify({url:qbForm.url.value,username:qbForm.username.value,password:qbForm.password.value})});notify(d.message||'连接成功','success');}catch(err){notify(err.message,'danger');}});
     userForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
     uploadForm.addEventListener('submit',async(e)=>{e.preventDefault();try{await saveSystem();notify('保存成功','success');}catch(err){notify(err.message,'danger');}});
@@ -1889,7 +1936,25 @@ echo "------------------------------------------------"
             }
         });
     });
-    $('renameRuleForm')?.addEventListener('submit',async(e)=>{e.preventDefault();try{const f=$('renameRuleForm');await api('/api/rename_rules',{method:'POST',body:JSON.stringify({qb_tag:f.qb_tag.value,suffix:f.suffix.value})});f.reset();notify('新增成功','success');await loadRenameRules();}catch(err){notify(err.message,'danger');}});
+    $('btnRenameRuleCancel')?.addEventListener('click',()=>{resetRenameRuleForm();});
+    $('renameRuleForm')?.addEventListener('submit',async(e)=>{
+      e.preventDefault();
+      try{
+        const f=$('renameRuleForm');
+        const ruleId=(f.rule_id.value||'').trim();
+        const payload={qb_tag:f.qb_tag.value,suffix:f.suffix.value};
+        if(ruleId){
+          payload.id=Number(ruleId);
+          await api('/api/rename_rules/update',{method:'POST',body:JSON.stringify(payload)});
+          notify('修改成功','success');
+        }else{
+          await api('/api/rename_rules',{method:'POST',body:JSON.stringify(payload)});
+          notify('新增成功','success');
+        }
+        resetRenameRuleForm();
+        await loadRenameRules();
+      }catch(err){notify(err.message,'danger');}
+    });
     $('btnTestTmdb')?.addEventListener('click', async () => { try { const apiKey = scrapeForm.tmdb_api_key.value.trim(), proxy = $('sys_global_proxy').value.trim(); if (!apiKey) throw new Error("请先填写 TMDB API Key"); notify('测试中...', 'primary'); const res = await api('/api/tmdb/test', { method: 'POST', body: JSON.stringify({ tmdb_api_key: apiKey, global_proxy: proxy }) }); notify(res.message || 'TMDB 连接测试成功！', 'success'); } catch (err) { notify(err.message, 'danger'); } });
     $('btnClearTg').addEventListener('click',async()=>{if(!await ask('确定清空 Telegram 配置吗？'))return;try{await api('/api/settings/telegram',{method:'DELETE'});await loadSettings();notify('已清空','success');}catch(err){notify(err.message,'danger');}});
     $('historyCheckAll').addEventListener('change',(e)=>{document.querySelectorAll('.history-check').forEach(c=>{c.checked=e.target.checked;}); updateSelectedCount();});
