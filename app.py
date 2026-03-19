@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.6"
+APP_VERSION = "v1.2.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2044,24 +2044,32 @@ def process_single_upload(file_name):
                 )
 
 def process_one_torrent(server: QBServer, client, torrent):
-    existing = PackHistory.query.filter_by(
-        task_name=torrent.name,
-        qb_server_id=server.id,
-        status=STATUS_PROCESSING,
-    ).first()
+    original_name = getattr(torrent, "name", "")
+    tags_str = getattr(torrent, "tags", "")
+    rename_suffix = resolve_rename_suffix(tags_str)
+    final_name = insert_suffix_smart(original_name, rename_suffix)
+    safe_final_name = os.path.basename(final_name) if final_name else original_name
+
+    candidate_names = [x for x in [original_name, safe_final_name] if x]
+    existing = None
+    if candidate_names:
+        existing = (
+            PackHistory.query.filter(
+                PackHistory.qb_server_id == server.id,
+                PackHistory.status == STATUS_PROCESSING,
+                PackHistory.task_name.in_(candidate_names),
+            )
+            .order_by(PackHistory.id.desc())
+            .first()
+        )
     if existing:
         return
 
-    tags_str = getattr(torrent, "tags", "")
-    rename_suffix = resolve_rename_suffix(tags_str)
-    original_name = getattr(torrent, "name", "")
-    final_name = insert_suffix_smart(original_name, rename_suffix)
-    safe_final_name = os.path.basename(final_name) if final_name else original_name
     source_path = resolve_source_path(torrent)
     source_size_bytes = get_path_size_bytes(source_path)
 
     history = PackHistory(
-        task_name=torrent.name,
+        task_name=safe_final_name,
         qb_server_id=server.id,
         status=STATUS_PROCESSING,
         start_time=now_local(),
@@ -2081,7 +2089,7 @@ def process_one_torrent(server: QBServer, client, torrent):
     iso_task_name = safe_final_name or torrent.name
     with ACTIVE_TASKS_LOCK:
         ACTIVE_TASKS[task_key] = {
-            "task_name": torrent.name,
+            "task_name": safe_final_name,
             "server_name": server.name,
             "source_path": source_path,
             "source_size_bytes": source_size_bytes,
@@ -3594,6 +3602,10 @@ def list_pending():
         for torrent in torrents:
             if not has_waiting_tag(getattr(torrent, "tags", "")):
                 continue
+            original_name = getattr(torrent, "name", "")
+            tags_str = getattr(torrent, "tags", "")
+            rename_suffix = resolve_rename_suffix(tags_str)
+            scraped_name = insert_suffix_smart(original_name, rename_suffix)
             size_bytes = int(getattr(torrent, "size", 0) or getattr(torrent, "total_size", 0) or 0)
             added_on = getattr(torrent, "added_on", 0) or 0
             try:
@@ -3603,11 +3615,12 @@ def list_pending():
 
             rows.append(
                 {
-                    "title": getattr(torrent, "name", ""),
+                    "title": original_name,
+                    "scraped_name": scraped_name,
                     "size_gb": round(size_bytes / GB, 3),
                     "node_alias": server.name,
                     "added_on": added_dt,
-                    "display_name": build_display_name(getattr(torrent, "name", "")),
+                    "display_name": build_display_name(scraped_name),
                 }
             )
 
@@ -3652,13 +3665,18 @@ def list_pending():
     filtered_rows = []
     for item in rows:
         title = str(item.get("title") or "").strip()
-        if build_task_name_keys(title) & blocked_names:
+        scraped_name = str(item.get("scraped_name") or "").strip()
+        keys = build_task_name_keys(title) | build_task_name_keys(scraped_name)
+        if keys & blocked_names:
             continue
         filtered_rows.append(item)
 
     scrape_keys = set()
     for item in filtered_rows:
-        scrape_keys |= build_task_name_keys(item.get("title"))
+        title = str(item.get("title") or "").strip()
+        scraped_name = str(item.get("scraped_name") or "").strip()
+        scrape_keys |= build_task_name_keys(title)
+        scrape_keys |= build_task_name_keys(scraped_name)
 
     if scrape_keys:
         records = (
@@ -3672,10 +3690,11 @@ def list_pending():
         record_map = {str(r.original_name or "").strip().lower(): r for r in records}
         for item in filtered_rows:
             title = str(item.get("title") or "").strip()
+            scraped_name = str(item.get("scraped_name") or "").strip()
             if not title:
                 continue
             record = None
-            for key in build_task_name_keys(title):
+            for key in (build_task_name_keys(title) | build_task_name_keys(scraped_name)):
                 record = record_map.get(str(key or "").strip().lower())
                 if record:
                     break
