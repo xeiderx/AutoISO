@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.3"
+APP_VERSION = "v1.2.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1797,7 +1797,8 @@ def try_bypass_rename(server, client, torrent):
             qb_add_tags(client, torrent_hash, [finish_tag])
         # 新增：为旁路改名成功的任务触发 TMDB 刮削
         try:
-            trigger_auto_scrape_async(target_base)
+            scraped_name = insert_suffix_smart(target_base, rename_suffix)
+            trigger_auto_scrape_async(scraped_name, search_keyword=target_base)
         except Exception as exc:
             logger.warning("旁路改名后触发刮削失败: task=%s err=%s", target_base, exc)
         return True
