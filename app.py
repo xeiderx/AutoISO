@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.4"
+APP_VERSION = "v1.2.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1795,12 +1795,6 @@ def try_bypass_rename(server, client, torrent):
             logger.info("🔖 [旁路转移] 成功移动: %s -> %s", src_path, dst_path)
         if finish_tag:
             qb_add_tags(client, torrent_hash, [finish_tag])
-        # 新增：为旁路改名成功的任务触发 TMDB 刮削
-        try:
-            scraped_name = insert_suffix_smart(target_base, rename_suffix)
-            trigger_auto_scrape_async(scraped_name, search_keyword=target_base)
-        except Exception as exc:
-            logger.warning("旁路改名后触发刮削失败: task=%s err=%s", target_base, exc)
         return True
 
     logger.info("🔎 [旁路转移] 未找到匹配的缓存区文件: task=%s", target_base)
@@ -2060,7 +2054,10 @@ def process_one_torrent(server: QBServer, client, torrent):
 
     try:
         original_name = getattr(torrent, "name", "")
-        trigger_auto_scrape_async(original_name)
+        tags_str = getattr(torrent, "tags", "")
+        rename_suffix = resolve_rename_suffix(tags_str)
+        scraped_name = insert_suffix_smart(original_name, rename_suffix)
+        trigger_auto_scrape_async(scraped_name, search_keyword=original_name)
     except Exception:
         logger.exception("TMDB 自动刮削派发异常，任务=%s", getattr(torrent, "name", "unknown"))
 
@@ -2238,12 +2235,33 @@ def process_all_qbs():
                 continue
 
             for torrent in torrents:
+                original_name = getattr(torrent, "name", "")
+                tags_str = getattr(torrent, "tags", "")
+                parsed_tags = set(parse_qb_tags(tags_str))
+
+                # 判断是否是准备执行旁路改名的新任务（必须不包含已重命名标签，防止无限死循环触发）
+                is_bypass_pending = False
+                trigger_tags = get_rename_trigger_tags()
+                finish_tag = get_rename_finish_tag()
+                if trigger_tags and parsed_tags and all(tag in parsed_tags for tag in trigger_tags):
+                    if not finish_tag or finish_tag not in parsed_tags:
+                        is_bypass_pending = True
+
+                # 只要是待封装，或者是全新准备旁路的任务，立刻提前生成最终名字并触发刮削
+                if has_waiting_tag(tags_str) or is_bypass_pending:
+                    try:
+                        rename_suffix = resolve_rename_suffix(tags_str)
+                        scraped_name = insert_suffix_smart(original_name, rename_suffix)
+                        trigger_auto_scrape_async(scraped_name, search_keyword=original_name)
+                    except Exception:
+                        pass
+
                 try:
                     try_bypass_rename(server, client, torrent)
                 except Exception:
-                    logger.exception("旁路改名流程异常，节点=%s 任务=%s", server.name, getattr(torrent, "name", "unknown"))
+                    logger.exception("旁路改名流程异常，节点=%s 任务=%s", server.name, original_name)
 
-                if not has_waiting_tag(getattr(torrent, "tags", "")):
+                if not has_waiting_tag(tags_str):
                     continue
                 torrent_hash = getattr(torrent, "hash", "") or ""
                 task_key = f"{server.name}:{torrent_hash or getattr(torrent, 'name', '')}"
@@ -2253,11 +2271,6 @@ def process_all_qbs():
                     "node": server.name,
                     "size_gb": round(size_bytes / GB, 3),
                 }
-                try:
-                    trigger_auto_scrape_async(getattr(torrent, "name", ""))
-                except Exception:
-                    logger.exception("扫描阶段派发 TMDB 刮削失败，任务=%s", getattr(torrent, "name", "unknown"))
-
                 if float(getattr(torrent, "progress", 0)) != 1.0:
                     continue
 
