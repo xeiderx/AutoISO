@@ -1966,7 +1966,14 @@ echo "------------------------------------------------"
     $('manualScrapeKeyword')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') $('btnManualSearch').click(); });
     window.bindScrapeResult = async function(dataStr) { try { const tmdbData = JSON.parse(decodeURIComponent(dataStr)); await api('/api/scrape/bind', { method: 'POST', body: JSON.stringify({ original_name: currentScrapeTarget, tmdb_data: tmdbData }) }); notify('✅ 绑定成功！', 'success'); getModal('manualScrapeModal').hide(); await loadScrapeRecords(); } catch (err) { notify(err.message, 'danger'); } };
     
-    async function boot(){try{window.globalRenameRules = await api('/api/rename_rules').catch(()=>[]);await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPending();await loadPendingUploads();}catch(_e){}}},5000);}
+    async function boot(){try{window.globalRenameRules = await api('/api/rename_rules').catch(()=>[]);await loadStatsAndProgress();await Promise.all([loadPending(),loadPendingUploads(),loadSettings(),loadHistory(),loadScrapeRecords()]);}catch(e){notify(e.message,'danger');}setInterval(async()=>{if(!$('viewDashboard').classList.contains('d-none')){try{await loadStatsAndProgress();await loadPending();await loadPendingUploads();}catch(_e){}}
+        // 新增：如果系统日志弹窗处于显示状态，则跟随全局心跳自动刷新
+        const logModalEl = document.getElementById('logModal');
+        if (logModalEl && logModalEl.classList.contains('show')) {
+            if (typeof loadLogs === 'function') {
+                await loadLogs();
+            }
+        }},5000);}
     boot();
   </script>
 </body>
