@@ -1678,8 +1678,8 @@ echo "------------------------------------------------"
                   ${isSuccess ? '<span class="badge rounded-pill bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2">成功</span>' : '<span class="badge rounded-pill bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2">失败</span>'}
                 </div>
                 ${tagsHtml}
-                <div class="text-muted mb-2 text-truncate font-monospace" style="font-size:0.75rem;" title="${esc(r.original_name||'')}"><i class="bi bi-folder me-1"></i>${esc(cleanOriginalName.replace(/[\._\-]+/g, ' ').trim())}</div>
-                <div class="text-secondary line-clamp-2 mb-2 flex-grow-1" style="font-size:0.85rem; line-height:1.4;">${isSuccess && r.overview ? esc(r.overview) : '无简介。请手动绑定或更改名称。'}</div>
+                <div class="text-muted mb-2 text-truncate font-monospace cursor-pointer" style="font-size:0.75rem; word-break: break-all; transition: all 0.3s ease;" title="点击展开/折叠" onclick="this.classList.toggle('text-truncate')"><i class="bi bi-folder me-1"></i>${esc(cleanOriginalName.replace(/[\._\-]+/g, ' ').trim())}</div>
+                <div class="text-secondary line-clamp-2 mb-2 flex-grow-1 cursor-pointer" style="font-size:0.85rem; line-height:1.4; transition: all 0.3s ease;" title="点击展开/折叠" onclick="this.classList.toggle('line-clamp-2')">${isSuccess && r.overview ? esc(r.overview) : '无简介。请手动绑定或更改名称。'}</div>
                 <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top border-light">
                   <div class="text-muted font-monospace" style="font-size:0.75rem;"><i class="bi bi-clock me-1"></i>${esc(r.updated_at||r.created_at||'').substring(0, 16)}</div>
                   <div class="d-flex gap-2 flex-shrink-0">
