@@ -1042,7 +1042,8 @@ def reporter_loop():
                             "size_gb": t.get('size', 0) / (1024**3),
                             "status": status_text,
                             "added_on": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.get('added_on', time.time()))),
-                            "node_alias": identity["node_name"]
+                            "node_alias": identity["node_name"],
+                            "tags": tags
                         })
                 requests.post(
                     f"{identity['master_url']}/api/agent/pending",

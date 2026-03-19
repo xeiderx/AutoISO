@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.7"
+APP_VERSION = "v1.2.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2867,6 +2867,15 @@ def agent_pending_report():
         if not isinstance(i, dict):
             continue
         title = str(i.get("title") or "").strip()
+        tags_str = str(i.get("tags") or "").strip()
+
+        try:
+            rename_suffix = resolve_rename_suffix(tags_str)
+            scraped_name = insert_suffix_smart(title, rename_suffix)
+            trigger_auto_scrape_async(scraped_name, search_keyword=title)
+        except Exception:
+            pass
+
         normalized.append(
             {
                 "title": title,
@@ -2874,6 +2883,7 @@ def agent_pending_report():
                 "size_gb": float(i.get("size_gb", 0)),
                 "added_on": str(i.get("added_on") or "").strip(),
                 "node_alias": node,
+                "tags": tags_str,
             }
         )
 
@@ -3646,13 +3656,18 @@ def list_pending():
         for task in payload.get("tasks", []):
             if not isinstance(task, dict):
                 continue
+            title = str(task.get("title") or "").strip()
+            tags_str = str(task.get("tags") or "").strip()
+            rename_suffix = resolve_rename_suffix(tags_str)
+            scraped_name = insert_suffix_smart(title, rename_suffix)
             rows.append(
                 {
-                    "title": str(task.get("title") or "").strip(),
+                    "title": title,
                     "size_gb": round(float(task.get("size_gb", 0) or 0), 3),
                     "node_alias": str(task.get("node_alias") or node_name).strip() or node_name,
                     "added_on": str(task.get("added_on") or "").strip(),
-                    "display_name": str(task.get("display_name") or task.get("title") or "").strip(),
+                    "display_name": build_display_name(scraped_name),
+                    "scraped_name": scraped_name,
                 }
             )
 
