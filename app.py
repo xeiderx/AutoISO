@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.5"
+APP_VERSION = "v1.2.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2832,7 +2832,7 @@ def agent_report():
                 "last_processed_bytes": processed_bytes,
             }
 
-    if status in {"pending_upload", "finished"}:
+    if status in {"packing", "pending_upload", "finished"}:
         try:
             scrape_name = clean_agent_report_filename(filename)
             trigger_auto_scrape_async(filename, search_keyword=scrape_name or filename)
