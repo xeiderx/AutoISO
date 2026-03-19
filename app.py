@@ -2052,15 +2052,6 @@ def process_one_torrent(server: QBServer, client, torrent):
     if existing:
         return
 
-    try:
-        original_name = getattr(torrent, "name", "")
-        tags_str = getattr(torrent, "tags", "")
-        rename_suffix = resolve_rename_suffix(tags_str)
-        scraped_name = insert_suffix_smart(original_name, rename_suffix)
-        trigger_auto_scrape_async(scraped_name, search_keyword=original_name)
-    except Exception:
-        logger.exception("TMDB 自动刮削派发异常，任务=%s", getattr(torrent, "name", "unknown"))
-
     tags_str = getattr(torrent, "tags", "")
     rename_suffix = resolve_rename_suffix(tags_str)
     original_name = getattr(torrent, "name", "")
@@ -2868,13 +2859,6 @@ def agent_pending_report():
         if not isinstance(i, dict):
             continue
         title = str(i.get("title") or "").strip()
-        if title:
-            try:
-                scrape_name = clean_agent_report_filename(title)
-                trigger_auto_scrape_async(title, search_keyword=scrape_name or title)
-            except Exception:
-                pass
-
         normalized.append(
             {
                 "title": title,
@@ -3610,11 +3594,6 @@ def list_pending():
         for torrent in torrents:
             if not has_waiting_tag(getattr(torrent, "tags", "")):
                 continue
-            try:
-                trigger_auto_scrape_async(getattr(torrent, "name", ""))
-            except Exception:
-                logger.exception("待封装列表派发 TMDB 刮削失败，任务=%s", getattr(torrent, "name", "unknown"))
-
             size_bytes = int(getattr(torrent, "size", 0) or getattr(torrent, "total_size", 0) or 0)
             added_on = getattr(torrent, "added_on", 0) or 0
             try:
