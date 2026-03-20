@@ -1679,20 +1679,20 @@ echo "------------------------------------------------"
           // 3. 改 (Rename)：当前计算出有特效字幕等标签
           const isRenameActive = extractedTags.length > 0;
           // === 圆形印章样式定义 ===
-          const circleStyle = "width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:bold; padding:0; border-width:1px !important; text-shadow:none;";
+          const circleStyle = "width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:0.6rem; font-weight:bold; padding:0; border-width:1px !important; text-shadow:none; line-height:1; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);";
           
           // 封 (蓝灯)
           const packCircle = isPackActive 
-              ? `<span class="badge rounded-circle border border-primary text-primary bg-primary bg-opacity-10 shadow-sm" style="${circleStyle}" title="已进入封装流程">封</span>`
-              : `<span class="badge rounded-circle border border-secondary border-opacity-25 text-secondary text-opacity-50 bg-light" style="${circleStyle}" title="未封装">封</span>`;
+              ? `<span class="badge rounded-circle border border-primary text-primary bg-primary bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已进入封装流程">封</span>`
+              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="未封装">封</span>`;
               
           const upCircle = isUpActive 
-              ? `<span class="badge rounded-circle border border-success text-success bg-success bg-opacity-10 shadow-sm" style="${circleStyle}" title="已进入上传流程">传</span>`
-              : `<span class="badge rounded-circle border border-secondary border-opacity-25 text-secondary text-opacity-50 bg-light" style="${circleStyle}" title="未上传">传</span>`;
+              ? `<span class="badge rounded-circle border border-success text-success bg-success bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已进入上传流程">传</span>`
+              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="未上传">传</span>`;
               
           const renameCircle = isRenameActive 
-              ? `<span class="badge rounded-circle border border-warning text-warning-emphasis bg-warning bg-opacity-10 shadow-sm" style="${circleStyle}" title="已应用重命名标签">改</span>`
-              : `<span class="badge rounded-circle border border-secondary border-opacity-25 text-secondary text-opacity-50 bg-light" style="${circleStyle}" title="无重命名标签">改</span>`;
+              ? `<span class="badge rounded-circle border border-warning text-warning-emphasis bg-warning bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已应用重命名标签">改</span>`
+              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="无重命名标签">改</span>`;
           // 组装指示灯容器（横向排列，间距gap-1，底部外边距mt-2）
           const statusIndicators = `<div class="d-flex justify-content-center gap-1 mt-2 mb-1">${packCircle}${upCircle}${renameCircle}</div>`;
           return `
