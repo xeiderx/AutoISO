@@ -1678,23 +1678,25 @@ echo "------------------------------------------------"
           
           // 3. 改 (Rename)：当前计算出有特效字幕等标签
           const isRenameActive = extractedTags.length > 0;
-          // === 圆形印章样式定义 ===
-          const circleStyle = "width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:0.6rem; font-weight:bold; padding:0; border-width:1px !important; text-shadow:none; line-height:1; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);";
+          // === 果味儿高定状态灯（纯CSS手写质感） ===
+          const baseStyle = "width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:0.6rem; font-weight:700; border-radius:50%; line-height:1; transition:all 0.3s ease; box-sizing:border-box;";
           
-          // 封 (蓝灯)
+          // 封 (微光蓝: 极淡背景 + 精致边框 + 蓝色柔和发光)
           const packCircle = isPackActive 
-              ? `<span class="badge rounded-circle border border-primary text-primary bg-primary bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已进入封装流程">封</span>`
-              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="未封装">封</span>`;
+              ? `<span style="${baseStyle} color:#0284c7; background:#e0f2fe; border:1px solid #bae6fd; box-shadow:0 2px 5px rgba(2,132,199,0.15);" title="已进入封装流程">封</span>`
+              : `<span style="${baseStyle} color:#cbd5e1; background:#f8fafc; border:1px dashed #e2e8f0;" title="未封装">封</span>`;
               
+          // 传 (微光绿: 极淡背景 + 精致边框 + 绿色柔和发光)
           const upCircle = isUpActive 
-              ? `<span class="badge rounded-circle border border-success text-success bg-success bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已进入上传流程">传</span>`
-              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="未上传">传</span>`;
+              ? `<span style="${baseStyle} color:#059669; background:#d1fae5; border:1px solid #a7f3d0; box-shadow:0 2px 5px rgba(5,150,105,0.15);" title="已进入上传流程">传</span>`
+              : `<span style="${baseStyle} color:#cbd5e1; background:#f8fafc; border:1px dashed #e2e8f0;" title="未上传">传</span>`;
               
+          // 改 (微光黄: 极淡背景 + 精致边框 + 橙色柔和发光)
           const renameCircle = isRenameActive 
-              ? `<span class="badge rounded-circle border border-warning text-warning-emphasis bg-warning bg-opacity-10 border-opacity-25" style="${circleStyle}" title="已应用重命名标签">改</span>`
-              : `<span class="badge rounded-circle border-0 text-secondary text-opacity-50 bg-secondary bg-opacity-10" style="${circleStyle}" title="无重命名标签">改</span>`;
-          // 组装指示灯容器（横向排列，间距gap-1，底部外边距mt-2）
-          const statusIndicators = `<div class="d-flex justify-content-center gap-1 mt-2 mb-1">${packCircle}${upCircle}${renameCircle}</div>`;
+              ? `<span style="${baseStyle} color:#d97706; background:#fef3c7; border:1px solid #fde68a; box-shadow:0 2px 5px rgba(217,119,6,0.15);" title="已应用重命名标签">改</span>`
+              : `<span style="${baseStyle} color:#cbd5e1; background:#f8fafc; border:1px dashed #e2e8f0;" title="无重命名标签">改</span>`;
+
+          const statusIndicators = `<div class="d-flex justify-content-center mt-2 mb-1" style="gap: 5px;">${packCircle}${upCircle}${renameCircle}</div>`;
           return `
           <div class="col-12 col-xl-6">
             <div class="scrape-card d-flex gap-3 h-100 position-relative p-3 align-items-center">
