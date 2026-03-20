@@ -934,7 +934,7 @@ def get_config(identity):
     r.raise_for_status()
     return r.json()
 
-def report(identity, filename, status, progress=0, size_gb=0):
+def report(identity, task_name, status, progress=0, size_gb=0):
     url = f"{identity['master_url']}/api/agent/report"
     speed_mbps = 0.0
     try:
@@ -942,7 +942,7 @@ def report(identity, filename, status, progress=0, size_gb=0):
         progress_pct = max(0.0, min(100.0, float(progress or 0.0)))
         processed_bytes = total_bytes * (progress_pct / 100.0)
         now_ts = time.time()
-        prev = SPEED_STATE.get(filename)
+        prev = SPEED_STATE.get(task_name)
         if isinstance(prev, dict):
             prev_bytes = float(prev.get("last_bytes", 0) or 0)
             prev_ts = float(prev.get("last_ts", 0) or 0)
@@ -950,14 +950,15 @@ def report(identity, filename, status, progress=0, size_gb=0):
             delta_b = processed_bytes - prev_bytes
             if delta_t > 0 and delta_b >= 0:
                 speed_mbps = (delta_b / delta_t) / (1024 * 1024)
-        SPEED_STATE[filename] = {"last_bytes": processed_bytes, "last_ts": now_ts}
+        SPEED_STATE[task_name] = {"last_bytes": processed_bytes, "last_ts": now_ts}
     except Exception:
         speed_mbps = 0.0
 
     payload = {
         "token": identity["token"],
         "node": identity["node_name"],
-        "filename": filename,
+        "task_name": task_name,
+        "filename": task_name,
         "status": status,
         "progress": progress,
         "size_gb": size_gb,
@@ -1092,13 +1093,14 @@ def worker_loop():
                         save_path = os.path.join(t.get('save_path', ''), name)
                     
                     rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
+                    logical_name = insert_suffix_smart(name, rename_suffix)
                     
                     if os.path.isfile(save_path):
                         actual_filename = os.path.basename(save_path)
                         final_name = insert_suffix_smart(actual_filename, rename_suffix)
                         target_temp = os.path.join(temp_path, final_name)
                         log(f"====== 开始单文件转存: {name} ======")
-                        report(identity, final_name, "packing", 10, size_gb=size_gb)
+                        report(identity, logical_name, "packing", 10, size_gb=size_gb)
                         try:
                             if os.path.abspath(save_path) != os.path.abspath(target_temp):
                                 shutil.copy2(save_path, target_temp)
@@ -1107,16 +1109,16 @@ def worker_loop():
                             log(f" 转存完成，已生成单文件: {final_name}")
                         except Exception as e:
                             log(f" 转存失败: {name}, error: {e}")
-                            report(identity, final_name, "error", 0, size_gb=size_gb)
+                            report(identity, logical_name, "error", 0, size_gb=size_gb)
                     else:
                         base_iso_name = insert_suffix_smart(name, rename_suffix)
                         final_name = f"{base_iso_name}.iso"
                         target_temp = os.path.join(temp_path, final_name)
                         log(f"====== 开始打包任务: {name} ======")
-                        report(identity, final_name, "packing", 10, size_gb=size_gb)
+                        report(identity, logical_name, "packing", 10, size_gb=size_gb)
                         pack_stop = threading.Event()
                         pack_reporter = start_progress_reporter(
-                            identity, final_name, "packing", size_gb, lambda p=target_temp: safe_get_size(p), pack_stop
+                            identity, logical_name, "packing", size_gb, lambda p=target_temp: safe_get_size(p), pack_stop
                         )
                         try:
                             cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", target_temp, save_path]
@@ -1126,7 +1128,7 @@ def worker_loop():
                             log(f" 打包完成，已生成 ISO: {final_name}")
                         except Exception as e:
                             log(f" 打包失败: {name}, error: {e}")
-                            report(identity, final_name, "error", 0, size_gb=size_gb)
+                            report(identity, logical_name, "error", 0, size_gb=size_gb)
                         finally:
                             pack_stop.set()
                             try: pack_reporter.join(timeout=2)
@@ -1138,6 +1140,7 @@ def worker_loop():
                 size_gb = t.get('size', 0) / (1024**3)
                 
                 rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
+                logical_name = insert_suffix_smart(name, rename_suffix)
                 save_path = t.get('content_path')
                 if not save_path or not os.path.exists(save_path):
                     save_path = os.path.join(t.get('save_path', ''), name)
@@ -1153,12 +1156,12 @@ def worker_loop():
                 target_dest = os.path.join(cd2_path, final_name)
                 
                 if '已封装' in tags and os.path.exists(target_temp) and os.path.exists(cd2_path):
-                    report(identity, final_name, "pending_upload", 100, size_gb=size_gb)
+                    report(identity, logical_name, "pending_upload", 100, size_gb=size_gb)
                     try:
-                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": final_name}, timeout=10)
+                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": logical_name}, timeout=10)
                         if up_res.status_code == 200 and up_res.json().get("can_upload", True):
                             log(f" 获得主控放行许可！开始移入 CD2: {final_name}")
-                            report(identity, final_name, "uploading", 50, size_gb=size_gb)
+                            report(identity, logical_name, "uploading", 50, size_gb=size_gb)
                             try:
                                 if os.path.exists(target_dest):
                                     try: os.remove(target_dest)
@@ -1167,7 +1170,7 @@ def worker_loop():
                                 progress_lock = threading.Lock()
                                 upload_stop = threading.Event()
                                 upload_reporter = start_progress_reporter(
-                                    identity, final_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
+                                    identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
                                 )
                                 try:
                                     copy_with_progress(target_temp, target_dest, progress_state, progress_lock)
@@ -1178,10 +1181,10 @@ def worker_loop():
                                 try: os.remove(target_temp)
                                 except Exception: pass
                                 log(f" 成功移入网盘挂载点: {final_name}")
-                                report(identity, final_name, "finished", 100, size_gb=size_gb)
+                                report(identity, logical_name, "finished", 100, size_gb=size_gb)
                             except Exception as e:
                                 log(f" 移入失败: {final_name}, err: {e}")
-                                report(identity, final_name, "error", 0, size_gb=size_gb)
+                                report(identity, logical_name, "error", 0, size_gb=size_gb)
                     except Exception: pass
 
         except Exception: pass

@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.2.8"
+APP_VERSION = "v1.2.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2734,12 +2734,15 @@ def agent_report():
         return jsonify({"error": "forbidden"}), 403
 
     node = str(payload.get("node") or "").strip() or "VPS"
-    filename = os.path.basename(str(payload.get("filename") or "").strip())
+    task_name = os.path.basename(str(payload.get("task_name") or payload.get("filename") or "").strip())
     status = str(payload.get("status") or "").strip().lower()
     if status not in {"packing", "uploading", "pending_upload", "finished", "error"}:
         return jsonify({"error": "invalid status"}), 400
-    if not filename:
+    if not task_name:
         return jsonify({"error": "filename 不能为空"}), 400
+    safe_final_name, _ = os.path.splitext(task_name)
+    if not safe_final_name:
+        safe_final_name = task_name
 
     try:
         progress = max(0.0, min(100.0, float(payload.get("progress", 0) or 0)))
@@ -2764,13 +2767,12 @@ def agent_report():
         file_size_gb = 0.0
 
     server_id = get_or_create_external_server_id()
-    task_name_no_ext = os.path.splitext(filename)[0]
     
     # 查找旧状态，用于触发状态变更通知
     old_row = (
         PackHistory.query.filter(
             PackHistory.qb_server_id == server_id,
-            PackHistory.task_name.in_([filename, task_name_no_ext]),
+            PackHistory.task_name == safe_final_name,
             PackHistory.message.like("Agent report:%"),
             PackHistory.info == f"node={node}",
         )
@@ -2780,43 +2782,46 @@ def agent_report():
     old_status = old_row.status if old_row else None
 
     try:
-        updated_row = upsert_agent_history_status(node, filename, status, file_size_gb=file_size_gb)
+        updated_row = upsert_agent_history_status(node, safe_final_name, status, file_size_gb=file_size_gb)
+        if updated_row and updated_row.task_name != safe_final_name:
+            updated_row.task_name = safe_final_name[:255]
+            db.session.commit()
         new_status = updated_row.status if updated_row else None
     except Exception:
-        logger.exception("Agent 状态入库失败: node=%s file=%s status=%s", node, filename, status)
+        logger.exception("Agent 状态入库失败: node=%s file=%s status=%s", node, safe_final_name, status)
         return jsonify({"error": "history update failed"}), 500
 
     # 精准发送 Telegram 通知
     if new_status and old_status != new_status:
-        logger.info("🔔 [节点动态] 边缘节点 '%s' 上的任务 '%s' 状态变更为: 【%s】", node, filename, new_status)
+        logger.info("🔔 [节点动态] 边缘节点 '%s' 上的任务 '%s' 状态变更为: 【%s】", node, safe_final_name, new_status)
         if new_status == "封装中":
             if get_notify_flag("notify_pack_start", True):
-                logger.info("[节点:%s] 任务 '%s' 开始封装。", node, filename)
-                send_tg_notification(f"[AutoISO] 🚀 开始封装 | 节点: {node} | 任务: {filename}")
+                logger.info("[节点:%s] 任务 '%s' 开始封装。", node, safe_final_name)
+                send_tg_notification(f"[AutoISO] 🚀 开始封装 | 节点: {node} | 任务: {safe_final_name}")
         elif new_status == "待上传 (阻塞中)":
             if get_notify_flag("notify_pack_end", True):
-                logger.info("[节点:%s] 任务 '%s' 封装完成，等待放行。", node, filename)
-                send_tg_notification(f"[AutoISO] ✅ 封装完成，等待放行 | 节点: {node} | 任务: {filename}")
+                logger.info("[节点:%s] 任务 '%s' 封装完成，等待放行。", node, safe_final_name)
+                send_tg_notification(f"[AutoISO] ✅ 封装完成，等待放行 | 节点: {node} | 任务: {safe_final_name}")
         elif new_status == "上传中":
             if get_notify_flag("notify_upload_start", True):
-                logger.info("[节点:%s] 任务 '%s' 开始转移至 CloudDrive。", node, filename)
-                send_tg_notification(f"[AutoISO] 📤 开始转移至 CloudDrive | 节点: {node} | 任务: {filename}")
+                logger.info("[节点:%s] 任务 '%s' 开始转移至 CloudDrive。", node, safe_final_name)
+                send_tg_notification(f"[AutoISO] 📤 开始转移至 CloudDrive | 节点: {node} | 任务: {safe_final_name}")
         elif new_status == "成功":
             if get_notify_flag("notify_upload_end", True):
-                logger.info("[节点:%s] 任务 '%s' 成功推入 CloudDrive，等待搬运。", node, filename)
+                logger.info("[节点:%s] 任务 '%s' 成功推入 CloudDrive，等待搬运。", node, safe_final_name)
                 send_tg_notification(f"[AutoISO] {CLOUDDRIVE_DELIVERY_NOTICE}")
         elif new_status == "失败":
             if get_notify_flag("notify_pack_end", True) or get_notify_flag("notify_upload_end", True):
-                logger.info("[节点:%s] 任务 '%s' 处理失败。", node, filename)
-                send_tg_notification(f"[AutoISO] ❌ 任务处理失败 | 节点: {node} | 任务: {filename}")
+                logger.info("[节点:%s] 任务 '%s' 处理失败。", node, safe_final_name)
+                send_tg_notification(f"[AutoISO] ❌ 任务处理失败 | 节点: {node} | 任务: {safe_final_name}")
 
     if status in {"finished", "error"}:
         with AGENT_TASKS_LOCK:
-            AGENT_TASKS.pop(filename, None)
+            AGENT_TASKS.pop(safe_final_name, None)
     else:
         previous_task = None
         with AGENT_TASKS_LOCK:
-            previous_task = AGENT_TASKS.get(filename)
+            previous_task = AGENT_TASKS.get(safe_final_name)
 
         computed_speed, processed_bytes = compute_agent_speed_mbps(
             previous_task,
@@ -2828,9 +2833,9 @@ def agent_report():
         final_speed = speed_mbps if speed_mbps > 0 else computed_speed
 
         with AGENT_TASKS_LOCK:
-            AGENT_TASKS[filename] = {
+            AGENT_TASKS[safe_final_name] = {
                 "node": node,
-                "filename": filename,
+                "filename": safe_final_name,
                 "status": status,
                 "progress": progress,
                 "speed_mbps": final_speed,
@@ -2842,10 +2847,9 @@ def agent_report():
 
     if status in {"packing", "pending_upload", "finished"}:
         try:
-            scrape_name = clean_agent_report_filename(filename)
-            trigger_auto_scrape_async(filename, search_keyword=scrape_name or filename)
+            trigger_auto_scrape_async(safe_final_name, search_keyword=safe_final_name)
         except Exception:
-            logger.exception("Agent %s 派发 TMDB 刮削失败: node=%s file=%s", status, node, filename)
+            logger.exception("Agent %s 派发 TMDB 刮削失败: node=%s file=%s", status, node, safe_final_name)
     return jsonify({"ok": True, "status": "accepted"})
 
 
