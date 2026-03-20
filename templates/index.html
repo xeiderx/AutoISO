@@ -1582,7 +1582,7 @@ echo "------------------------------------------------"
                   </div>
                 </div>
                 <div class="text-muted mb-3" style="font-size: 0.8rem;">
-                  <div class="mb-1"><i class="bi bi-hdd text-secondary me-1"></i>${Number(x.file_size_gb||0).toFixed(2)} GB<span class="ms-3"><i class="bi bi-server text-secondary me-1"></i>${esc(x.node_alias || 'NAS')}</span></div>
+                  <div class="mb-1"><i class="bi bi-hdd text-secondary me-1"></i>${Number(x.file_size_gb||0).toFixed(2)} GB<span class="ms-3"><i class="bi bi-server text-secondary me-1"></i>${esc(x.qb_server_name || 'NAS')}</span></div>
                   <div class="text-truncate cursor-pointer" style="word-break: break-all; transition: all 0.3s ease;" onclick="this.classList.toggle('text-truncate')" title="点击展开/折叠">
                     <i class="bi bi-hash me-1"></i>Hash: ${rawTaskName(x.task_name)}
                   </div>
