@@ -2740,9 +2740,12 @@ def agent_report():
         return jsonify({"error": "invalid status"}), 400
     if not task_name:
         return jsonify({"error": "filename 不能为空"}), 400
-    safe_final_name, _ = os.path.splitext(task_name)
-    if not safe_final_name:
-        safe_final_name = task_name
+    # 极端的安全兜底：只允许剔除明确的物理文件后缀，绝不误伤 PT 站带点的发布组名称
+    safe_final_name = task_name
+    for ext in ['.iso', '.mkv', '.mp4', '.ts', '.avi']:
+        if safe_final_name.lower().endswith(ext):
+            safe_final_name = safe_final_name[:-len(ext)]
+            break
 
     try:
         progress = max(0.0, min(100.0, float(payload.get("progress", 0) or 0)))
