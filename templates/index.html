@@ -1927,50 +1927,21 @@ echo "------------------------------------------------"
     $('scrapeForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({enable_tmdb:!!$('scrapeForm').enable_tmdb.checked,tmdb_api_key:$('scrapeForm').tmdb_api_key.value, global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     $('proxyForm').addEventListener('submit',async(e)=>{e.preventDefault();try{await api('/api/settings/system',{method:'POST',body:JSON.stringify({global_proxy:$('sys_global_proxy').value})});notify('保存成功','success');await loadSettings();}catch(err){notify(err.message,'danger');}});
     // 保存命名与标签全局设置
-    $('formRenameSettings').addEventListener('submit', (e) =>
-    {
+    $('formRenameSettings').addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = {
-            rename_trigger_tags: $('renameTriggerTags'
-            ).value,
-            rename_finish_tag: $('renameFinishTag'
-            ).value,
-            mp_staging_path: $('mpStagingPath'
-            ).value,
-            mp_final_path: $('mpFinalPath'
-            ).value,
+            rename_trigger_tags: $('renameTriggerTags').value,
+            rename_finish_tag: $('renameFinishTag').value,
+            mp_staging_path: $('mpStagingPath').value,
+            mp_final_path: $('mpFinalPath').value,
             rename_enabled: $('renameEnabled').checked ? "1" : "0"
         };
-        
-        fetch(
-            '/api/settings/system'
-        , {
-            method: 'POST'
-        ,
-            headers: { 'Content-Type': 'application/json'
-        },
-            body: JSON
-        .stringify(payload)
-        })
-        .then(
-        res =>
-        res.json())
-        .then(
-        data =>
-        {
-            if (data.status === 'success'
-        ) {
-                showToast(
-        '设置已保存'
-        );
-            } 
-        else
-        {
-                alert(
-        '保存失败: '
-        + data.message);
-            }
-        });
+        try {
+            await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });
+            notify('设置已保存', 'success');
+        } catch (err) {
+            notify(err.message, 'danger');
+        }
     });
     $('btnRenameRuleCancel')?.addEventListener('click',()=>{resetRenameRuleForm();});
     $('renameRuleForm')?.addEventListener('submit',async(e)=>{
