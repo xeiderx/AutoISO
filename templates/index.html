@@ -436,6 +436,16 @@
                 <label class="form-label text-muted small fw-bold">最终目标路径 (目的)</label>
                 <input type="text" class="form-control" id="mpFinalPath" placeholder="如：/Downloads/115-LINK">
               </div>
+              <div class="mb-4 p-3 bg-secondary bg-opacity-10 rounded-3 border border-secondary border-opacity-25">
+                <div class="form-check form-switch m-0 d-flex align-items-center">
+                  <input class="form-check-input shadow-sm m-0 me-3" type="checkbox" id="renameMoveAll" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
+                  <label class="form-check-label fw-bold text-dark" for="renameMoveAll" style="cursor: pointer;">缓存区全量转移</label>
+                </div>
+                <div class="text-secondary mt-2" style="font-size:0.8rem; line-height: 1.4;">
+                  <i class="bi bi-info-circle me-1"></i>
+                  默认仅转移命中「触发标签」的任务。开启后，将无差别转移「MP 缓存区」内的所有文件（未打标的普通任务仅做物理搬运，不生成刮削记录）。
+                </div>
+              </div>
               <button type="submit" class="btn btn-primary rounded-pill px-4" id="btnSaveRenameSettings">保存设置</button>
             </form>
           </div>
@@ -1830,6 +1840,7 @@ echo "------------------------------------------------"
                     $('mpFinalPath').value = data.mp_final_path || "/Downloads/115-LINK"
                     ;
                     $('renameEnabled').checked = data.rename_enabled !== "0"; // 默认开启
+                    $('renameMoveAll').checked = data.rename_move_all === "1";
                 });
     }
 
@@ -1934,7 +1945,8 @@ echo "------------------------------------------------"
             rename_finish_tag: $('renameFinishTag').value,
             mp_staging_path: $('mpStagingPath').value,
             mp_final_path: $('mpFinalPath').value,
-            rename_enabled: $('renameEnabled').checked ? "1" : "0"
+            rename_enabled: $('renameEnabled').checked ? "1" : "0",
+            rename_move_all: $('renameMoveAll').checked ? "1" : "0"
         };
         try {
             await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });

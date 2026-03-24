@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.3.3"
+APP_VERSION = "v1.3.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -53,6 +53,7 @@ DEFAULT_RENAME_FINISH_TAG = os.getenv("RENAME_FINISH_TAG", "已重命名")
 DEFAULT_MP_STAGING_PATH = os.getenv("MP_STAGING_PATH", "/Downloads/MP-LINK缓存区")
 DEFAULT_MP_FINAL_PATH = os.getenv("MP_FINAL_PATH", "/Downloads/115-LINK")
 DEFAULT_RENAME_ENABLED = os.getenv("RENAME_ENABLED", "1")
+DEFAULT_RENAME_MOVE_ALL = os.getenv("RENAME_MOVE_ALL", "0")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -485,6 +486,13 @@ def get_rename_enabled():
     raw = (get_setting("rename_enabled") or "").strip()
     if raw == "":
         return DEFAULT_RENAME_ENABLED
+    return raw
+
+
+def get_rename_move_all():
+    raw = (get_setting("rename_move_all") or "").strip()
+    if raw == "":
+        return DEFAULT_RENAME_MOVE_ALL
     return raw
 
 
@@ -2233,6 +2241,21 @@ def process_all_qbs():
                     send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
                 continue
 
+            # === [智能雷达] 预扫描 MP 缓存区 ===
+            rename_enabled = get_setting("rename_enabled") == "1"
+            move_all = get_setting("rename_move_all") == "1"
+            staging_files = []
+            if rename_enabled and move_all:
+                src_dir = get_setting("mp_staging_path")
+                if src_dir and os.path.exists(src_dir):
+                    try:
+                        for _root, _dirs, files in os.walk(src_dir):
+                            for f in files:
+                                if f.lower().endswith((".mkv", ".mp4", ".ts", ".iso", ".avi", ".rmvb")):
+                                    staging_files.append(f)
+                    except Exception:
+                        pass
+
             for torrent in torrents:
                 original_name = getattr(torrent, "name", "")
                 tags_str = getattr(torrent, "tags", "")
@@ -2240,11 +2263,50 @@ def process_all_qbs():
 
                 # 判断是否是准备执行旁路改名的新任务（必须不包含已重命名标签，防止无限死循环触发）
                 is_bypass_pending = False
-                trigger_tags = get_rename_trigger_tags()
-                finish_tag = get_rename_finish_tag()
-                if trigger_tags and parsed_tags and all(tag in parsed_tags for tag in trigger_tags):
+                if rename_enabled:
+                    trigger_tags = get_rename_trigger_tags()
+                    finish_tag = get_rename_finish_tag()
+
                     if not finish_tag or finish_tag not in parsed_tags:
-                        is_bypass_pending = True
+                        has_trigger = trigger_tags and parsed_tags and all(tag in parsed_tags for tag in trigger_tags)
+
+                        if has_trigger:
+                            # 1. VIP 流程（带标签）：触发正常改名、刮削入库与历史记录
+                            is_bypass_pending = True
+                        elif move_all:
+                            # 2. 静默清道夫流程（无标签但开启了全量）：直接物理搬运，不刮削
+                            task_base = (getattr(torrent, "name", "") or "").split("-")[0].strip()
+                            if task_base:
+                                matched_files = [sf for sf in staging_files if task_base in sf or sf in task_base]
+                                if matched_files:
+                                    src_dir = get_setting("mp_staging_path")
+                                    dst_dir = get_setting("mp_final_path")
+                                    if src_dir and dst_dir:
+                                        success = False
+                                        for f in matched_files:
+                                            src_file = os.path.join(src_dir, f)
+                                            dst_file = os.path.join(dst_dir, f)
+                                            try:
+                                                if not os.path.exists(dst_dir):
+                                                    os.makedirs(dst_dir, exist_ok=True)
+                                                shutil.move(src_file, dst_file)
+                                                logger.info("🚚 [静默转移] 成功转移未打标文件: %s", f)
+                                                success = True
+                                                if f in staging_files:
+                                                    staging_files.remove(f)
+                                            except Exception as e:
+                                                logger.error("[静默转移] 文件转移失败 %s: %s", f, e)
+
+                                        # 搬运完成后，打上结案标签避免重复处理
+                                        if success and finish_tag:
+                                            try:
+                                                torrent_hash = getattr(torrent, "hash", "") or ""
+                                                if torrent_hash:
+                                                    qb_add_tags(client, torrent_hash, [finish_tag])
+                                                else:
+                                                    torrent.add_tags(tags=finish_tag)
+                                            except Exception:
+                                                pass
 
                 # 只要是待封装，或者是全新准备旁路的任务，立刻提前生成最终名字并触发刮削
                 if has_waiting_tag(tags_str) or is_bypass_pending:
@@ -3183,6 +3245,7 @@ def get_system_settings():
             "mp_staging_path": get_setting("mp_staging_path") or "/Downloads/MP-LINK缓存区",
             "mp_final_path": get_setting("mp_final_path") or "/Downloads/115-LINK",
             "rename_enabled": get_rename_enabled(),
+            "rename_move_all": get_rename_move_all(),
         }
     )
 
@@ -3232,6 +3295,7 @@ def save_system_settings():
     )
     mp_final_path = (payload.get("mp_final_path") or "").strip() if "mp_final_path" in payload else get_mp_final_path()
     rename_enabled = parse_bool(payload.get("rename_enabled"), default=(get_rename_enabled() != "0"))
+    rename_move_all = parse_bool(payload.get("rename_move_all"), default=(get_rename_move_all() == "1"))
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -3283,6 +3347,7 @@ def save_system_settings():
     if "mp_final_path" in payload:
         set_setting("mp_final_path", mp_final_path)
     set_setting("rename_enabled", "1" if rename_enabled else "0")
+    set_setting("rename_move_all", "1" if rename_move_all else "0")
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -3307,6 +3372,7 @@ def save_system_settings():
             "mp_staging_path": mp_staging_path or DEFAULT_MP_STAGING_PATH,
             "mp_final_path": mp_final_path or DEFAULT_MP_FINAL_PATH,
             "rename_enabled": "1" if rename_enabled else "0",
+            "rename_move_all": "1" if rename_move_all else "0",
         }
     )
 
