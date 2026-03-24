@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.3.4"
+APP_VERSION = "v1.3.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2249,10 +2249,13 @@ def process_all_qbs():
                 src_dir = get_setting("mp_staging_path")
                 if src_dir and os.path.exists(src_dir):
                     try:
-                        for _root, _dirs, files in os.walk(src_dir):
+                        for root, _dirs, files in os.walk(src_dir):
                             for f in files:
                                 if f.lower().endswith((".mkv", ".mp4", ".ts", ".iso", ".avi", ".rmvb")):
-                                    staging_files.append(f)
+                                    # 修复Bug：记录相对路径（包含子目录），而不仅仅是文件名
+                                    rel_dir = os.path.relpath(root, src_dir)
+                                    rel_path = os.path.join(rel_dir, f) if rel_dir != "." else f
+                                    staging_files.append(rel_path)
                     except Exception:
                         pass
 
@@ -2274,7 +2277,7 @@ def process_all_qbs():
                             # 1. VIP 流程（带标签）：触发正常改名、刮削入库与历史记录
                             is_bypass_pending = True
                         elif move_all:
-                            # 2. 静默清道夫流程（无标签但开启了全量）：直接物理搬运，不刮削
+                            # 2. 静默清道夫流程：包含子目录结构完整搬运
                             task_base = (getattr(torrent, "name", "") or "").split("-")[0].strip()
                             if task_base:
                                 matched_files = [sf for sf in staging_files if task_base in sf or sf in task_base]
@@ -2287,8 +2290,8 @@ def process_all_qbs():
                                             src_file = os.path.join(src_dir, f)
                                             dst_file = os.path.join(dst_dir, f)
                                             try:
-                                                if not os.path.exists(dst_dir):
-                                                    os.makedirs(dst_dir, exist_ok=True)
+                                                # 修复Bug：因为有可能是嵌套子目录，所以要用 dirname 确保目标父目录存在
+                                                os.makedirs(os.path.dirname(dst_file), exist_ok=True)
                                                 shutil.move(src_file, dst_file)
                                                 logger.info("🚚 [静默转移] 成功转移未打标文件: %s", f)
                                                 success = True
