@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.3.5"
+APP_VERSION = "v1.3.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2300,14 +2300,15 @@ def process_all_qbs():
                                             except Exception as e:
                                                 logger.error("[静默转移] 文件转移失败 %s: %s", f, e)
 
-                                        # 搬运完成后，打上结案标签避免重复处理
-                                        if success and finish_tag:
+                                        # 搬运完成后，打上结案标签（如果没有配置完成标签，则兜底打上已转移）
+                                        if success:
+                                            final_tag = finish_tag if finish_tag else "已转移"
                                             try:
                                                 torrent_hash = getattr(torrent, "hash", "") or ""
                                                 if torrent_hash:
-                                                    qb_add_tags(client, torrent_hash, [finish_tag])
+                                                    qb_add_tags(client, torrent_hash, [final_tag])
                                                 else:
-                                                    torrent.add_tags(tags=finish_tag)
+                                                    torrent.add_tags(tags=final_tag)
                                             except Exception:
                                                 pass
 
