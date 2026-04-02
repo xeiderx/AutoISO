@@ -2357,7 +2357,7 @@ def process_all_qbs():
             if get_notify_flag("notify_task_cancel", True):
                 send_tg_notification(f"[AutoISO] {msg}")
 
-        # === [全量转移] 终极清道夫：基于 ctime 冷却 3 分钟的物理无脑搬运 ===
+        # === [全量转移] 终极清道夫：带层级保护的穿透式物理搬运 ===
         rename_enabled_flag = get_setting("rename_enabled") == "1"
         move_all_flag = get_setting("rename_move_all") == "1"
         
@@ -2370,30 +2370,38 @@ def process_all_qbs():
                 import time
                 current_time = time.time()
                 
-                # 扫描缓存区根目录下的所有项目（文件或文件夹）
-                for item in os.listdir(src_dir):
-                    src_item = os.path.join(src_dir, item)
-                    dst_item = os.path.join(dst_dir, item)
-                    
-                    try:
-                        # 核心保护机制：获取 ctime (硬链接创建时间)
-                        # 设定 180 秒（3分钟）冷却期。如果文件太新鲜，说明 VIP 改名流程可能正在处理，暂不惊动。
-                        item_ctime = os.path.getctime(src_item)
-                        if current_time - item_ctime < 180:
-                            continue
-                            
-                        # 超过 3 分钟未被改名模块取走，说明是普通任务，执行物理连锅端
-                        if os.path.exists(dst_item):
-                            if os.path.isdir(dst_item):
-                                shutil.rmtree(dst_item)
-                            else:
-                                os.remove(dst_item)
+                # 使用 topdown=False 自底向上遍历，方便清理空文件夹
+                for root, dirs, files in os.walk(src_dir, topdown=False):
+                    for f in files:
+                        src_file = os.path.join(root, f)
+                        
+                        try:
+                            # 核心保护：获取文件的 ctime，冷却 3 分钟 (180秒)
+                            item_ctime = os.path.getctime(src_file)
+                            if current_time - item_ctime < 180:
+                                continue
                                 
-                        # 执行搬运（支持单文件或整个文件夹）
-                        shutil.move(src_item, dst_item)
-                        logger.info(f"🚚 [全量转移] 成功搬运闲置内容: {item}")
-                    except Exception as e:
-                        logger.error(f"❌ [全量转移] 搬运失败 {item}: {e}")
+                            # 计算相对路径，保留目录结构
+                            rel_path = os.path.relpath(src_file, src_dir)
+                            dst_file = os.path.join(dst_dir, rel_path)
+                            
+                            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                            if os.path.exists(dst_file):
+                                os.remove(dst_file)
+                                
+                            shutil.move(src_file, dst_file)
+                            # 日志只报文件名，极其清爽
+                            logger.info(f"🚚 [全量转移] 成功搬运闲置文件: {f}")
+                        except Exception as e:
+                            logger.error(f"❌ [全量转移] 搬运失败 {f}: {e}")
+                    
+                    # 智能清理空目录保护：不碰根目录，也不碰根目录下的第一级文件夹(如'欧美电影')
+                    if root != src_dir and os.path.dirname(root) != src_dir:
+                        try:
+                            if not os.listdir(root):
+                                os.rmdir(root)
+                        except Exception:
+                            pass
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
