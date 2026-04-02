@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.3.7"
+APP_VERSION = "v1.3.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2241,24 +2241,6 @@ def process_all_qbs():
                     send_tg_notification(f"[AutoISO] 节点连接失败 | 节点: {server.name} | 错误: {exc}")
                 continue
 
-            # === [智能雷达] 预扫描 MP 缓存区 ===
-            rename_enabled = get_setting("rename_enabled") == "1"
-            move_all = get_setting("rename_move_all") == "1"
-            staging_files = []
-            if rename_enabled and move_all:
-                src_dir = get_setting("mp_staging_path")
-                if src_dir and os.path.exists(src_dir):
-                    try:
-                        for root, _dirs, files in os.walk(src_dir):
-                            for f in files:
-                                if f.lower().endswith((".mkv", ".mp4", ".ts", ".iso", ".avi", ".rmvb")):
-                                    # 修复Bug：记录相对路径（包含子目录），而不仅仅是文件名
-                                    rel_dir = os.path.relpath(root, src_dir)
-                                    rel_path = os.path.join(rel_dir, f) if rel_dir != "." else f
-                                    staging_files.append(rel_path)
-                    except Exception:
-                        pass
-
             for torrent in torrents:
                 original_name = getattr(torrent, "name", "")
                 tags_str = getattr(torrent, "tags", "")
@@ -2266,6 +2248,7 @@ def process_all_qbs():
 
                 # 判断是否是准备执行旁路改名的新任务（必须不包含已重命名标签，防止无限死循环触发）
                 is_bypass_pending = False
+                rename_enabled = get_setting("rename_enabled") == "1"
                 if rename_enabled:
                     trigger_tags = get_rename_trigger_tags()
                     finish_tag = get_rename_finish_tag()
@@ -2276,36 +2259,6 @@ def process_all_qbs():
                         if has_trigger:
                             # 1. VIP 流程（带标签）：触发正常改名、刮削入库与历史记录
                             is_bypass_pending = True
-                        elif move_all:
-                            # 2. 静默清道夫流程：包含子目录结构完整搬运
-                            task_base = (getattr(torrent, "name", "") or "").split("-")[0].strip()
-                            if task_base:
-                                matched_files = [sf for sf in staging_files if task_base in sf or sf in task_base]
-                                if matched_files:
-                                    src_dir = get_setting("mp_staging_path")
-                                    dst_dir = get_setting("mp_final_path")
-                                    if src_dir and dst_dir:
-                                        success = False
-                                        for f in matched_files:
-                                            src_file = os.path.join(src_dir, f)
-                                            dst_file = os.path.join(dst_dir, f)
-                                            try:
-                                                # 修复Bug：因为有可能是嵌套子目录，所以要用 dirname 确保目标父目录存在
-                                                os.makedirs(os.path.dirname(dst_file), exist_ok=True)
-                                                shutil.move(src_file, dst_file)
-                                                logger.info("🚚 [静默转移] 成功转移未打标文件: %s", f)
-                                                success = True
-                                                if f in staging_files:
-                                                    staging_files.remove(f)
-                                            except Exception as e:
-                                                logger.error("[静默转移] 文件转移失败 %s: %s", f, e)
-
-                                        # 搬运完成后，打上专属的静默结案标签，与主流程的 finish_tag 彻底隔离
-                                        if success:
-                                            try:
-                                                torrent.add_tags(tags="已转移")
-                                            except Exception:
-                                                pass
 
                 # 只要是待封装，或者是全新准备旁路的任务，立刻提前生成最终名字并触发刮削
                 if has_waiting_tag(tags_str) or is_bypass_pending:
@@ -2403,6 +2356,44 @@ def process_all_qbs():
             logger.info(msg)
             if get_notify_flag("notify_task_cancel", True):
                 send_tg_notification(f"[AutoISO] {msg}")
+
+        # === [全量转移] 终极清道夫：基于 ctime 冷却 3 分钟的物理无脑搬运 ===
+        rename_enabled_flag = get_setting("rename_enabled") == "1"
+        move_all_flag = get_setting("rename_move_all") == "1"
+        
+        if rename_enabled_flag and move_all_flag:
+            src_dir = get_setting("mp_staging_path")
+            dst_dir = get_setting("mp_final_path")
+            
+            if src_dir and dst_dir and os.path.exists(src_dir):
+                import shutil
+                import time
+                current_time = time.time()
+                
+                # 扫描缓存区根目录下的所有项目（文件或文件夹）
+                for item in os.listdir(src_dir):
+                    src_item = os.path.join(src_dir, item)
+                    dst_item = os.path.join(dst_dir, item)
+                    
+                    try:
+                        # 核心保护机制：获取 ctime (硬链接创建时间)
+                        # 设定 180 秒（3分钟）冷却期。如果文件太新鲜，说明 VIP 改名流程可能正在处理，暂不惊动。
+                        item_ctime = os.path.getctime(src_item)
+                        if current_time - item_ctime < 180:
+                            continue
+                            
+                        # 超过 3 分钟未被改名模块取走，说明是普通任务，执行物理连锅端
+                        if os.path.exists(dst_item):
+                            if os.path.isdir(dst_item):
+                                shutil.rmtree(dst_item)
+                            else:
+                                os.remove(dst_item)
+                                
+                        # 执行搬运（支持单文件或整个文件夹）
+                        shutil.move(src_item, dst_item)
+                        logger.info(f"🚚 [全量转移] 成功搬运闲置内容: {item}")
+                    except Exception as e:
+                        logger.error(f"❌ [全量转移] 搬运失败 {item}: {e}")
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
