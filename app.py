@@ -1424,19 +1424,14 @@ def is_now_in_cron_window(cron_expr, now_dt=None, window_minutes=5):
     try:
         if CRONITER_AVAILABLE:
             prev_fire = croniter(expr, current).get_prev(datetime)
-            if not prev_fire:
-                return False
-            return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60
         else:
-            # 修复 Bug：APScheduler 并没有 get_prev_fire_time 方法。
-            # 巧妙解法：将起算点拨回到窗口期前，推演它的"下一次"执行时间，看是否落在当前时间内。
             trigger = CronTrigger.from_crontab(expr, timezone=TZ)
-            search_start = current - timedelta(minutes=int(window_minutes), seconds=1)
-            next_fire = trigger.get_next_fire_time(search_start, current)
-            return next_fire is not None and next_fire <= current
-    except Exception as e:
-        logger.error(f"❌ Cron 窗口判定异常: {e}")
+            prev_fire = trigger.get_prev_fire_time(None, current)
+    except Exception:
         return False
+    if not prev_fire:
+        return False
+    return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60
 
 
 def apply_upload_scheduler(cron_expr):
