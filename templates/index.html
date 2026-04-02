@@ -1237,6 +1237,7 @@ cat << 'EOF' > /etc/systemd/system/autoiso-agent.service
 [Unit]
 Description=AutoISO Edge Agent
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

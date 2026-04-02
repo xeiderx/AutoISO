@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.3.9"
+APP_VERSION = "v1.4.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1424,14 +1424,18 @@ def is_now_in_cron_window(cron_expr, now_dt=None, window_minutes=5):
     try:
         if CRONITER_AVAILABLE:
             prev_fire = croniter(expr, current).get_prev(datetime)
+            if not prev_fire:
+                return False
+            return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60
         else:
+            # 完美的未来推演法：彻底解决 APScheduler 无法计算过去时间的残疾问题
             trigger = CronTrigger.from_crontab(expr, timezone=TZ)
-            prev_fire = trigger.get_prev_fire_time(None, current)
-    except Exception:
+            search_start = current - timedelta(minutes=int(window_minutes))
+            next_fire = trigger.get_next_fire_time(None, search_start)
+            return next_fire is not None and next_fire <= current
+    except Exception as e:
+        logger.error(f"❌ Cron 判定异常: {e}")
         return False
-    if not prev_fire:
-        return False
-    return 0 <= (current - prev_fire).total_seconds() <= max(1, int(window_minutes)) * 60
 
 
 def apply_upload_scheduler(cron_expr):
