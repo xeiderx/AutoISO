@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.5.3"
+APP_VERSION = "v1.5.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2360,6 +2360,7 @@ def process_one_torrent(server: QBServer, client, torrent):
             duration = format_seconds((finished - started).total_seconds())
             # --- 单文件：一次性协同插入自定义标签 + 文件大小标签，按配置锚点落位 ---
             output_name = temp_single_name  # 兜底：如果下面的计算失败，用临时名
+            final_size_gb = history.file_size_gb or 0.0  # 兜底：避免 try 异常后 final_size_gb 未定义
             try:
                 final_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
                 size_suffix = build_size_suffix(final_size_gb)
@@ -2428,6 +2429,7 @@ def process_one_torrent(server: QBServer, client, torrent):
         if ok:
             iso_name = os.path.basename(iso_path)
             # --- ISO：一次性协同插入自定义标签 + 文件大小标签，按配置锚点落位 ---
+            final_iso_size_gb = history.file_size_gb or 0.0  # 兜底：避免 try 异常后变量未定义
             try:
                 final_iso_size_gb = round((os.path.getsize(iso_path) / GB), 3) if os.path.isfile(iso_path) else history.file_size_gb
                 size_suffix = build_size_suffix(final_iso_size_gb)

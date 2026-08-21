@@ -436,14 +436,14 @@
               <h6 class="mb-0 fw-bold"><i class="bi bi-sliders text-primary me-2"></i>全局与路径设置</h6>
             </div>
             <form id="formRenameSettings">
-              <div class="d-flex flex-column flex-md-row align-items-center align-items-md-start gap-3 gap-md-4 mb-4 pb-2 border-bottom border-secondary border-opacity-10">
-                <div class="form-check form-switch m-0 d-flex flex-column flex-md-row align-items-center">
-                  <input class="form-check-input shadow-sm m-0 mb-1 mb-md-0 me-md-2" type="checkbox" id="renameEnabled" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
-                  <label class="form-check-label fw-bold text-dark" for="renameEnabled" style="cursor: pointer;">启用模块</label>
-                </div>
-                <div class="form-check form-switch m-0 d-flex flex-column flex-md-row align-items-center">
-                  <input class="form-check-input shadow-sm m-0 mb-1 mb-md-0 me-md-2" type="checkbox" id="renameMoveAll" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
-                  <label class="form-check-label fw-bold text-dark d-flex align-items-center gap-1" for="renameMoveAll" style="cursor: pointer;">
+              <div class="row g-2 g-md-3 mb-4 pb-2 border-bottom border-secondary border-opacity-10 align-items-center">
+                <div class="col-6 col-md-auto"><div class="form-check form-switch m-0 d-flex align-items-center">
+                  <input class="form-check-input shadow-sm m-0 me-2 flex-shrink-0" type="checkbox" id="renameEnabled" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
+                  <label class="form-check-label fw-bold text-dark text-nowrap" for="renameEnabled" style="cursor: pointer;">启用模块</label>
+                </div></div>
+                <div class="col-6 col-md-auto"><div class="form-check form-switch m-0 d-flex align-items-center">
+                  <input class="form-check-input shadow-sm m-0 me-2 flex-shrink-0" type="checkbox" id="renameMoveAll" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
+                  <label class="form-check-label fw-bold text-dark d-flex align-items-center gap-1 text-nowrap" for="renameMoveAll" style="cursor: pointer;">
                     缓存区全量转移
                     <i class="bi bi-info-circle text-muted"
                        style="font-size: 0.9rem; cursor: help;"
@@ -451,10 +451,10 @@
                        data-bs-placement="top"
                        title="默认仅转移命中「触发监控标签」的任务。开启后，将无差别物理转移「MP 缓存区」内的所有文件。"></i>
                   </label>
-                </div>
-                <div class="form-check form-switch m-0 d-flex flex-column flex-md-row align-items-center">
-                  <input class="form-check-input shadow-sm m-0 mb-1 mb-md-0 me-md-2" type="checkbox" id="sizeSuffixEnabled" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
-                  <label class="form-check-label fw-bold text-dark d-flex align-items-center gap-1" for="sizeSuffixEnabled" style="cursor: pointer;">
+                </div></div>
+                <div class="col-6 col-md-auto"><div class="form-check form-switch m-0 d-flex align-items-center">
+                  <input class="form-check-input shadow-sm m-0 me-2 flex-shrink-0" type="checkbox" id="sizeSuffixEnabled" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
+                  <label class="form-check-label fw-bold text-dark d-flex align-items-center gap-1 text-nowrap" for="sizeSuffixEnabled" style="cursor: pointer;">
                     文件大小后缀
                     <i class="bi bi-info-circle text-muted"
                        style="font-size: 0.9rem; cursor: help;"
@@ -462,7 +462,7 @@
                        data-bs-placement="top"
                        title="开启后，封装/改名后的文件名会自动追加文件大小标识，例如 [79.42GB]。该后缀会放在自定义标签之后、扩展名之前。"></i>
                   </label>
-                </div>
+                </div></div>
               </div>
               <div class="mb-3">
                 <label class="form-label text-muted small fw-bold">触发监控标签 (逗号分隔)</label>
