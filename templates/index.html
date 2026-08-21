@@ -485,9 +485,54 @@
                   <label class="form-label text-muted small fw-bold mb-1">文件大小后缀格式模板</label>
                   <input type="text" class="form-control border-0" id="sizeSuffixTemplate" placeholder="[{value}{unit}]">
                   <div class="form-text mt-2 text-muted" style="font-size: 0.78rem;">
-                    占位符说明：<code class="bg-white px-1 rounded">{value}</code> = 数值(保留2位小数)，<code class="bg-white px-1 rounded">{unit}</code> = 单位(GB/TB/PB自动进位)
-                    <br>示例 1：<code class="bg-white px-1 rounded">[{value}{unit}]</code> → <b class="text-success">[79.42GB]</b>
+                    占位符说明：<code class="bg-white px-1 rounded">{value}</code> = 数值(不足1GB显示MB，否则GB/TB/PB自动进位，均保留2位小数)，<code class="bg-white px-1 rounded">{unit}</code> = 单位(MB/GB/TB/PB)
+                    <br>示例 1：<code class="bg-white px-1 rounded">[{value}{unit}]</code> → <b class="text-success">[79.42GB]</b> / <b class="text-success">[850.23MB]</b>
                     &nbsp;示例 2：<code class="bg-white px-1 rounded">【{value} {unit}】</code> → <b class="text-success">【79.42 GB】</b>
+                  </div>
+                </div>
+              </div>
+              <!-- 自定义标签 / 大小标签 插入位置 独立配置 -->
+              <div class="mb-4 p-3 bg-info bg-opacity-5 border border-info border-opacity-20 rounded-4">
+                <h6 class="mb-3 fw-bold text-dark d-flex align-items-center"><i class="bi bi-layout-text-sidebar-reverse me-2 text-info"></i>标签插入位置（独立可调）</h6>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 插入模式</label>
+                    <select class="form-select border-0" id="customTagInsertMode">
+                      <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
+                      <option value="after_year">年份之后</option>
+                      <option value="before_ext">扩展名之前</option>
+                      <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
+                      <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组</label>
+                    <input type="text" class="form-control border-0" id="customTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 UHD 或 BluRay">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold mb-1">大小标签 · 插入模式</label>
+                    <select class="form-select border-0" id="sizeTagInsertMode">
+                      <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
+                      <option value="after_year">年份之后</option>
+                      <option value="before_ext">扩展名之前</option>
+                      <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
+                      <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组</label>
+                    <input type="text" class="form-control border-0" id="sizeTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 BluRay 或 HEVC">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label text-muted small fw-bold mb-1">两标签插入位置相同或重叠时 · 相对顺序</label>
+                    <select class="form-select border-0" id="sizeOrderVsCustom">
+                      <option value="after">自定义在前，大小在后（默认）[特效字幕][79.42GB]</option>
+                      <option value="before">大小在前，自定义在后 [79.42GB][特效字幕]</option>
+                    </select>
+                    <div class="form-text mt-2 text-muted" style="font-size: 0.78rem;">
+                      说明：当两个标签使用相同插入模式（比如都选「扩展名前」）、或碰巧落在同一位点时，按该顺序拼接成整体再插入，避免顺序混乱。
+                      锚点词组支持任意字符串（区分大小写），若在文件名中找不到该词组，则自动兜底到扩展名前。
+                    </div>
                   </div>
                 </div>
               </div>
@@ -949,31 +994,89 @@ def get_identity():
     with open(IDENTITY_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def insert_suffix_smart(filename, suffix):
-    if not suffix: return filename
-    name_no_ext, ext = os.path.splitext(filename)
-    if ext.lower() not in ['.mkv', '.mp4', '.avi', '.ts', '.iso', '.rmvb']:
-        name_no_ext = filename
-        ext = ""
-    import re
-    year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', name_no_ext)
-    if year_match:
-        pos = year_match.end()
-        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
-    qual_match = re.search(r'\\b(2160p|1080p|720p|4k|8k|bluray|web-dl|webrip|remux|x264|x265|hevc)\\b', name_no_ext, re.IGNORECASE)
-    if qual_match:
-        pos = qual_match.start()
-        if pos > 0 and name_no_ext[pos-1] in ['.', ' ', '-']: pos -= 1
-        return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
-    return name_no_ext + suffix + ext
-
 def append_suffix_before_ext(filename, suffix):
     if not suffix: return filename
     base, ext = os.path.splitext(filename)
     return f"{base}{suffix}{ext}"
 
+# ========== 锚点驱动的双标签协同插入（与 app.py 保持一致） ==========
+VALID_INSERT_MODES_AGENT = {"smart_legacy", "after_year", "before_ext", "before_anchor", "after_anchor"}
+
+def _split_name_and_known_ext_agent(filename):
+    name_no_ext, ext = os.path.splitext(filename)
+    if ext.lower() not in ['.mkv', '.mp4', '.avi', '.ts', '.iso', '.rmvb']:
+        return filename, ""
+    return name_no_ext, ext
+
+def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text):
+    core = str(name_no_ext or "")
+    mode_clean = (mode or "").strip() or "smart_legacy"
+    anchor_clean = str(anchor_text or "")
+    import re
+    if mode_clean == "after_year":
+        year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', core)
+        if year_match: return year_match.end(), "after_year"
+        return len(core), "before_ext"
+    if mode_clean == "before_ext":
+        return len(core), "before_ext"
+    if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
+        idx = core.find(anchor_clean)
+        if idx >= 0:
+            if mode_clean == "before_anchor":
+                return idx, f"before_anchor:{anchor_clean}"
+            return idx + len(anchor_clean), f"after_anchor:{anchor_clean}"
+        return len(core), "before_ext"
+    # smart_legacy
+    year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', core)
+    if year_match: return year_match.end(), "after_year"
+    qual_match = re.search(r'\\b(2160p|1080p|720p|4k|8k|bluray|web-dl|webrip|remux|x264|x265|hevc)\\b', core, re.IGNORECASE)
+    if qual_match:
+        pos = qual_match.start()
+        if pos > 0 and core[pos-1] in ['.', ' ', '-']: pos -= 1
+        return pos, "before_quality"
+    return len(core), "before_ext"
+
+def insert_suffix_by_anchor_agent(filename, suffix, mode, anchor_text):
+    if not suffix: return filename
+    name_no_ext, ext = _split_name_and_known_ext_agent(filename)
+    pos, _ = find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text)
+    return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
+
+def insert_two_tags_agent(filename, custom_suffix, size_suffix,
+                          custom_mode, custom_anchor, size_mode, size_anchor, size_order):
+    has_custom = bool(custom_suffix)
+    has_size = bool(size_suffix)
+    if not has_custom and not has_size: return filename
+    if has_custom and not has_size:
+        return insert_suffix_by_anchor_agent(filename, custom_suffix, custom_mode, custom_anchor)
+    if has_size and not has_custom:
+        return insert_suffix_by_anchor_agent(filename, size_suffix, size_mode, size_anchor)
+    name_no_ext, ext = _split_name_and_known_ext_agent(filename)
+    c_pos, c_kind = find_insert_position_by_mode_agent(name_no_ext, custom_mode, custom_anchor)
+    s_pos, s_kind = find_insert_position_by_mode_agent(name_no_ext, size_mode, size_anchor)
+    if c_kind == s_kind or c_pos == s_pos:
+        merged = (size_suffix + custom_suffix) if size_order == "before" else (custom_suffix + size_suffix)
+        pos = c_pos
+        return name_no_ext[:pos] + merged + name_no_ext[pos:] + ext
+    insertions = [(c_pos, custom_suffix), (s_pos, size_suffix)]
+    insertions.sort(key=lambda x: x[0], reverse=True)
+    result = name_no_ext
+    for pos, text in insertions:
+        if pos < 0: pos = 0
+        if pos > len(result): pos = len(result)
+        result = result[:pos] + text + result[pos:]
+    return result + ext
+
+# 兼容旧接口 insert_suffix_smart：按「自定义标签配置」插入（若无配置则走智能兜底）
+def insert_suffix_smart(filename, suffix, custom_mode="smart_legacy", custom_anchor=""):
+    if not suffix: return filename
+    return insert_suffix_by_anchor_agent(filename, suffix, custom_mode, custom_anchor)
+
 def format_size_value_with_unit(gb_value):
     gb_value = max(0.0, float(gb_value or 0.0))
+    # 不足1GB时显示MB（两位小数）
+    if gb_value < 1.0:
+        return f"{gb_value * 1024.0:.2f}", "MB"
     if gb_value >= (1000 * 1024):
         return f"{gb_value / (1024 * 1024):.2f}", "PB"
     if gb_value >= 1024:
@@ -1149,6 +1252,15 @@ def worker_loop():
             cd2_path = config.get("cd2_path")
             size_suffix_enabled = bool(config.get("size_suffix_enabled", False))
             size_suffix_template = config.get("size_suffix_template") or "[{value}{unit}]"
+            # ---- 两标签独立位置配置 + 相对顺序 ----
+            custom_mode = config.get("custom_tag_insert_mode") or "smart_legacy"
+            custom_anchor = config.get("custom_tag_insert_anchor") or ""
+            size_mode = config.get("size_tag_insert_mode") or "before_ext"
+            size_anchor = config.get("size_tag_insert_anchor") or ""
+            size_order = config.get("size_order_vs_custom") or "after"
+            if custom_mode not in VALID_INSERT_MODES_AGENT: custom_mode = "smart_legacy"
+            if size_mode not in VALID_INSERT_MODES_AGENT: size_mode = "before_ext"
+            if size_order not in ("before", "after"): size_order = "after"
             if not qb_url or not temp_path or not cd2_path:
                 time.sleep(10)
                 continue
@@ -1174,38 +1286,41 @@ def worker_loop():
                         save_path = os.path.join(t.get('save_path', ''), name)
                     
                     rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
-                    logical_name = insert_suffix_smart(name, rename_suffix)
+                    logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
                     
                     if os.path.isfile(save_path):
                         actual_filename = os.path.basename(save_path)
-                        final_name = insert_suffix_smart(actual_filename, rename_suffix)
-                        target_temp = os.path.join(temp_path, final_name)
+                        # 先按「自定义标签配置」生成临时名，用于copy2落盘
+                        temp_single_name = insert_suffix_smart(actual_filename, rename_suffix, custom_mode, custom_anchor)
+                        target_temp = os.path.join(temp_path, temp_single_name)
                         log(f"====== 开始单文件转存: {name} ======")
                         report(identity, logical_name, "packing", 10, size_gb=size_gb)
                         try:
                             if os.path.abspath(save_path) != os.path.abspath(target_temp):
                                 shutil.copy2(save_path, target_temp)
-                            # --- VPS 单文件：追加文件大小后缀 ---
+                            # --- VPS 单文件：一次性协同插入自定义标签 + 文件大小标签 ---
                             try:
                                 real_size_bytes = safe_get_size(target_temp)
                                 real_size_gb = round(real_size_bytes / (1024**3), 3)
                             except Exception:
                                 real_size_gb = 0.0
                             size_suffix = build_size_suffix(real_size_gb, size_suffix_enabled, size_suffix_template)
-                            if size_suffix:
-                                sized_name = append_suffix_before_ext(final_name, size_suffix)
-                                if sized_name and sized_name != final_name:
-                                    sized_path = os.path.join(temp_path, sized_name)
-                                    try:
-                                        if os.path.abspath(target_temp) != os.path.abspath(sized_path):
-                                            if os.path.exists(sized_path): os.remove(sized_path)
-                                            os.rename(target_temp, sized_path)
-                                        final_name = sized_name
-                                        target_temp = sized_path
-                                        log(f"📏 [大小后缀] 单文件已追加标识: {sized_name}")
-                                    except Exception as e:
-                                        log(f" 追加大小后缀失败(忽略): {e}")
-                            # ----------------------------------
+                            final_name = insert_two_tags_agent(
+                                actual_filename, rename_suffix, size_suffix,
+                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                            )
+                            if final_name and final_name != temp_single_name:
+                                final_path = os.path.join(temp_path, final_name)
+                                try:
+                                    if os.path.abspath(target_temp) != os.path.abspath(final_path):
+                                        if os.path.exists(final_path): os.remove(final_path)
+                                        os.rename(target_temp, final_path)
+                                    target_temp = final_path
+                                    log(f"📏 [锚点插入] 单文件按配置重命名完成: {temp_single_name} -> {final_name}")
+                                except Exception as e:
+                                    log(f"  按锚点重命名失败(忽略继续): {e}")
+                                    final_name = temp_single_name
+                            # --------------------------------------------------------
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             log(f" 转存完成，已生成单文件: {final_name}")
@@ -1213,8 +1328,10 @@ def worker_loop():
                             log(f" 转存失败: {name}, error: {e}")
                             report(identity, logical_name, "error", 0, size_gb=size_gb)
                     else:
-                        base_iso_name = insert_suffix_smart(name, rename_suffix)
-                        final_name = f"{base_iso_name}.iso"
+                        # --- VPS ISO：一次性协同插入自定义标签 + 文件大小标签 ---
+                        pseudo_iso_filename = f"{name or 'AUTOISO'}.iso"
+                        temp_iso_base = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
+                        final_name = f"{temp_iso_base}.iso"
                         target_temp = os.path.join(temp_path, final_name)
                         log(f"====== 开始打包任务: {name} ======")
                         report(identity, logical_name, "packing", 10, size_gb=size_gb)
@@ -1225,27 +1342,29 @@ def worker_loop():
                         try:
                             cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", target_temp, save_path]
                             subprocess.run(cmd, check=True)
-                            # --- VPS ISO：追加文件大小后缀 ---
                             try:
                                 real_size_bytes = safe_get_size(target_temp)
                                 real_size_gb = round(real_size_bytes / (1024**3), 3)
                             except Exception:
                                 real_size_gb = 0.0
                             size_suffix = build_size_suffix(real_size_gb, size_suffix_enabled, size_suffix_template)
-                            if size_suffix:
-                                sized_name = append_suffix_before_ext(final_name, size_suffix)
-                                if sized_name and sized_name != final_name:
-                                    sized_path = os.path.join(temp_path, sized_name)
-                                    try:
-                                        if os.path.abspath(target_temp) != os.path.abspath(sized_path):
-                                            if os.path.exists(sized_path): os.remove(sized_path)
-                                            os.rename(target_temp, sized_path)
-                                        final_name = sized_name
-                                        target_temp = sized_path
-                                        log(f"📏 [大小后缀] ISO 已追加标识: {sized_name}")
-                                    except Exception as e:
-                                        log(f" 追加 ISO 大小后缀失败(忽略): {e}")
-                            # ----------------------------------
+                            final_iso_name = insert_two_tags_agent(
+                                pseudo_iso_filename, rename_suffix, size_suffix,
+                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                            )
+                            if final_iso_name and final_iso_name != final_name:
+                                final_iso_path = os.path.join(temp_path, final_iso_name)
+                                try:
+                                    if os.path.abspath(target_temp) != os.path.abspath(final_iso_path):
+                                        if os.path.exists(final_iso_path): os.remove(final_iso_path)
+                                        os.rename(target_temp, final_iso_path)
+                                    target_temp = final_iso_path
+                                    final_name = final_iso_name
+                                    log(f"📏 [锚点插入] ISO 按配置重命名完成: {os.path.basename(target_temp)} -> {final_name}")
+                                except Exception as e:
+                                    log(f"  按锚点重命名ISO失败(忽略继续): {e}")
+                                    final_name = os.path.basename(target_temp)
+                            # ------------------------------------------------------------
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             log(f" 打包完成，已生成 ISO: {final_name}")
@@ -1263,24 +1382,41 @@ def worker_loop():
                 size_gb = t.get('size', 0) / (1024**3)
                 
                 rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
-                logical_name = insert_suffix_smart(name, rename_suffix)
+                logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
                 save_path = t.get('content_path')
                 if not save_path or not os.path.exists(save_path):
                     save_path = os.path.join(t.get('save_path', ''), name)
                 
                 if os.path.isfile(save_path):
                     actual_filename = os.path.basename(save_path)
-                    base_final = insert_suffix_smart(actual_filename, rename_suffix)
+                    base_final = insert_suffix_by_anchor_agent(actual_filename, rename_suffix, custom_mode, custom_anchor)
                 else:
-                    base_iso_name = insert_suffix_smart(name, rename_suffix)
+                    base_iso_name = insert_suffix_by_anchor_agent(name, rename_suffix, custom_mode, custom_anchor)
                     base_final = f"{base_iso_name}.iso"
 
-                # VPS 上传：先尝试定位带大小后缀的实际文件，否则回退 base_final
+                # VPS 上传：按"两标签协同插入"策略计算预期最终名，再用前缀兜底
                 final_name = base_final
                 target_temp = os.path.join(temp_path, base_final)
                 try:
                     expected_suffix = build_size_suffix(size_gb, size_suffix_enabled, size_suffix_template)
-                    if expected_suffix:
+                    # 优先用 insert_two_tags 计算的精确预期名
+                    if os.path.isfile(save_path):
+                        expected_name = insert_two_tags_agent(
+                            actual_filename, rename_suffix, expected_suffix,
+                            custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                        )
+                    else:
+                        pseudo_iso = f"{name or 'AUTOISO'}.iso"
+                        expected_name = insert_two_tags_agent(
+                            pseudo_iso, rename_suffix, expected_suffix,
+                            custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                        )
+                    expected_path = os.path.join(temp_path, expected_name)
+                    if expected_name and os.path.exists(expected_path):
+                        final_name = expected_name
+                        target_temp = expected_path
+                    elif expected_suffix:
+                        # 向后兼容：旧版 append_suffix_before_ext 的拼接方式尝试一次
                         sized_candidate = append_suffix_before_ext(base_final, expected_suffix)
                         sized_path = os.path.join(temp_path, sized_candidate)
                         if os.path.exists(sized_path):
@@ -1981,6 +2117,12 @@ echo "------------------------------------------------"
                     $('renameMoveAll').checked = data.rename_move_all === "1";
                     $('sizeSuffixEnabled').checked = data.size_suffix_enabled === "1";
                     $('sizeSuffixTemplate').value = data.size_suffix_template || "[{value}{unit}]";
+                    // ---- 两标签独立插入位置 ----
+                    $('customTagInsertMode').value = data.custom_tag_insert_mode || "smart_legacy";
+                    $('customTagInsertAnchor').value = data.custom_tag_insert_anchor || "";
+                    $('sizeTagInsertMode').value = data.size_tag_insert_mode || "before_ext";
+                    $('sizeTagInsertAnchor').value = data.size_tag_insert_anchor || "";
+                    $('sizeOrderVsCustom').value = data.size_order_vs_custom || "after";
                 });
     }
 
@@ -2088,7 +2230,13 @@ echo "------------------------------------------------"
             rename_enabled: $('renameEnabled').checked ? "1" : "0",
             rename_move_all: $('renameMoveAll').checked ? "1" : "0",
             size_suffix_enabled: $('sizeSuffixEnabled').checked ? "1" : "0",
-            size_suffix_template: $('sizeSuffixTemplate').value
+            size_suffix_template: $('sizeSuffixTemplate').value,
+            // ---- 两标签独立插入位置 ----
+            custom_tag_insert_mode: $('customTagInsertMode').value,
+            custom_tag_insert_anchor: $('customTagInsertAnchor').value,
+            size_tag_insert_mode: $('sizeTagInsertMode').value,
+            size_tag_insert_anchor: $('sizeTagInsertAnchor').value,
+            size_order_vs_custom: $('sizeOrderVsCustom').value
         };
         try {
             await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });
