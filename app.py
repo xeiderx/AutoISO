@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.4.0"
+APP_VERSION = "v1.5.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -54,6 +54,8 @@ DEFAULT_MP_STAGING_PATH = os.getenv("MP_STAGING_PATH", "/Downloads/MP-LINK缓存
 DEFAULT_MP_FINAL_PATH = os.getenv("MP_FINAL_PATH", "/Downloads/115-LINK")
 DEFAULT_RENAME_ENABLED = os.getenv("RENAME_ENABLED", "1")
 DEFAULT_RENAME_MOVE_ALL = os.getenv("RENAME_MOVE_ALL", "0")
+DEFAULT_SIZE_SUFFIX_ENABLED = os.getenv("SIZE_SUFFIX_ENABLED", "0")
+DEFAULT_SIZE_SUFFIX_TEMPLATE = os.getenv("SIZE_SUFFIX_TEMPLATE", "[{value}{unit}]")
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
 
@@ -494,6 +496,55 @@ def get_rename_move_all():
     if raw == "":
         return DEFAULT_RENAME_MOVE_ALL
     return raw
+
+
+def get_size_suffix_enabled():
+    raw = (get_setting("size_suffix_enabled") or "").strip()
+    if raw == "":
+        return DEFAULT_SIZE_SUFFIX_ENABLED
+    return raw
+
+
+def get_size_suffix_template():
+    raw = (get_setting("size_suffix_template") or "").strip()
+    if raw == "":
+        return DEFAULT_SIZE_SUFFIX_TEMPLATE
+    return raw
+
+
+def format_size_value_with_unit(gb_value):
+    """根据文件大小自动进位并返回 (格式化后的值, 单位字符串)，保留2位小数。"""
+    gb_value = max(0.0, float(gb_value or 0.0))
+    if gb_value >= (1000 * 1024):
+        return f"{gb_value / (1024 * 1024):.2f}", "PB"
+    if gb_value >= 1024:
+        return f"{gb_value / 1024:.2f}", "TB"
+    return f"{gb_value:.2f}", "GB"
+
+
+def build_size_suffix(gb_value, enabled=None, template=None):
+    """根据开关和模板生成文件大小后缀。未指定参数时读取全局配置。"""
+    flag = get_size_suffix_enabled() if enabled is None else ("1" if enabled else "0")
+    if flag != "1":
+        return ""
+    if gb_value is None or gb_value <= 0:
+        return ""
+    tpl = (get_size_suffix_template() if template is None else (template or "")).strip()
+    if not tpl:
+        tpl = DEFAULT_SIZE_SUFFIX_TEMPLATE
+    value_str, unit_str = format_size_value_with_unit(gb_value)
+    try:
+        return tpl.format(value=value_str, unit=unit_str)
+    except (KeyError, IndexError, ValueError):
+        # 模板占位符不合法时回退默认格式
+        return DEFAULT_SIZE_SUFFIX_TEMPLATE.format(value=value_str, unit=unit_str)
+
+
+def append_size_suffix_after_custom(filename, size_suffix):
+    """在自定义后缀之后、扩展名之前，追加文件大小后缀（若为空则原封不动返回）。"""
+    if not size_suffix:
+        return filename
+    return append_suffix_before_ext(filename, size_suffix)
 
 
 def normalize_agent_upload_policy(value):
@@ -1794,6 +1845,18 @@ def try_bypass_rename(server, client, torrent):
             os.makedirs(dest_dir, exist_ok=True)
             new_name = insert_suffix_smart(fname, rename_suffix)
             src_path = os.path.join(dirpath, fname)
+            # --- 旁路改名：追加文件大小后缀 ---
+            try:
+                bypass_size_bytes = os.path.getsize(src_path)
+                bypass_size_gb = round(bypass_size_bytes / GB, 3)
+            except OSError:
+                bypass_size_gb = 0.0
+            size_suffix = build_size_suffix(bypass_size_gb)
+            if size_suffix:
+                sized_new_name = append_size_suffix_after_custom(new_name, size_suffix)
+                if sized_new_name and sized_new_name != new_name:
+                    new_name = sized_new_name
+            # ----------------------------------
             dst_path = os.path.join(dest_dir, new_name)
             try:
                 shutil.move(src_path, dst_path)
@@ -2142,12 +2205,32 @@ def process_one_torrent(server: QBServer, client, torrent):
             finished = now_local()
             duration = format_seconds((finished - started).total_seconds())
             output_name = os.path.basename(output_file)
+            # --- 动态追加文件大小后缀 ---
+            final_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
+            size_suffix = build_size_suffix(final_size_gb)
+            if size_suffix:
+                sized_name = append_size_suffix_after_custom(output_name, size_suffix)
+                if sized_name and sized_name != output_name:
+                    sized_path = os.path.join(OUTPUT_DIR, sized_name)
+                    try:
+                        if os.path.abspath(output_file) != os.path.abspath(sized_path):
+                            if os.path.exists(sized_path):
+                                os.remove(sized_path)
+                            os.rename(output_file, sized_path)
+                        output_file = sized_path
+                        output_name = sized_name
+                        history.file_size_gb = final_size_gb
+                        logger.info("📏 [文件大小后缀] 单文件已追加标识: %s -> %s", os.path.basename(source_path), output_name)
+                    except OSError as exc:
+                        logger.warning("追加文件大小后缀失败(忽略继续): from=%s to=%s err=%s", output_name, sized_name, exc)
+            # ---------------------------
             auto_upload_enabled = init_task_auto_upload(output_name, history.id)
+            history.task_name = output_name
             history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"FILE: {output_file}"
             history.info = "single file copied to output"
-            history.file_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
+            history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_size_gb
             db.session.commit()
             mark_upload_status(
                 output_name,
@@ -2186,11 +2269,32 @@ def process_one_torrent(server: QBServer, client, torrent):
 
         if ok:
             iso_name = os.path.basename(iso_path)
+            # --- 动态追加文件大小后缀 ---
+            final_iso_size_gb = round((os.path.getsize(iso_path) / GB), 3) if os.path.isfile(iso_path) else history.file_size_gb
+            size_suffix = build_size_suffix(final_iso_size_gb)
+            if size_suffix:
+                sized_iso_name = append_size_suffix_after_custom(iso_name, size_suffix)
+                if sized_iso_name and sized_iso_name != iso_name:
+                    sized_iso_path = os.path.join(OUTPUT_DIR, sized_iso_name)
+                    try:
+                        if os.path.abspath(iso_path) != os.path.abspath(sized_iso_path):
+                            if os.path.exists(sized_iso_path):
+                                os.remove(sized_iso_path)
+                            os.rename(iso_path, sized_iso_path)
+                        iso_path = sized_iso_path
+                        iso_name = sized_iso_name
+                        history.file_size_gb = final_iso_size_gb
+                        logger.info("📏 [文件大小后缀] ISO 已追加标识: %s -> %s", safe_final_name, iso_name)
+                    except OSError as exc:
+                        logger.warning("追加 ISO 文件大小后缀失败(忽略继续): from=%s to=%s err=%s", iso_name, sized_iso_name, exc)
+            # ---------------------------
             auto_upload_enabled = init_task_auto_upload(iso_name, history.id)
+            history.task_name = os.path.splitext(iso_name)[0] or iso_name
             history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
             history.end_time = finished
             history.message = f"ISO: {iso_path}"
             history.info = ""
+            history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_iso_size_gb
             db.session.commit()
             mark_upload_status(
                 iso_name,
@@ -2981,6 +3085,8 @@ def get_agent_config():
         return jsonify({"error": "节点不存在"}), 404
     data = serialize_agent_node(row)
     data["delete_after_upload"] = bool(get_delete_after_upload())
+    data["size_suffix_enabled"] = bool(get_size_suffix_enabled() == "1")
+    data["size_suffix_template"] = get_size_suffix_template()
     return jsonify(data)
 
 
@@ -3248,6 +3354,8 @@ def get_system_settings():
             "mp_final_path": get_setting("mp_final_path") or "/Downloads/115-LINK",
             "rename_enabled": get_rename_enabled(),
             "rename_move_all": get_rename_move_all(),
+            "size_suffix_enabled": get_size_suffix_enabled(),
+            "size_suffix_template": get_size_suffix_template(),
         }
     )
 
@@ -3298,6 +3406,12 @@ def save_system_settings():
     mp_final_path = (payload.get("mp_final_path") or "").strip() if "mp_final_path" in payload else get_mp_final_path()
     rename_enabled = parse_bool(payload.get("rename_enabled"), default=(get_rename_enabled() != "0"))
     rename_move_all = parse_bool(payload.get("rename_move_all"), default=(get_rename_move_all() == "1"))
+    size_suffix_enabled = parse_bool(payload.get("size_suffix_enabled"), default=(get_size_suffix_enabled() == "1"))
+    size_suffix_template = (
+        (payload.get("size_suffix_template") or "").strip()
+        if "size_suffix_template" in payload
+        else get_size_suffix_template()
+    )
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -3350,6 +3464,9 @@ def save_system_settings():
         set_setting("mp_final_path", mp_final_path)
     set_setting("rename_enabled", "1" if rename_enabled else "0")
     set_setting("rename_move_all", "1" if rename_move_all else "0")
+    set_setting("size_suffix_enabled", "1" if size_suffix_enabled else "0")
+    if "size_suffix_template" in payload:
+        set_setting("size_suffix_template", size_suffix_template or DEFAULT_SIZE_SUFFIX_TEMPLATE)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
         {
@@ -3375,6 +3492,8 @@ def save_system_settings():
             "mp_final_path": mp_final_path or DEFAULT_MP_FINAL_PATH,
             "rename_enabled": "1" if rename_enabled else "0",
             "rename_move_all": "1" if rename_move_all else "0",
+            "size_suffix_enabled": "1" if size_suffix_enabled else "0",
+            "size_suffix_template": size_suffix_template or DEFAULT_SIZE_SUFFIX_TEMPLATE,
         }
     )
 

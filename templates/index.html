@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -452,6 +452,17 @@
                        title="默认仅转移命中「触发监控标签」的任务。开启后，将无差别物理转移「MP 缓存区」内的所有文件。"></i>
                   </label>
                 </div>
+                <div class="form-check form-switch m-0 d-flex align-items-center">
+                  <input class="form-check-input shadow-sm m-0 me-2" type="checkbox" id="sizeSuffixEnabled" style="width: 2.2rem; height: 1.1rem; cursor: pointer;">
+                  <label class="form-check-label fw-bold text-dark d-flex align-items-center gap-1" for="sizeSuffixEnabled" style="cursor: pointer;">
+                    文件大小后缀
+                    <i class="bi bi-info-circle text-muted"
+                       style="font-size: 0.9rem; cursor: help;"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="top"
+                       title="开启后，封装/改名后的文件名会自动追加文件大小标识，例如 [79.42GB]。该后缀会放在自定义标签之后、扩展名之前。"></i>
+                  </label>
+                </div>
               </div>
               <div class="mb-3">
                 <label class="form-label text-muted small fw-bold">触发监控标签 (逗号分隔)</label>
@@ -468,6 +479,17 @@
               <div class="mb-4">
                 <label class="form-label text-muted small fw-bold">最终目标路径 (目的)</label>
                 <input type="text" class="form-control" id="mpFinalPath" placeholder="如：/Downloads/115-LINK">
+              </div>
+              <div class="mb-4 p-3 bg-light border border-secondary border-opacity-10 rounded-4">
+                <div class="mb-2">
+                  <label class="form-label text-muted small fw-bold mb-1">文件大小后缀格式模板</label>
+                  <input type="text" class="form-control border-0" id="sizeSuffixTemplate" placeholder="[{value}{unit}]">
+                  <div class="form-text mt-2 text-muted" style="font-size: 0.78rem;">
+                    占位符说明：<code class="bg-white px-1 rounded">{value}</code> = 数值(保留2位小数)，<code class="bg-white px-1 rounded">{unit}</code> = 单位(GB/TB/PB自动进位)
+                    <br>示例 1：<code class="bg-white px-1 rounded">[{value}{unit}]</code> → <b class="text-success">[79.42GB]</b>
+                    &nbsp;示例 2：<code class="bg-white px-1 rounded">【{value} {unit}】</code> → <b class="text-success">【79.42 GB】</b>
+                  </div>
+                </div>
               </div>
               <button type="submit" class="btn btn-primary rounded-pill px-4" id="btnSaveRenameSettings">保存设置</button>
             </form>
@@ -945,6 +967,29 @@ def insert_suffix_smart(filename, suffix):
         return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
     return name_no_ext + suffix + ext
 
+def append_suffix_before_ext(filename, suffix):
+    if not suffix: return filename
+    base, ext = os.path.splitext(filename)
+    return f"{base}{suffix}{ext}"
+
+def format_size_value_with_unit(gb_value):
+    gb_value = max(0.0, float(gb_value or 0.0))
+    if gb_value >= (1000 * 1024):
+        return f"{gb_value / (1024 * 1024):.2f}", "PB"
+    if gb_value >= 1024:
+        return f"{gb_value / 1024:.2f}", "TB"
+    return f"{gb_value:.2f}", "GB"
+
+def build_size_suffix(gb_value, enabled_flag, template):
+    if not enabled_flag: return ""
+    if gb_value is None or gb_value <= 0: return ""
+    tpl = (template or "").strip() or "[{value}{unit}]"
+    value_str, unit_str = format_size_value_with_unit(gb_value)
+    try:
+        return tpl.format(value=value_str, unit=unit_str)
+    except Exception:
+        return "[{value}{unit}]".format(value=value_str, unit=unit_str)
+
 def resolve_rename_suffix_for_agent(tags_str, server_url, agent_token):
     if not tags_str: return ""
     tags = [t.strip() for t in tags_str.split(',') if t.strip()]
@@ -1102,6 +1147,8 @@ def worker_loop():
             qb_url = config.get("qb_url", "").rstrip('/')
             temp_path = config.get("temp_path")
             cd2_path = config.get("cd2_path")
+            size_suffix_enabled = bool(config.get("size_suffix_enabled", False))
+            size_suffix_template = config.get("size_suffix_template") or "[{value}{unit}]"
             if not qb_url or not temp_path or not cd2_path:
                 time.sleep(10)
                 continue
@@ -1138,6 +1185,27 @@ def worker_loop():
                         try:
                             if os.path.abspath(save_path) != os.path.abspath(target_temp):
                                 shutil.copy2(save_path, target_temp)
+                            # --- VPS 单文件：追加文件大小后缀 ---
+                            try:
+                                real_size_bytes = safe_get_size(target_temp)
+                                real_size_gb = round(real_size_bytes / (1024**3), 3)
+                            except Exception:
+                                real_size_gb = 0.0
+                            size_suffix = build_size_suffix(real_size_gb, size_suffix_enabled, size_suffix_template)
+                            if size_suffix:
+                                sized_name = append_suffix_before_ext(final_name, size_suffix)
+                                if sized_name and sized_name != final_name:
+                                    sized_path = os.path.join(temp_path, sized_name)
+                                    try:
+                                        if os.path.abspath(target_temp) != os.path.abspath(sized_path):
+                                            if os.path.exists(sized_path): os.remove(sized_path)
+                                            os.rename(target_temp, sized_path)
+                                        final_name = sized_name
+                                        target_temp = sized_path
+                                        log(f"📏 [大小后缀] 单文件已追加标识: {sized_name}")
+                                    except Exception as e:
+                                        log(f" 追加大小后缀失败(忽略): {e}")
+                            # ----------------------------------
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             log(f" 转存完成，已生成单文件: {final_name}")
@@ -1157,6 +1225,27 @@ def worker_loop():
                         try:
                             cmd = ["genisoimage", "-allow-limited-size", "-l", "-J", "-joliet-long", "-udf", "-r", "-V", "AutoISO", "-o", target_temp, save_path]
                             subprocess.run(cmd, check=True)
+                            # --- VPS ISO：追加文件大小后缀 ---
+                            try:
+                                real_size_bytes = safe_get_size(target_temp)
+                                real_size_gb = round(real_size_bytes / (1024**3), 3)
+                            except Exception:
+                                real_size_gb = 0.0
+                            size_suffix = build_size_suffix(real_size_gb, size_suffix_enabled, size_suffix_template)
+                            if size_suffix:
+                                sized_name = append_suffix_before_ext(final_name, size_suffix)
+                                if sized_name and sized_name != final_name:
+                                    sized_path = os.path.join(temp_path, sized_name)
+                                    try:
+                                        if os.path.abspath(target_temp) != os.path.abspath(sized_path):
+                                            if os.path.exists(sized_path): os.remove(sized_path)
+                                            os.rename(target_temp, sized_path)
+                                        final_name = sized_name
+                                        target_temp = sized_path
+                                        log(f"📏 [大小后缀] ISO 已追加标识: {sized_name}")
+                                    except Exception as e:
+                                        log(f" 追加 ISO 大小后缀失败(忽略): {e}")
+                            # ----------------------------------
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             log(f" 打包完成，已生成 ISO: {final_name}")
@@ -1181,12 +1270,36 @@ def worker_loop():
                 
                 if os.path.isfile(save_path):
                     actual_filename = os.path.basename(save_path)
-                    final_name = insert_suffix_smart(actual_filename, rename_suffix)
+                    base_final = insert_suffix_smart(actual_filename, rename_suffix)
                 else:
                     base_iso_name = insert_suffix_smart(name, rename_suffix)
-                    final_name = f"{base_iso_name}.iso"
+                    base_final = f"{base_iso_name}.iso"
+
+                # VPS 上传：先尝试定位带大小后缀的实际文件，否则回退 base_final
+                final_name = base_final
+                target_temp = os.path.join(temp_path, base_final)
+                try:
+                    expected_suffix = build_size_suffix(size_gb, size_suffix_enabled, size_suffix_template)
+                    if expected_suffix:
+                        sized_candidate = append_suffix_before_ext(base_final, expected_suffix)
+                        sized_path = os.path.join(temp_path, sized_candidate)
+                        if os.path.exists(sized_path):
+                            final_name = sized_candidate
+                            target_temp = sized_path
+                except Exception:
+                    pass
+                if not os.path.exists(target_temp):
+                    # 兜底：遍历 temp_path 寻找前缀匹配的文件
+                    try:
+                        base_prefix = os.path.splitext(base_final)[0]
+                        for cand in os.listdir(temp_path):
+                            if cand.startswith(base_prefix) and os.path.isfile(os.path.join(temp_path, cand)):
+                                final_name = cand
+                                target_temp = os.path.join(temp_path, cand)
+                                break
+                    except Exception:
+                        pass
             
-                target_temp = os.path.join(temp_path, final_name)
                 target_dest = os.path.join(cd2_path, final_name)
                 
                 if '已封装' in tags and os.path.exists(target_temp) and os.path.exists(cd2_path):
@@ -1866,6 +1979,8 @@ echo "------------------------------------------------"
                     ;
                     $('renameEnabled').checked = data.rename_enabled !== "0"; // 默认开启
                     $('renameMoveAll').checked = data.rename_move_all === "1";
+                    $('sizeSuffixEnabled').checked = data.size_suffix_enabled === "1";
+                    $('sizeSuffixTemplate').value = data.size_suffix_template || "[{value}{unit}]";
                 });
     }
 
@@ -1971,7 +2086,9 @@ echo "------------------------------------------------"
             mp_staging_path: $('mpStagingPath').value,
             mp_final_path: $('mpFinalPath').value,
             rename_enabled: $('renameEnabled').checked ? "1" : "0",
-            rename_move_all: $('renameMoveAll').checked ? "1" : "0"
+            rename_move_all: $('renameMoveAll').checked ? "1" : "0",
+            size_suffix_enabled: $('sizeSuffixEnabled').checked ? "1" : "0",
+            size_suffix_template: $('sizeSuffixTemplate').value
         };
         try {
             await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });
