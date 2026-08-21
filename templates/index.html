@@ -365,16 +365,16 @@
           <div class="tab-pane fade" id="tabUpload">
             <form id="uploadForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-primary bg-opacity-10 rounded-3">
-                  <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="global_auto_upload" type="checkbox" name="global_auto_upload" data-on="开" data-off="关" checked>
+                  <div class="form-check form-switch m-0 d-flex align-items-center flex-wrap">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3 flex-shrink-0" id="global_auto_upload" type="checkbox" name="global_auto_upload" data-on="开" data-off="关" checked>
                       <label class="form-check-label fw-bold text-primary fs-6" style="padding-top:2px;" for="global_auto_upload">开启全局定时上传</label>
                   </div>
               </div>
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">全局自动上传时间 (Cron)</label><input class="form-control bg-light border-0 font-monospace text-primary" name="upload_cron" placeholder="0 2 * * *"></div>
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">NAS CloudDrive 挂载路径</label><input class="form-control bg-light border-0" name="clouddrive_path" placeholder="/CloudNAS/CloudDrive/115open/文件夹"></div>
               <div class="col-12 p-3 bg-danger bg-opacity-10 rounded-3 mt-4">
-                  <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="delete_after_upload" type="checkbox" name="delete_after_upload" data-on="开" data-off="关">
+                  <div class="form-check form-switch m-0 d-flex align-items-center flex-wrap">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3 flex-shrink-0" id="delete_after_upload" type="checkbox" name="delete_after_upload" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-danger" style="padding-top:2px;" for="delete_after_upload">上传后删除已封装文件 (仅NAS)</label>
                   </div>
                   <div class="text-danger small mt-2 ms-5 opacity-75 fw-medium">注：VPS 上传后自动删除封装文件，不受此开关控制。</div>
@@ -394,12 +394,12 @@
               <div class="col-md-6"><label class="form-label text-muted small fw-bold">Chat ID</label><input class="form-control bg-light border-0" name="tg_chat_id" required></div>
               
               <div class="col-12 mt-4"><label class="form-label text-muted small fw-bold mb-3">通知事件开关</label></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_add" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_task_add">添加任务</label></div></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_cancel" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_task_cancel">取消任务</label></div></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_start">封装开始</label></div></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_pack_end">封装完成</label></div></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_start">上传开始</label></div></div>
-              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1" for="notify_upload_end">上传完成</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_add" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_task_add">添加任务</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_task_cancel" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_task_cancel">取消任务</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_pack_start">封装开始</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_pack_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_pack_end">封装完成</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_start" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_upload_start">上传开始</label></div></div>
+              <div class="col-6 col-md-4"><div class="form-check form-switch"><input class="nas-auto-switch shadow-sm m-0" id="notify_upload_end" type="checkbox" data-on="开" data-off="关"><label class="form-check-label ms-2 mt-1 text-nowrap" for="notify_upload_end">上传完成</label></div></div>
               
               <div class="col-12 pt-4 d-flex flex-wrap gap-2 justify-content-between">
                   <button class="btn btn-primary rounded-pill px-3 fw-bold shadow" type="submit">保存设置</button>
@@ -411,8 +411,8 @@
           <div class="tab-pane fade" id="tabScraper">
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
               <div class="col-12 p-3 bg-info bg-opacity-10 rounded-3">
-                  <div class="form-check form-switch m-0 d-flex align-items-center">
-                      <input class="nas-auto-switch shadow-sm m-0 me-3" id="enable_tmdb" type="checkbox" name="enable_tmdb" data-on="开" data-off="关">
+                  <div class="form-check form-switch m-0 d-flex align-items-center flex-wrap">
+                      <input class="nas-auto-switch shadow-sm m-0 me-3 flex-shrink-0" id="enable_tmdb" type="checkbox" name="enable_tmdb" data-on="开" data-off="关">
                       <label class="form-check-label fw-bold text-dark fs-6" style="padding-top:2px;" for="enable_tmdb">开启 TMDB 自动刮削</label>
                   </div>
               </div>
@@ -491,7 +491,6 @@
                   </div>
                 </div>
               </div>
-              <button type="submit" class="btn btn-primary rounded-pill px-4" id="btnSaveRenameSettings">保存设置</button>
             </form>
           </div>
         </div>
@@ -532,8 +531,8 @@
                     <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
                     <option value="after_year">年份之后</option>
                     <option value="before_ext">扩展名之前</option>
-                    <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
-                    <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                    <option value="before_anchor">指定词组之前(需填写锚点词组)</option>
+                    <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
                 <div class="col-12 col-md-6">
@@ -546,8 +545,8 @@
                     <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
                     <option value="after_year">年份之后</option>
                     <option value="before_ext">扩展名之前</option>
-                    <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
-                    <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                    <option value="before_anchor">指定词组之前(需填写锚点词组)</option>
+                    <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
                 <div class="col-12 col-md-6">
@@ -568,6 +567,11 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+      <div class="row mt-2">
+        <div class="col-12 d-flex justify-content-center">
+          <button type="button" class="btn btn-primary rounded-pill px-5 fw-bold shadow" id="btnSaveRenameSettings">保存设置</button>
         </div>
       </div>
     </section>
@@ -2249,6 +2253,7 @@ echo "------------------------------------------------"
         }
     });
     $('btnRenameRuleCancel')?.addEventListener('click',()=>{resetRenameRuleForm();});
+    $('btnSaveRenameSettings')?.addEventListener('click',()=>{$('formRenameSettings').requestSubmit();});
     $('renameRuleForm')?.addEventListener('submit',async(e)=>{
       e.preventDefault();
       try{

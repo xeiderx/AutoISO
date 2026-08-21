@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.5.2"
+APP_VERSION = "v1.5.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2359,28 +2359,28 @@ def process_one_torrent(server: QBServer, client, torrent):
             finished = now_local()
             duration = format_seconds((finished - started).total_seconds())
             # --- 单文件：一次性协同插入自定义标签 + 文件大小标签，按配置锚点落位 ---
-            final_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
-            size_suffix = build_size_suffix(final_size_gb)
-            output_name = insert_two_tags(
-                actual_filename, rename_suffix, size_suffix,
-                get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
-                get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
-                get_size_order_vs_custom(),
-            )
-            # 如果协同插入得到的最终名 与 临时落盘名不一致 → 做一次物理rename
-            if output_name and output_name != temp_single_name:
-                final_output_path = os.path.join(OUTPUT_DIR, output_name)
-                try:
+            output_name = temp_single_name  # 兜底：如果下面的计算失败，用临时名
+            try:
+                final_size_gb = round((os.path.getsize(output_file) / GB), 3) if os.path.isfile(output_file) else history.file_size_gb
+                size_suffix = build_size_suffix(final_size_gb)
+                computed_name = insert_two_tags(
+                    actual_filename, rename_suffix, size_suffix,
+                    get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
+                    get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
+                    get_size_order_vs_custom(),
+                )
+                if computed_name and computed_name != temp_single_name:
+                    final_output_path = os.path.join(OUTPUT_DIR, computed_name)
                     if os.path.abspath(output_file) != os.path.abspath(final_output_path):
                         if os.path.exists(final_output_path):
                             os.remove(final_output_path)
                         os.rename(output_file, final_output_path)
                     output_file = final_output_path
                     history.file_size_gb = final_size_gb
-                    logger.info("📏 [锚点插入] 单文件按配置重命名完成: %s -> %s", temp_single_name, output_name)
-                except OSError as exc:
-                    logger.warning("按锚点配置重命名失败(忽略继续，保留临时名): from=%s to=%s err=%s", temp_single_name, output_name, exc)
-                    output_name = temp_single_name
+                    logger.info("📏 [锚点插入] 单文件按配置重命名完成: %s -> %s", temp_single_name, computed_name)
+                output_name = computed_name or temp_single_name
+            except Exception as exc:
+                logger.warning("单文件锚点插入/重命名失败(忽略继续，保留临时名): from=%s err=%s", temp_single_name, exc)
             # --------------------------------------------------------------
             auto_upload_enabled = init_task_auto_upload(output_name, history.id)
             history.task_name = output_name
@@ -2428,32 +2428,30 @@ def process_one_torrent(server: QBServer, client, torrent):
         if ok:
             iso_name = os.path.basename(iso_path)
             # --- ISO：一次性协同插入自定义标签 + 文件大小标签，按配置锚点落位 ---
-            final_iso_size_gb = round((os.path.getsize(iso_path) / GB), 3) if os.path.isfile(iso_path) else history.file_size_gb
-            size_suffix = build_size_suffix(final_iso_size_gb)
-            # ISO 的临时文件名是 f"{iso_task_name}.iso"；iso_task_name 就是 safe_final_name（仅带自定义标签）
-            # 我们从 original_name(带扩展名的源目录名/种子名) 推导"伪文件名"：original_name + .iso，让 insert_two_tags 在其上落位
-            pseudo_iso_filename = f"{original_name or safe_final_name or 'AUTOISO'}.iso"
-            final_iso_name = insert_two_tags(
-                pseudo_iso_filename, rename_suffix, size_suffix,
-                get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
-                get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
-                get_size_order_vs_custom(),
-            )
-            # 如果协同插入得到的最终名 与 临时ISO名不一致 → 做一次物理rename
-            if final_iso_name and final_iso_name != iso_name:
-                final_iso_path = os.path.join(OUTPUT_DIR, final_iso_name)
-                try:
+            try:
+                final_iso_size_gb = round((os.path.getsize(iso_path) / GB), 3) if os.path.isfile(iso_path) else history.file_size_gb
+                size_suffix = build_size_suffix(final_iso_size_gb)
+                # 从 original_name 推导"伪文件名"：original_name + .iso
+                pseudo_iso_filename = f"{original_name or safe_final_name or 'AUTOISO'}.iso"
+                computed_iso_name = insert_two_tags(
+                    pseudo_iso_filename, rename_suffix, size_suffix,
+                    get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
+                    get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
+                    get_size_order_vs_custom(),
+                )
+                if computed_iso_name and computed_iso_name != iso_name:
+                    final_iso_path = os.path.join(OUTPUT_DIR, computed_iso_name)
                     if os.path.abspath(iso_path) != os.path.abspath(final_iso_path):
                         if os.path.exists(final_iso_path):
                             os.remove(final_iso_path)
                         os.rename(iso_path, final_iso_path)
                     iso_path = final_iso_path
-                    iso_name = final_iso_name
+                    iso_name = computed_iso_name
                     history.file_size_gb = final_iso_size_gb
-                    logger.info("📏 [锚点插入] ISO 按配置重命名完成: %s -> %s", os.path.basename(iso_path or iso_name), iso_name)
-                except OSError as exc:
-                    logger.warning("按锚点配置重命名ISO失败(忽略继续，保留临时名): from=%s to=%s err=%s", iso_name, final_iso_name, exc)
-                    iso_name = os.path.basename(iso_path)
+                    logger.info("📏 [锚点插入] ISO 按配置重命名完成: %s", iso_name)
+            except Exception as exc:
+                logger.warning("ISO 锚点插入/重命名失败(忽略继续，保留临时名): err=%s", exc)
+                iso_name = os.path.basename(iso_path)
             # ---------------------------------------------------------------------
             auto_upload_enabled = init_task_auto_upload(iso_name, history.id)
             history.task_name = os.path.splitext(iso_name)[0] or iso_name
