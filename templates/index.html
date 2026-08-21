@@ -491,51 +491,6 @@
                   </div>
                 </div>
               </div>
-              <!-- 自定义标签 / 大小标签 插入位置 独立配置 -->
-              <div class="mb-4 p-3 bg-info bg-opacity-5 border border-info border-opacity-20 rounded-4">
-                <h6 class="mb-3 fw-bold text-dark d-flex align-items-center"><i class="bi bi-layout-text-sidebar-reverse me-2 text-info"></i>标签插入位置（独立可调）</h6>
-                <div class="row g-3">
-                  <div class="col-md-6">
-                    <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 插入模式</label>
-                    <select class="form-select border-0" id="customTagInsertMode">
-                      <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
-                      <option value="after_year">年份之后</option>
-                      <option value="before_ext">扩展名之前</option>
-                      <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
-                      <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
-                    </select>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组</label>
-                    <input type="text" class="form-control border-0" id="customTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 UHD 或 BluRay">
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label text-muted small fw-bold mb-1">大小标签 · 插入模式</label>
-                    <select class="form-select border-0" id="sizeTagInsertMode">
-                      <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
-                      <option value="after_year">年份之后</option>
-                      <option value="before_ext">扩展名之前</option>
-                      <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
-                      <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
-                    </select>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组</label>
-                    <input type="text" class="form-control border-0" id="sizeTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 BluRay 或 HEVC">
-                  </div>
-                  <div class="col-12">
-                    <label class="form-label text-muted small fw-bold mb-1">两标签插入位置相同或重叠时 · 相对顺序</label>
-                    <select class="form-select border-0" id="sizeOrderVsCustom">
-                      <option value="after">自定义在前，大小在后（默认）[特效字幕][79.42GB]</option>
-                      <option value="before">大小在前，自定义在后 [79.42GB][特效字幕]</option>
-                    </select>
-                    <div class="form-text mt-2 text-muted" style="font-size: 0.78rem;">
-                      说明：当两个标签使用相同插入模式（比如都选「扩展名前」）、或碰巧落在同一位点时，按该顺序拼接成整体再插入，避免顺序混乱。
-                      锚点词组支持任意字符串（区分大小写），若在文件名中找不到该词组，则自动兜底到扩展名前。
-                    </div>
-                  </div>
-                </div>
-              </div>
               <button type="submit" class="btn btn-primary rounded-pill px-4" id="btnSaveRenameSettings">保存设置</button>
             </form>
           </div>
@@ -563,6 +518,54 @@
                 <thead class="table-light"><tr><th class="text-nowrap ps-4">qB 标签</th><th>后缀</th><th class="text-center text-nowrap pe-4">操作</th></tr></thead>
                 <tbody id="renameRuleBody"></tbody>
               </table>
+            </div>
+            <!-- 标签插入位置（独立可调） -->
+            <div class="mt-4 p-3 bg-light border border-secondary border-opacity-10 rounded-4">
+              <div class="d-flex align-items-center mb-3">
+                <i class="bi bi-layout-text-sidebar-reverse me-2 text-secondary"></i>
+                <span class="fw-bold text-dark small">标签插入位置（独立可调）</span>
+              </div>
+              <div class="row g-2 g-md-3">
+                <div class="col-12 col-md-6">
+                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 插入模式</label>
+                  <select class="form-select form-select-sm bg-white border-0 shadow-sm" id="customTagInsertMode">
+                    <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
+                    <option value="after_year">年份之后</option>
+                    <option value="before_ext">扩展名之前</option>
+                    <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
+                    <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组</label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 UHD 或 BluRay">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 插入模式</label>
+                  <select class="form-select form-select-sm bg-white border-0 shadow-sm" id="sizeTagInsertMode">
+                    <option value="smart_legacy">智能模式(年份后 &gt; 分辨率前 &gt; 扩展名前)</option>
+                    <option value="after_year">年份之后</option>
+                    <option value="before_ext">扩展名之前</option>
+                    <option value="before_anchor">指定词组之前(需填写下方锚点)</option>
+                    <option value="after_anchor">指定词组之后(需填写下方锚点)</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组</label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 BluRay 或 HEVC">
+                </div>
+                <div class="col-12">
+                  <label class="form-label text-muted small fw-bold mb-1">两标签位置相同或重叠时 · 相对顺序</label>
+                  <select class="form-select form-select-sm bg-white border-0 shadow-sm" id="sizeOrderVsCustom">
+                    <option value="after">自定义在前，大小在后（默认）[特效字幕][79.42GB]</option>
+                    <option value="before">大小在前，自定义在后 [79.42GB][特效字幕]</option>
+                  </select>
+                  <div class="form-text mt-2 text-muted" style="font-size: 0.75rem; line-height: 1.5;">
+                    当两个标签使用相同插入模式或碰巧落在同一位点时，按该顺序拼接成整体再插入。
+                    锚点词组区分大小写，若文件名中找不到该词组，则自动兜底到扩展名前。
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
