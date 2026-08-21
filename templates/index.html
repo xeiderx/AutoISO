@@ -1006,6 +1006,44 @@ def append_suffix_before_ext(filename, suffix):
     base, ext = os.path.splitext(filename)
     return f"{base}{suffix}{ext}"
 
+# ========== 封装文件名映射（解决大小标签插入文件名中间后上传阶段找不到文件） ==========
+def _iso_map_path(temp_path):
+    return os.path.join(temp_path, ".autoiso_map.json")
+
+def _load_iso_map(temp_path):
+    """读取封装阶段写入的文件名映射 {种子hash: 最终文件名}"""
+    try:
+        map_file = _iso_map_path(temp_path)
+        if os.path.exists(map_file):
+            with open(map_file, 'r', encoding='utf-8') as f:
+                data = json.loads(f.read() or '{}')
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _save_iso_map(temp_path, key, final_name):
+    """封装完成后记录 种子hash -> 最终文件名，供上传阶段精确定位"""
+    try:
+        mapping = _load_iso_map(temp_path)
+        if not mapping.get(key) or mapping.get(key) != final_name:
+            mapping[key] = final_name
+            with open(_iso_map_path(temp_path), 'w', encoding='utf-8') as f:
+                f.write(json.dumps(mapping, ensure_ascii=False))
+    except Exception:
+        pass
+
+def _remove_iso_map(temp_path, key):
+    """上传成功后移除映射条目，避免残留"""
+    try:
+        mapping = _load_iso_map(temp_path)
+        if mapping.pop(key, None) is not None:
+            with open(_iso_map_path(temp_path), 'w', encoding='utf-8') as f:
+                f.write(json.dumps(mapping, ensure_ascii=False))
+    except Exception:
+        pass
+
+
 # ========== 锚点驱动的双标签协同插入（与 app.py 保持一致） ==========
 VALID_INSERT_MODES_AGENT = {"smart_legacy", "after_year", "before_ext", "before_anchor", "after_anchor"}
 
@@ -1288,6 +1326,16 @@ def worker_loop():
                 if '待封装' in tags and t.get('progress', 0) == 1:
                     name = t['name']
                     size_gb = t.get('size', 0) / (1024**3)
+                    # 防止 qB 标签更新失败导致同一任务被重复封装：若映射中已有文件则跳过
+                    try:
+                        _prev = _load_iso_map(temp_path).get(t['hash'])
+                        if _prev and os.path.exists(os.path.join(temp_path, _prev)):
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            log(f" 检测到已封装过的文件（标签更新可能失败），跳过重复封装: {_prev}")
+                            continue
+                    except Exception:
+                        pass
                     save_path = t.get('content_path')
                     if not save_path or not os.path.exists(save_path):
                         save_path = os.path.join(t.get('save_path', ''), name)
@@ -1328,8 +1376,10 @@ def worker_loop():
                                     log(f"  按锚点重命名失败(忽略继续): {e}")
                                     final_name = temp_single_name
                             # --------------------------------------------------------
+                            _save_iso_map(temp_path, t['hash'], final_name)
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            report(identity, logical_name, "pending_upload", 100, size_gb=real_size_gb if real_size_gb > 0 else size_gb)
                             log(f" 转存完成，已生成单文件: {final_name}")
                         except Exception as e:
                             log(f" 转存失败: {name}, error: {e}")
@@ -1372,8 +1422,10 @@ def worker_loop():
                                     log(f"  按锚点重命名ISO失败(忽略继续): {e}")
                                     final_name = os.path.basename(target_temp)
                             # ------------------------------------------------------------
+                            _save_iso_map(temp_path, t['hash'], final_name)
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            report(identity, logical_name, "pending_upload", 100, size_gb=real_size_gb if real_size_gb > 0 else size_gb)
                             log(f" 打包完成，已生成 ISO: {final_name}")
                         except Exception as e:
                             log(f" 打包失败: {name}, error: {e}")
@@ -1401,38 +1453,47 @@ def worker_loop():
                     base_iso_name = insert_suffix_by_anchor_agent(name, rename_suffix, custom_mode, custom_anchor)
                     base_final = f"{base_iso_name}.iso"
 
-                # VPS 上传：按"两标签协同插入"策略计算预期最终名，再用前缀兜底
+                # VPS 上传：先查封装阶段映射 → 再按"两标签协同插入"精确匹配 → 前缀兜底
                 final_name = base_final
                 target_temp = os.path.join(temp_path, base_final)
+                # ① 封装阶段写入的映射（大小标签可能插在文件名中间，最可靠）
                 try:
-                    expected_suffix = build_size_suffix(size_gb, size_suffix_enabled, size_suffix_template)
-                    # 优先用 insert_two_tags 计算的精确预期名
-                    if os.path.isfile(save_path):
-                        expected_name = insert_two_tags_agent(
-                            actual_filename, rename_suffix, expected_suffix,
-                            custom_mode, custom_anchor, size_mode, size_anchor, size_order,
-                        )
-                    else:
-                        pseudo_iso = f"{name or 'AUTOISO'}.iso"
-                        expected_name = insert_two_tags_agent(
-                            pseudo_iso, rename_suffix, expected_suffix,
-                            custom_mode, custom_anchor, size_mode, size_anchor, size_order,
-                        )
-                    expected_path = os.path.join(temp_path, expected_name)
-                    if expected_name and os.path.exists(expected_path):
-                        final_name = expected_name
-                        target_temp = expected_path
-                    elif expected_suffix:
-                        # 向后兼容：旧版 append_suffix_before_ext 的拼接方式尝试一次
-                        sized_candidate = append_suffix_before_ext(base_final, expected_suffix)
-                        sized_path = os.path.join(temp_path, sized_candidate)
-                        if os.path.exists(sized_path):
-                            final_name = sized_candidate
-                            target_temp = sized_path
+                    mapped_name = _load_iso_map(temp_path).get(t['hash']) or _load_iso_map(temp_path).get(name)
+                    if mapped_name and os.path.exists(os.path.join(temp_path, mapped_name)):
+                        final_name = mapped_name
+                        target_temp = os.path.join(temp_path, mapped_name)
                 except Exception:
                     pass
                 if not os.path.exists(target_temp):
-                    # 兜底：遍历 temp_path 寻找前缀匹配的文件
+                    try:
+                        expected_suffix = build_size_suffix(size_gb, size_suffix_enabled, size_suffix_template)
+                        # 优先用 insert_two_tags 计算的精确预期名
+                        if os.path.isfile(save_path):
+                            expected_name = insert_two_tags_agent(
+                                actual_filename, rename_suffix, expected_suffix,
+                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                            )
+                        else:
+                            pseudo_iso = f"{name or 'AUTOISO'}.iso"
+                            expected_name = insert_two_tags_agent(
+                                pseudo_iso, rename_suffix, expected_suffix,
+                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                            )
+                        expected_path = os.path.join(temp_path, expected_name)
+                        if expected_name and os.path.exists(expected_path):
+                            final_name = expected_name
+                            target_temp = expected_path
+                        elif expected_suffix:
+                            # 向后兼容：旧版 append_suffix_before_ext 的拼接方式尝试一次
+                            sized_candidate = append_suffix_before_ext(base_final, expected_suffix)
+                            sized_path = os.path.join(temp_path, sized_candidate)
+                            if os.path.exists(sized_path):
+                                final_name = sized_candidate
+                                target_temp = sized_path
+                    except Exception:
+                        pass
+                if not os.path.exists(target_temp):
+                    # ② 兜底：遍历 temp_path 寻找前缀匹配的文件
                     try:
                         base_prefix = os.path.splitext(base_final)[0]
                         for cand in os.listdir(temp_path):
@@ -1440,6 +1501,29 @@ def worker_loop():
                                 final_name = cand
                                 target_temp = os.path.join(temp_path, cand)
                                 break
+                    except Exception:
+                        pass
+                if not os.path.exists(target_temp):
+                    # ③ 兜底：大小标签被插在文件名中间时，按"插入位置之前的前缀"匹配
+                    try:
+                        if os.path.isfile(save_path):
+                            name_core = os.path.splitext(actual_filename)[0]
+                        else:
+                            name_core = name  # ISO 分支：种子目录名，直接使用（不能 splitext，会误砍 .MA.5.1 这类后缀）
+                        s_pos, _s_kind = find_insert_position_by_mode_agent(name_core, size_mode, size_anchor)
+                        c_pos, _c_kind = find_insert_position_by_mode_agent(name_core, custom_mode, custom_anchor)
+                        if c_pos == s_pos:
+                            prefix_before_size = name_core[:s_pos] + (rename_suffix if size_order == "after" else "")
+                        elif s_pos < c_pos:
+                            prefix_before_size = name_core[:s_pos]
+                        else:
+                            prefix_before_size = name_core[:c_pos] + rename_suffix + name_core[c_pos:s_pos]
+                        if prefix_before_size:
+                            for cand in os.listdir(temp_path):
+                                if cand.startswith(prefix_before_size) and os.path.isfile(os.path.join(temp_path, cand)):
+                                    final_name = cand
+                                    target_temp = os.path.join(temp_path, cand)
+                                    break
                     except Exception:
                         pass
             
@@ -1470,6 +1554,7 @@ def worker_loop():
                                     except Exception: pass
                                 try: os.remove(target_temp)
                                 except Exception: pass
+                                _remove_iso_map(temp_path, t['hash'])
                                 log(f" 成功移入网盘挂载点: {final_name}")
                                 report(identity, logical_name, "finished", 100, size_gb=size_gb)
                             except Exception as e:
