@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.5.4"
+APP_VERSION = "v1.5.5"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1794,9 +1794,11 @@ def append_suffix_before_ext(filename, suffix):
 # ---- 锚点驱动的标签插入核心函数 ----
 def _split_name_and_known_ext(filename):
     """把文件名拆分为 (name_no_known_ext, ext)，只有媒体扩展名才拆分。"""
-    name_no_ext, ext = os.path.splitext(filename)
+    if not filename:
+        return "", ""
+    name_no_ext, ext = os.path.splitext(str(filename))
     if ext.lower() not in [".mkv", ".mp4", ".avi", ".ts", ".iso", ".rmvb"]:
-        return filename, ""
+        return str(filename), ""
     return name_no_ext, ext
 
 
@@ -2383,20 +2385,27 @@ def process_one_torrent(server: QBServer, client, torrent):
             except Exception as exc:
                 logger.warning("单文件锚点插入/重命名失败(忽略继续，保留临时名): from=%s err=%s", temp_single_name, exc)
             # --------------------------------------------------------------
-            auto_upload_enabled = init_task_auto_upload(output_name, history.id)
-            history.task_name = output_name
-            history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
-            history.end_time = finished
-            history.message = f"FILE: {output_file}"
-            history.info = "single file copied to output"
-            history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_size_gb
-            db.session.commit()
-            mark_upload_status(
-                output_name,
-                "pending" if auto_upload_enabled else "packed",
-                "single file ready",
-                task_id=history.id,
-            )
+            try:
+                auto_upload_enabled = init_task_auto_upload(output_name, history.id)
+            except Exception:
+                logger.exception("单文件 init_task_auto_upload 失败，忽略继续")
+                auto_upload_enabled = False
+            try:
+                history.task_name = output_name
+                history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
+                history.end_time = finished
+                history.message = f"FILE: {output_file}"
+                history.info = "single file copied to output"
+                history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_size_gb
+                db.session.commit()
+                mark_upload_status(
+                    output_name,
+                    "pending" if auto_upload_enabled else "packed",
+                    "single file ready",
+                    task_id=history.id,
+                )
+            except Exception:
+                logger.exception("单文件 DB/Upload 状态更新失败，忽略继续")
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
@@ -2455,20 +2464,27 @@ def process_one_torrent(server: QBServer, client, torrent):
                 logger.warning("ISO 锚点插入/重命名失败(忽略继续，保留临时名): err=%s", exc)
                 iso_name = os.path.basename(iso_path)
             # ---------------------------------------------------------------------
-            auto_upload_enabled = init_task_auto_upload(iso_name, history.id)
-            history.task_name = os.path.splitext(iso_name)[0] or iso_name
-            history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
-            history.end_time = finished
-            history.message = f"ISO: {iso_path}"
-            history.info = ""
-            history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_iso_size_gb
-            db.session.commit()
-            mark_upload_status(
-                iso_name,
-                "pending" if auto_upload_enabled else "packed",
-                "iso ready",
-                task_id=history.id,
-            )
+            try:
+                auto_upload_enabled = init_task_auto_upload(iso_name, history.id)
+            except Exception:
+                logger.exception("ISO init_task_auto_upload 失败，忽略继续")
+                auto_upload_enabled = False
+            try:
+                history.task_name = os.path.splitext(iso_name)[0] or iso_name
+                history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
+                history.end_time = finished
+                history.message = f"ISO: {iso_path}"
+                history.info = ""
+                history.file_size_gb = history.file_size_gb if history.file_size_gb and history.file_size_gb > 0 else final_iso_size_gb
+                db.session.commit()
+                mark_upload_status(
+                    iso_name,
+                    "pending" if auto_upload_enabled else "packed",
+                    "iso ready",
+                    task_id=history.id,
+                )
+            except Exception:
+                logger.exception("ISO DB/Upload 状态更新失败，忽略继续")
             qb_remove_tags(client, torrent_hash, [PACKING_TAG])
             qb_add_tags(client, torrent_hash, [DONE_TAG])
             if get_notify_flag("notify_pack_end", True):
