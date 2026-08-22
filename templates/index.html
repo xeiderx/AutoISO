@@ -543,9 +543,11 @@
                     <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组</label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 UHD 或 BluRay">
+                <div class="col-12 col-md-6" id="customAnchorBlock">
+                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm mb-2" id="customTagInsertAnchor" placeholder="如：-BHYS|@|UHD|BluRay">
+                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
                 </div>
                 <div class="col-12 col-md-6">
                   <label class="form-label text-muted small fw-bold mb-1">大小标签 · 插入模式</label>
@@ -557,9 +559,11 @@
                     <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组</label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchor" placeholder="如：-BHYS 或 @ 或 BluRay 或 HEVC">
+                <div class="col-12 col-md-6" id="sizeAnchorBlock">
+                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm mb-2" id="sizeTagInsertAnchor" placeholder="如：-BHYS|@|BluRay|HEVC">
+                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
+                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
                 </div>
                 <div class="col-12">
                   <label class="form-label text-muted small fw-bold mb-1">两标签位置相同或重叠时 · 相对顺序</label>
@@ -1063,10 +1067,11 @@ def _split_name_and_known_ext_agent(filename):
         return filename, ""
     return name_no_ext, ext
 
-def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text):
+def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_text=""):
     core = str(name_no_ext or "")
     mode_clean = (mode or "").strip() or "smart_legacy"
     anchor_clean = str(anchor_text or "")
+    exclude_clean = str(exclude_text or "")
     import re
     if mode_clean == "after_year":
         year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', core)
@@ -1075,11 +1080,17 @@ def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text):
     if mode_clean == "before_ext":
         return len(core), "before_ext"
     if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
-        idx = core.find(anchor_clean)
-        if idx >= 0:
+        anchor_words = [w for w in anchor_clean.split('|') if w]
+        excludes = [w for w in exclude_clean.split('|') if w]
+        for w in anchor_words:
+            idx = core.find(w)
+            if idx < 0:
+                continue
+            if excludes and any(core.find(ex) >= 0 for ex in excludes):
+                continue
             if mode_clean == "before_anchor":
-                return idx, f"before_anchor:{anchor_clean}"
-            return idx + len(anchor_clean), f"after_anchor:{anchor_clean}"
+                return idx, f"before_anchor:{w}"
+            return idx + len(w), f"after_anchor:{w}"
         return len(core), "before_ext"
     # smart_legacy
     year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', core)
@@ -1091,24 +1102,25 @@ def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text):
         return pos, "before_quality"
     return len(core), "before_ext"
 
-def insert_suffix_by_anchor_agent(filename, suffix, mode, anchor_text):
+def insert_suffix_by_anchor_agent(filename, suffix, mode, anchor_text, exclude_text=""):
     if not suffix: return filename
     name_no_ext, ext = _split_name_and_known_ext_agent(filename)
-    pos, _ = find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text)
+    pos, _ = find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_text)
     return name_no_ext[:pos] + suffix + name_no_ext[pos:] + ext
 
 def insert_two_tags_agent(filename, custom_suffix, size_suffix,
-                          custom_mode, custom_anchor, size_mode, size_anchor, size_order):
+                          custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                          custom_exclude="", size_exclude=""):
     has_custom = bool(custom_suffix)
     has_size = bool(size_suffix)
     if not has_custom and not has_size: return filename
     if has_custom and not has_size:
-        return insert_suffix_by_anchor_agent(filename, custom_suffix, custom_mode, custom_anchor)
+        return insert_suffix_by_anchor_agent(filename, custom_suffix, custom_mode, custom_anchor, custom_exclude)
     if has_size and not has_custom:
-        return insert_suffix_by_anchor_agent(filename, size_suffix, size_mode, size_anchor)
+        return insert_suffix_by_anchor_agent(filename, size_suffix, size_mode, size_anchor, size_exclude)
     name_no_ext, ext = _split_name_and_known_ext_agent(filename)
-    c_pos, c_kind = find_insert_position_by_mode_agent(name_no_ext, custom_mode, custom_anchor)
-    s_pos, s_kind = find_insert_position_by_mode_agent(name_no_ext, size_mode, size_anchor)
+    c_pos, c_kind = find_insert_position_by_mode_agent(name_no_ext, custom_mode, custom_anchor, custom_exclude)
+    s_pos, s_kind = find_insert_position_by_mode_agent(name_no_ext, size_mode, size_anchor, size_exclude)
     if c_kind == s_kind or c_pos == s_pos:
         merged = (size_suffix + custom_suffix) if size_order == "before" else (custom_suffix + size_suffix)
         pos = c_pos
@@ -1123,9 +1135,9 @@ def insert_two_tags_agent(filename, custom_suffix, size_suffix,
     return result + ext
 
 # 兼容旧接口 insert_suffix_smart：按「自定义标签配置」插入（若无配置则走智能兜底）
-def insert_suffix_smart(filename, suffix, custom_mode="smart_legacy", custom_anchor=""):
+def insert_suffix_smart(filename, suffix, custom_mode="smart_legacy", custom_anchor="", custom_exclude=""):
     if not suffix: return filename
-    return insert_suffix_by_anchor_agent(filename, suffix, custom_mode, custom_anchor)
+    return insert_suffix_by_anchor_agent(filename, suffix, custom_mode, custom_anchor, custom_exclude)
 
 def format_size_value_with_unit(gb_value):
     gb_value = max(0.0, float(gb_value or 0.0))
@@ -1312,8 +1324,10 @@ def worker_loop():
             # ---- 两标签独立位置配置 + 相对顺序 ----
             custom_mode = config.get("custom_tag_insert_mode") or "smart_legacy"
             custom_anchor = config.get("custom_tag_insert_anchor") or ""
+            custom_exclude = config.get("custom_tag_insert_anchor_exclude") or ""
             size_mode = config.get("size_tag_insert_mode") or "before_ext"
             size_anchor = config.get("size_tag_insert_anchor") or ""
+            size_exclude = config.get("size_tag_insert_anchor_exclude") or ""
             size_order = config.get("size_order_vs_custom") or "after"
             if custom_mode not in VALID_INSERT_MODES_AGENT: custom_mode = "smart_legacy"
             if size_mode not in VALID_INSERT_MODES_AGENT: size_mode = "before_ext"
@@ -1375,6 +1389,7 @@ def worker_loop():
                             final_name = insert_two_tags_agent(
                                 actual_filename, rename_suffix, size_suffix,
                                 custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                custom_exclude, size_exclude,
                             )
                             if final_name and final_name != temp_single_name:
                                 final_path = os.path.join(temp_path, final_name)
@@ -1420,6 +1435,7 @@ def worker_loop():
                             final_iso_name = insert_two_tags_agent(
                                 pseudo_iso_filename, rename_suffix, size_suffix,
                                 custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                custom_exclude, size_exclude,
                             )
                             if final_iso_name and final_iso_name != final_name:
                                 final_iso_path = os.path.join(temp_path, final_iso_name)
@@ -1484,12 +1500,14 @@ def worker_loop():
                             expected_name = insert_two_tags_agent(
                                 actual_filename, rename_suffix, expected_suffix,
                                 custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                custom_exclude, size_exclude,
                             )
                         else:
                             pseudo_iso = f"{name or 'AUTOISO'}.iso"
                             expected_name = insert_two_tags_agent(
                                 pseudo_iso, rename_suffix, expected_suffix,
                                 custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                custom_exclude, size_exclude,
                             )
                         expected_path = os.path.join(temp_path, expected_name)
                         if expected_name and os.path.exists(expected_path):
@@ -2195,6 +2213,16 @@ echo "------------------------------------------------"
     $('btnConfirmScrapeDelete').addEventListener('click', async () => { const ids = Array.from(document.querySelectorAll('.scrape-check:checked')).map(x=>Number(x.value)); if (!ids.length) return notify('请先勾选', 'warning'); if (!await ask(`确定删除选中的 ${ids.length} 条吗？`)) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids }) }); notify('删除成功', 'success'); $('btnCancelScrapeBatch').click(); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } });
     window.deleteScrapeRecord = async function(id) { if (!await ask('确定彻底删除这条刮削记录吗？')) return; try { await api('/api/scrape/records', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) }); notify('记录已删除', 'success'); await loadScrapeRecords(); } catch (e) { notify(e.message, 'danger'); } };
 
+    function toggleAnchorBlock(selectId, blockId){
+        const sel = $(selectId);
+        const block = $(blockId);
+        if(!sel || !block) return;
+        const isAnchor = ['before_anchor','after_anchor'].includes(sel.value);
+        block.classList.toggle('d-none', !isAnchor);
+    }
+    $('customTagInsertMode').addEventListener('change', ()=>toggleAnchorBlock('customTagInsertMode','customAnchorBlock'));
+    $('sizeTagInsertMode').addEventListener('change', ()=>toggleAnchorBlock('sizeTagInsertMode','sizeAnchorBlock'));
+
     async function loadSettings(){
         const [sys,tg]=await Promise.all([api('/api/settings/system'),api('/api/settings/telegram')]);
         window.globalAgentToken = sys.agent_token || 'autoiso_secret_token';
@@ -2249,8 +2277,12 @@ echo "------------------------------------------------"
                     // ---- 两标签独立插入位置 ----
                     $('customTagInsertMode').value = data.custom_tag_insert_mode || "smart_legacy";
                     $('customTagInsertAnchor').value = data.custom_tag_insert_anchor || "";
+                    $('customTagInsertAnchorExclude').value = data.custom_tag_insert_anchor_exclude || "";
                     $('sizeTagInsertMode').value = data.size_tag_insert_mode || "before_ext";
                     $('sizeTagInsertAnchor').value = data.size_tag_insert_anchor || "";
+                    $('sizeTagInsertAnchorExclude').value = data.size_tag_insert_anchor_exclude || "";
+                    toggleAnchorBlock('customTagInsertMode', 'customAnchorBlock');
+                    toggleAnchorBlock('sizeTagInsertMode', 'sizeAnchorBlock');
                     $('sizeOrderVsCustom').value = data.size_order_vs_custom || "after";
                 });
     }
@@ -2363,8 +2395,10 @@ echo "------------------------------------------------"
             // ---- 两标签独立插入位置 ----
             custom_tag_insert_mode: $('customTagInsertMode').value,
             custom_tag_insert_anchor: $('customTagInsertAnchor').value,
+            custom_tag_insert_anchor_exclude: $('customTagInsertAnchorExclude').value,
             size_tag_insert_mode: $('sizeTagInsertMode').value,
             size_tag_insert_anchor: $('sizeTagInsertAnchor').value,
+            size_tag_insert_anchor_exclude: $('sizeTagInsertAnchorExclude').value,
             size_order_vs_custom: $('sizeOrderVsCustom').value
         };
         try {

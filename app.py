@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -60,8 +60,10 @@ DEFAULT_SIZE_SUFFIX_TEMPLATE = os.getenv("SIZE_SUFFIX_TEMPLATE", "[{value}{unit}
 # 可选 mode: smart_legacy(旧版智能: 年份后>分辨率前>扩展名前) / after_year / before_ext / before_anchor / after_anchor
 DEFAULT_CUSTOM_TAG_INSERT_MODE = os.getenv("CUSTOM_TAG_INSERT_MODE", "smart_legacy")
 DEFAULT_CUSTOM_TAG_INSERT_ANCHOR = os.getenv("CUSTOM_TAG_INSERT_ANCHOR", "")
+DEFAULT_CUSTOM_TAG_INSERT_ANCHOR_EXCLUDE = os.getenv("CUSTOM_TAG_INSERT_ANCHOR_EXCLUDE", "")
 DEFAULT_SIZE_TAG_INSERT_MODE = os.getenv("SIZE_TAG_INSERT_MODE", "before_ext")
 DEFAULT_SIZE_TAG_INSERT_ANCHOR = os.getenv("SIZE_TAG_INSERT_ANCHOR", "")
+DEFAULT_SIZE_TAG_INSERT_ANCHOR_EXCLUDE = os.getenv("SIZE_TAG_INSERT_ANCHOR_EXCLUDE", "")
 # 两标签同锚点时(或最终插入位置一致时)，大小相对自定义标签的顺序：after(自定义在前 默认) / before(大小在前)
 DEFAULT_SIZE_ORDER_VS_CUSTOM = os.getenv("SIZE_ORDER_VS_CUSTOM", "after")
 VALID_INSERT_MODES = {"smart_legacy", "after_year", "before_ext", "before_anchor", "after_anchor"}
@@ -538,6 +540,10 @@ def get_custom_tag_insert_anchor():
     return (get_setting("custom_tag_insert_anchor") or DEFAULT_CUSTOM_TAG_INSERT_ANCHOR or "").strip()
 
 
+def get_custom_tag_insert_anchor_exclude():
+    return (get_setting("custom_tag_insert_anchor_exclude") or DEFAULT_CUSTOM_TAG_INSERT_ANCHOR_EXCLUDE or "").strip()
+
+
 def get_size_tag_insert_mode():
     raw = (get_setting("size_tag_insert_mode") or "").strip()
     if raw not in VALID_INSERT_MODES:
@@ -547,6 +553,10 @@ def get_size_tag_insert_mode():
 
 def get_size_tag_insert_anchor():
     return (get_setting("size_tag_insert_anchor") or DEFAULT_SIZE_TAG_INSERT_ANCHOR or "").strip()
+
+
+def get_size_tag_insert_anchor_exclude():
+    return (get_setting("size_tag_insert_anchor_exclude") or DEFAULT_SIZE_TAG_INSERT_ANCHOR_EXCLUDE or "").strip()
 
 
 def get_size_order_vs_custom():
@@ -1843,7 +1853,7 @@ def _split_name_and_known_ext(filename):
     return name_no_ext, ext
 
 
-def find_insert_position_by_mode(name_no_ext, mode, anchor_text):
+def find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text=""):
     """
     在不含扩展名的主文件名上，根据 mode 和 anchor_text 计算插入位置。
     返回 (pos, anchor_kind)：
@@ -1869,12 +1879,22 @@ def find_insert_position_by_mode(name_no_ext, mode, anchor_text):
         return len(core), "before_ext"
 
     # 3) before_anchor / after_anchor
+    #     anchor_text 支持 | 分隔多词，从左到右取第一个能命中的词
+    #     anchor_exclude 支持 | 分隔多过滤词，整个文件名命中任一过滤词即跳过当前锚点
     if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
-        idx = core.find(anchor_clean)
-        if idx >= 0:
+        anchor_words = [w for w in anchor_clean.split('|') if w]
+        # 过滤词：整个文件名核心命中任一即视为被过滤
+        excludes = [w for w in (exclude_text or "").split('|') if w]
+        for w in anchor_words:
+            idx = core.find(w)
+            if idx < 0:
+                continue
+            # 整个文件名出现过滤词 → 跳过当前锚点
+            if excludes and any(core.find(ex) >= 0 for ex in excludes):
+                continue
             if mode_clean == "before_anchor":
-                return idx, f"before_anchor:{anchor_clean}"
-            return idx + len(anchor_clean), f"after_anchor:{anchor_clean}"
+                return idx, f"before_anchor:{w}"
+            return idx + len(w), f"after_anchor:{w}"
         # 没找到兜底
         return len(core), "before_ext"
 
@@ -1898,18 +1918,19 @@ def find_insert_position_by_mode(name_no_ext, mode, anchor_text):
     return len(core), "before_ext"
 
 
-def insert_suffix_by_anchor(filename, suffix, mode, anchor_text):
+def insert_suffix_by_anchor(filename, suffix, mode, anchor_text, exclude_text=""):
     """按指定锚点在文件名中插入单个后缀；suffix为空则原样返回。"""
     if not suffix:
         return filename
     name_no_ext, ext = _split_name_and_known_ext(filename)
-    pos, _kind = find_insert_position_by_mode(name_no_ext, mode, anchor_text)
+    pos, _kind = find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text)
     inserted = name_no_ext[:pos] + suffix + name_no_ext[pos:]
     return inserted + ext
 
 
 def insert_two_tags(filename, custom_suffix, size_suffix,
-                    custom_mode, custom_anchor, size_mode, size_anchor, size_order):
+                    custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                    custom_exclude="", size_exclude=""):
     """
     协同插入「自定义标签」和「大小标签」。
     - 先分别算出两个标签的插入位置与锚点种类
@@ -1922,14 +1943,14 @@ def insert_two_tags(filename, custom_suffix, size_suffix,
     if not has_custom and not has_size:
         return filename
     if has_custom and not has_size:
-        return insert_suffix_by_anchor(filename, custom_suffix, custom_mode, custom_anchor)
+        return insert_suffix_by_anchor(filename, custom_suffix, custom_mode, custom_anchor, custom_exclude)
     if has_size and not has_custom:
-        return insert_suffix_by_anchor(filename, size_suffix, size_mode, size_anchor)
+        return insert_suffix_by_anchor(filename, size_suffix, size_mode, size_anchor, size_exclude)
 
     name_no_ext, ext = _split_name_and_known_ext(filename)
 
-    c_pos, c_kind = find_insert_position_by_mode(name_no_ext, custom_mode, custom_anchor)
-    s_pos, s_kind = find_insert_position_by_mode(name_no_ext, size_mode, size_anchor)
+    c_pos, c_kind = find_insert_position_by_mode(name_no_ext, custom_mode, custom_anchor, custom_exclude)
+    s_pos, s_kind = find_insert_position_by_mode(name_no_ext, size_mode, size_anchor, size_exclude)
 
     # 锚点相同或实际插入位置相同 → 粘成一个整体按相对顺序插入
     if c_kind == s_kind or c_pos == s_pos:
@@ -2030,8 +2051,10 @@ def try_bypass_rename(server, client, torrent):
     # 预读两个标签的位置配置（在循环外，避免多次DB查询）
     custom_mode = get_custom_tag_insert_mode()
     custom_anchor = get_custom_tag_insert_anchor()
+    custom_exclude = get_custom_tag_insert_anchor_exclude()
     size_mode = get_size_tag_insert_mode()
     size_anchor = get_size_tag_insert_anchor()
+    size_exclude = get_size_tag_insert_anchor_exclude()
     size_order = get_size_order_vs_custom()
 
     for dirpath, _dirnames, filenames in os.walk(staging_path):
@@ -2052,6 +2075,7 @@ def try_bypass_rename(server, client, torrent):
             new_name = insert_two_tags(
                 fname, rename_suffix, size_suffix,
                 custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                custom_exclude, size_exclude,
             )
             dst_path = os.path.join(dest_dir, new_name)
             try:
@@ -2412,6 +2436,7 @@ def process_one_torrent(server: QBServer, client, torrent):
                     get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
                     get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
                     get_size_order_vs_custom(),
+                    get_custom_tag_insert_anchor_exclude(), get_size_tag_insert_anchor_exclude(),
                 )
                 if computed_name and computed_name != temp_single_name:
                     final_output_path = os.path.join(OUTPUT_DIR, computed_name)
@@ -2490,6 +2515,7 @@ def process_one_torrent(server: QBServer, client, torrent):
                     get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
                     get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
                     get_size_order_vs_custom(),
+                    get_custom_tag_insert_anchor_exclude(), get_size_tag_insert_anchor_exclude(),
                 )
                 if computed_iso_name and computed_iso_name != iso_name:
                     final_iso_path = os.path.join(OUTPUT_DIR, computed_iso_name)
@@ -2757,6 +2783,8 @@ def process_all_qbs():
                                             size_anchor = get_size_tag_insert_anchor()
                                             custom_mode = get_custom_tag_insert_mode()
                                             custom_anchor = get_custom_tag_insert_anchor()
+                                            custom_exclude = get_custom_tag_insert_anchor_exclude()
+                                            size_exclude = get_size_tag_insert_anchor_exclude()
                                             size_order = get_size_order_vs_custom()
                                             final_name = insert_two_tags(
                                                 dst_filename,
@@ -2767,6 +2795,8 @@ def process_all_qbs():
                                                 size_mode,
                                                 size_anchor,
                                                 size_order,
+                                                custom_exclude,
+                                                size_exclude,
                                             )
                                             final_path = os.path.join(os.path.dirname(dst_file), final_name)
                                             if (
@@ -3375,8 +3405,10 @@ def get_agent_config():
     # ---- 两标签独立插入位置配置（下发给VPS agent）----
     data["custom_tag_insert_mode"] = get_custom_tag_insert_mode()
     data["custom_tag_insert_anchor"] = get_custom_tag_insert_anchor()
+    data["custom_tag_insert_anchor_exclude"] = get_custom_tag_insert_anchor_exclude()
     data["size_tag_insert_mode"] = get_size_tag_insert_mode()
     data["size_tag_insert_anchor"] = get_size_tag_insert_anchor()
+    data["size_tag_insert_anchor_exclude"] = get_size_tag_insert_anchor_exclude()
     data["size_order_vs_custom"] = get_size_order_vs_custom()
     return jsonify(data)
 
@@ -3650,8 +3682,10 @@ def get_system_settings():
             # ---- 两标签独立插入位置 ----
             "custom_tag_insert_mode": get_custom_tag_insert_mode(),
             "custom_tag_insert_anchor": get_custom_tag_insert_anchor(),
+            "custom_tag_insert_anchor_exclude": get_custom_tag_insert_anchor_exclude(),
             "size_tag_insert_mode": get_size_tag_insert_mode(),
             "size_tag_insert_anchor": get_size_tag_insert_anchor(),
+            "size_tag_insert_anchor_exclude": get_size_tag_insert_anchor_exclude(),
             "size_order_vs_custom": get_size_order_vs_custom(),
         }
     )
@@ -3724,10 +3758,20 @@ def save_system_settings():
         if "custom_tag_insert_anchor" in payload
         else get_custom_tag_insert_anchor()
     )
+    custom_tag_insert_anchor_exclude = (
+        (payload.get("custom_tag_insert_anchor_exclude") or "").strip()
+        if "custom_tag_insert_anchor_exclude" in payload
+        else get_custom_tag_insert_anchor_exclude()
+    )
     size_tag_insert_anchor = (
         (payload.get("size_tag_insert_anchor") or "").strip()
         if "size_tag_insert_anchor" in payload
         else get_size_tag_insert_anchor()
+    )
+    size_tag_insert_anchor_exclude = (
+        (payload.get("size_tag_insert_anchor_exclude") or "").strip()
+        if "size_tag_insert_anchor_exclude" in payload
+        else get_size_tag_insert_anchor_exclude()
     )
     size_order_vs_custom = (
         (payload.get("size_order_vs_custom") or "").strip().lower()
@@ -3795,9 +3839,13 @@ def save_system_settings():
     set_setting("custom_tag_insert_mode", custom_tag_insert_mode or DEFAULT_CUSTOM_TAG_INSERT_MODE)
     if "custom_tag_insert_anchor" in payload:
         set_setting("custom_tag_insert_anchor", custom_tag_insert_anchor or "")
+    if "custom_tag_insert_anchor_exclude" in payload:
+        set_setting("custom_tag_insert_anchor_exclude", custom_tag_insert_anchor_exclude or "")
     set_setting("size_tag_insert_mode", size_tag_insert_mode or DEFAULT_SIZE_TAG_INSERT_MODE)
     if "size_tag_insert_anchor" in payload:
         set_setting("size_tag_insert_anchor", size_tag_insert_anchor or "")
+    if "size_tag_insert_anchor_exclude" in payload:
+        set_setting("size_tag_insert_anchor_exclude", size_tag_insert_anchor_exclude or "")
     set_setting("size_order_vs_custom", size_order_vs_custom or DEFAULT_SIZE_ORDER_VS_CUSTOM)
     normalized = apply_upload_scheduler(upload_cron_expr)
     return jsonify(
