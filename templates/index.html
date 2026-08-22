@@ -543,11 +543,17 @@
                     <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-6" id="customAnchorBlock">
-                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm mb-2" id="customTagInsertAnchor" placeholder="如：-BHYS|@|UHD|BluRay">
-                  <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
+                <div class="col-12" id="customAnchorBlock">
+                  <div class="row g-2 g-md-3">
+                    <div class="col-12 col-md-6">
+                      <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
+                      <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchor" placeholder="如：-BHYS|@|UHD|BluRay">
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <label class="form-label text-muted small fw-bold mb-1">自定义标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
+                      <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="customTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
+                    </div>
+                  </div>
                 </div>
                 <div class="col-12 col-md-6">
                   <label class="form-label text-muted small fw-bold mb-1">大小标签 · 插入模式</label>
@@ -559,11 +565,17 @@
                     <option value="after_anchor">指定词组之后(需填写锚点词组)</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-6" id="sizeAnchorBlock">
-                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm mb-2" id="sizeTagInsertAnchor" placeholder="如：-BHYS|@|BluRay|HEVC">
-                  <label class="form-label text-muted small fw-bold mb-1">大小标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
-                  <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
+                <div class="col-12" id="sizeAnchorBlock">
+                  <div class="row g-2 g-md-3">
+                    <div class="col-12 col-md-6">
+                      <label class="form-label text-muted small fw-bold mb-1">大小标签 · 锚点词组 <span class="text-muted small">(多词用 | 分隔，按顺序匹配)</span></label>
+                      <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchor" placeholder="如：-BHYS|@|BluRay|HEVC">
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <label class="form-label text-muted small fw-bold mb-1">大小标签 · 过滤词 <span class="text-muted small">(多词用 | 分隔，整个文件名命中任一即跳过)</span></label>
+                      <input type="text" class="form-control form-control-sm bg-white border-0 shadow-sm" id="sizeTagInsertAnchorExclude" placeholder="如：WEB-DL|DTS-HD">
+                    </div>
+                  </div>
                 </div>
                 <div class="col-12">
                   <label class="form-label text-muted small fw-bold mb-1">两标签位置相同或重叠时 · 相对顺序</label>
