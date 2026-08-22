@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.5.9"
+APP_VERSION = "v1.6.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -187,6 +187,8 @@ class PackHistory(db.Model):
     upload_start_time = db.Column(db.Text, nullable=True)
     upload_end_time = db.Column(db.Text, nullable=True)
 
+    final_task_name = db.Column(db.String(255), nullable=True)
+
     qb_server = db.relationship("QBServer", backref=db.backref("histories", lazy=True))
 
 
@@ -332,6 +334,8 @@ def ensure_schema():
             conn.execute(text("ALTER TABLE pack_history ADD COLUMN upload_start_time TEXT"))
         if "upload_end_time" not in columns:
             conn.execute(text("ALTER TABLE pack_history ADD COLUMN upload_end_time TEXT"))
+        if "final_task_name" not in columns:
+            conn.execute(text("ALTER TABLE pack_history ADD COLUMN final_task_name VARCHAR(255)"))
 
         upload_result = conn.execute(text("PRAGMA table_info(upload_history)"))
         upload_columns = {row[1] for row in upload_result.fetchall()}
@@ -1281,10 +1285,11 @@ def get_or_create_external_server_id():
     return server.id
 
 
-def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
+def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, final_name=""):
     safe_name = os.path.basename(str(file_name or "").strip())
     if not safe_name:
         return None
+    safe_final_name = os.path.basename(str(final_name or "").strip())
 
     safe_status = (status or "").strip().lower()
     status_map = {
@@ -1370,6 +1375,10 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0):
         if not row.upload_start_time:
             row.upload_start_time = format_db_time(now_dt)
         row.upload_end_time = format_db_time(now_dt)
+
+    # VPS 改名后的最终文件名（独立列，不影响 task_name 的匹配键）
+    if safe_final_name:
+        row.final_task_name = safe_final_name[:255]
 
     db.session.commit()
     return row
@@ -3178,6 +3187,7 @@ def agent_report():
 
     node = str(payload.get("node") or "").strip() or "VPS"
     task_name = os.path.basename(str(payload.get("task_name") or payload.get("filename") or "").strip())
+    final_name_payload = os.path.basename(str(payload.get("final_name") or "").strip())
     status = str(payload.get("status") or "").strip().lower()
     if status not in {"packing", "uploading", "pending_upload", "finished", "error"}:
         return jsonify({"error": "invalid status"}), 400
@@ -3228,7 +3238,7 @@ def agent_report():
     old_status = old_row.status if old_row else None
 
     try:
-        updated_row = upsert_agent_history_status(node, safe_final_name, status, file_size_gb=file_size_gb)
+        updated_row = upsert_agent_history_status(node, safe_final_name, status, file_size_gb=file_size_gb, final_name=final_name_payload)
         if updated_row and updated_row.task_name != safe_final_name:
             updated_row.task_name = safe_final_name[:255]
             db.session.commit()
@@ -3934,6 +3944,7 @@ def list_history():
             {
                 "id": row.id,
                 "task_name": row.task_name,
+                "final_task_name": row.final_task_name or "",
                 "display_name": build_display_name(row.task_name),
                 "qb_server_id": row.qb_server_id,
                 "qb_server_name": resolve_pack_history_node_name(row),
