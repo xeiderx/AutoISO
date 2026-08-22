@@ -202,6 +202,7 @@
             <tbody id="pendingBody"></tbody>
           </table>
         </div>
+        <div id="pendingPagination" class="px-3 pb-3"></div>
       </div></div>
       
       <div class="card mt-4"><div class="card-body p-0">
@@ -215,6 +216,7 @@
             <tbody id="pendingUploadsBody"></tbody>
           </table>
         </div>
+        <div id="pendingUploadsPagination" class="px-3 pb-3"></div>
       </div></div>
     </section>
 
@@ -735,6 +737,8 @@
     let histAll=[], histFiltered=[], histPage=1, histSize=12, historySearchTrigger;
     let scrapeAll=[], scrapeFiltered=[], scrapePage=1, scrapeSize=12, scrapeSearchTrigger;
     let waitingVpsTasks = new Set();
+    let pendingAll=[], pendingPage=1, pendingSize=5;
+    let pendingUploadsAll=[], pendingUploadsPage=1, pendingUploadsSize=5;
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
     
@@ -1639,19 +1643,18 @@ echo "------------------------------------------------"
       return doSearch;
     }
 
-    function renderPagination(total, page, size, containerId, onChange) {
+    function renderPagination(total, page, size, containerId, onChange, sizes) {
       const totalPages = Math.ceil(total / size) || 1;
       const start = total === 0 ? 0 : (page - 1) * size + 1;
       const end = Math.min(page * size, total);
+      const sizeOpts = Array.isArray(sizes) && sizes.length ? sizes : [12, 20, 50];
       window[`pageCb_${containerId}`] = onChange;
       $(containerId).innerHTML = `
           <div class="d-flex flex-column flex-md-row justify-content-end align-items-md-center gap-3 mt-4 pt-3 border-top border-light">
               <div class="text-muted fw-medium text-nowrap" style="font-size:0.85rem;">显示 ${start} - ${end} 条，共 ${total} 条</div>
               <div class="d-flex align-items-center gap-3">
                   <select class="form-select form-select-sm w-auto cursor-pointer shadow-sm border-0 bg-light fw-medium text-dark" onchange="window['pageCb_${containerId}'](1, Number(this.value))">
-                      <option value="12" ${size===12?'selected':''}>12 条/页</option>
-                      <option value="20" ${size===20?'selected':''}>20 条/页</option>
-                      <option value="50" ${size===50?'selected':''}>50 条/页</option>
+                      ${sizeOpts.map(s=>`<option value="${s}" ${size===s?'selected':''}>${s} 条/页</option>`).join('')}
                   </select>
                   <ul class="pagination pagination-sm mb-0 shadow-sm">
                       <li class="page-item ${page<=1?'disabled':''}"><button class="page-link shadow-none border-0 fw-medium" onclick="window['pageCb_${containerId}'](${page-1}, ${size})">上一页</button></li>
@@ -1762,15 +1765,24 @@ echo "------------------------------------------------"
     }
     
     async function loadPending(){
-        const rows=await api('/api/pending');
-        $('pendingBody').innerHTML=rows.length?rows.map((x,i)=>{
+        pendingAll = await api('/api/pending') || [];
+        const totalPages = Math.ceil(pendingAll.length / pendingSize) || 1;
+        if (pendingPage > totalPages) pendingPage = totalPages;
+        renderPending();
+    }
+    function renderPending(){
+        const total = pendingAll.length;
+        const totalPages = Math.ceil(total / pendingSize) || 1;
+        if (pendingPage > totalPages) pendingPage = totalPages;
+        const pageData = pendingAll.slice((pendingPage-1)*pendingSize, pendingPage*pendingSize);
+        $('pendingBody').innerHTML=pageData.length?pageData.map((x,i)=>{
             const isProcessing=currentPackingTasks.includes(x.title);
             let displayStatus = x.status || '排队中';
             if(isProcessing) displayStatus = '处理中';
             const badgeHtml = badge(displayStatus);
             const isVps = x.node_alias && x.node_alias !== 'NAS';
             return `<tr>
-              <td class="text-center fw-medium text-muted">${i+1}</td>
+              <td class="text-center fw-medium text-muted">${(pendingPage-1)*pendingSize+i+1}</td>
               <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node_alias||'-')}</span></td>
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.title||'')}</div></td>
               <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.title||'')}">${esc(x.title||'')}</div></td>
@@ -1778,12 +1790,15 @@ echo "------------------------------------------------"
               <td class="text-center">${badgeHtml}</td>
               <td class="text-center text-secondary small font-monospace">${esc(x.added_on||'-')}</td>
             </tr>`;
-        }).join(''):'<tr><td colspan="7" class="text-center text-muted py-5 border-0 bg-light rounded-bottom-4">暂无待封装数据</td></tr>'
+        }).join(''):'<tr><td colspan="7" class="text-center text-muted py-5 border-0 bg-light rounded-bottom-4">暂无待封装数据</td></tr>';
+        renderPagination(total, pendingPage, pendingSize, 'pendingPagination', (p,s)=>{
+            pendingPage=p; pendingSize=s; renderPending();
+        }, [5, 12, 20, 50]);
     }
     
     async function loadPendingUploads(){
         const rows=await api('/api/pending_uploads');
-        
+
         const currentPendingNames = new Set(rows.map(x => x.filename));
         for(let name of waitingVpsTasks) {
             const row = rows.find(x => x.filename === name);
@@ -1792,18 +1807,29 @@ echo "------------------------------------------------"
             }
         }
 
-        $('pendingUploadsBody').innerHTML=rows.length?rows.map((x,i)=>{
+        pendingUploadsAll = rows;
+        const totalPages = Math.ceil(pendingUploadsAll.length / pendingUploadsSize) || 1;
+        if (pendingUploadsPage > totalPages) pendingUploadsPage = totalPages;
+        renderPendingUploads();
+    }
+    function renderPendingUploads(){
+        const total = pendingUploadsAll.length;
+        const totalPages = Math.ceil(total / pendingUploadsSize) || 1;
+        if (pendingUploadsPage > totalPages) pendingUploadsPage = totalPages;
+        const rows = pendingUploadsAll;
+        const pageData = rows.slice((pendingUploadsPage-1)*pendingUploadsSize, pendingUploadsPage*pendingUploadsSize);
+        $('pendingUploadsBody').innerHTML=pageData.length?pageData.map((x,i)=>{
             const up=String(x.status||'').toLowerCase()==='uploaded';
             const uploadingNow=String(x.filename||'')===currentUploadingFile;
             const vpsUploading = ['uploading', '上传中'].includes(x.status);
-            const isVps = x.node && x.node !== 'NAS'; 
-            
+            const isVps = x.node && x.node !== 'NAS';
+
             const isWaiting = waitingVpsTasks.has(x.filename);
-            const disabled = (uploadingNow || vpsUploading || isWaiting) ? 'disabled' : ''; 
-            
+            const disabled = (uploadingNow || vpsUploading || isWaiting) ? 'disabled' : '';
+
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
-            
+
             let autoIcon = '';
             if (isVps) {
                 const isGlobal = x.node_policy !== 'custom';
@@ -1833,7 +1859,7 @@ echo "------------------------------------------------"
             }
 
             return `<tr>
-              <td class="text-center fw-medium text-muted">${i+1}</td>
+              <td class="text-center fw-medium text-muted">${(pendingUploadsPage-1)*pendingUploadsSize+i+1}</td>
               <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node||'NAS')}</span></td>
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.filename||'')}</div></td>
               <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
@@ -1843,6 +1869,9 @@ echo "------------------------------------------------"
               <td class="text-center align-middle px-2">${actionBtns}</td>
             </tr>`
         }).join(''):'<tr><td colspan="8" class="text-center text-muted py-5 border-0 bg-light rounded-bottom-4">暂无可上传数据</td></tr>';
+        renderPagination(total, pendingUploadsPage, pendingUploadsSize, 'pendingUploadsPagination', (p,s)=>{
+            pendingUploadsPage=p; pendingUploadsSize=s; renderPendingUploads();
+        }, [5, 12, 20, 50]);
     }
     
     $('pendingUploadsBody').addEventListener('click',async(e)=>{
