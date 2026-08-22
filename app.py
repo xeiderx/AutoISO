@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.6.3"
+APP_VERSION = "v1.6.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1853,6 +1853,30 @@ def _split_name_and_known_ext(filename):
     return name_no_ext, ext
 
 
+def _find_ci_range(text, needle):
+    """大小写不敏感查找，返回 (start, end) 原字符串索引区间；找不到返回 (-1, -1)。
+    用 lower() 查找后把索引映射回原串，避免个别 Unicode 字符 lower 变长导致错位。
+    """
+    if not needle:
+        return (-1, -1)
+    low_text = text.lower()
+    low_needle = needle.lower()
+    low_start = low_text.find(low_needle)
+    if low_start < 0:
+        return (-1, -1)
+    low_end = low_start + len(low_needle)
+
+    def _map_back(low_pos):
+        pos = 0
+        lp = 0
+        while lp < low_pos:
+            lp += len(text[pos].lower())
+            pos += 1
+        return pos
+
+    return (_map_back(low_start), _map_back(low_end))
+
+
 def find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text=""):
     """
     在不含扩展名的主文件名上，根据 mode 和 anchor_text 计算插入位置。
@@ -1879,22 +1903,22 @@ def find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text=""
         return len(core), "before_ext"
 
     # 3) before_anchor / after_anchor
-    #     anchor_text 支持 | 分隔多词，从左到右取第一个能命中的词
+    #     anchor_text 支持 | 分隔多词，从左到右取第一个能命中的词（大小写不敏感）
     #     anchor_exclude 支持 | 分隔多过滤词，整个文件名命中任一过滤词即跳过当前锚点
     if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
         anchor_words = [w for w in anchor_clean.split('|') if w]
         # 过滤词：整个文件名核心命中任一即视为被过滤
         excludes = [w for w in (exclude_text or "").split('|') if w]
         for w in anchor_words:
-            idx = core.find(w)
-            if idx < 0:
+            a_start, a_end = _find_ci_range(core, w)
+            if a_start < 0:
                 continue
             # 整个文件名出现过滤词 → 跳过当前锚点
-            if excludes and any(core.find(ex) >= 0 for ex in excludes):
+            if excludes and any(_find_ci_range(core, ex)[0] >= 0 for ex in excludes):
                 continue
             if mode_clean == "before_anchor":
-                return idx, f"before_anchor:{w}"
-            return idx + len(w), f"after_anchor:{w}"
+                return a_start, f"before_anchor:{w}"
+            return a_end, f"after_anchor:{w}"
         # 没找到兜底
         return len(core), "before_ext"
 

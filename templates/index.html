@@ -526,11 +526,11 @@
                 <tbody id="renameRuleBody"></tbody>
               </table>
             </div>
-            <!-- 标签插入位置（独立可调） -->
+            <!-- 标签插入位置（不区分大小写匹配） -->
             <div class="mt-4 p-3 bg-light border border-secondary border-opacity-10 rounded-4">
               <div class="d-flex align-items-center mb-3">
                 <i class="bi bi-layout-text-sidebar-reverse me-2 text-secondary"></i>
-                <span class="fw-bold text-dark small">标签插入位置（独立可调）</span>
+                <span class="fw-bold text-dark small">标签插入位置（不区分大小写匹配）</span>
               </div>
               <div class="row g-2 g-md-3">
                 <div class="col-12 col-md-6">
@@ -1079,6 +1079,25 @@ def _split_name_and_known_ext_agent(filename):
         return filename, ""
     return name_no_ext, ext
 
+def _find_ci_range_agent(text, needle):
+    """大小写不敏感查找，返回 (start, end) 原字符串索引区间；找不到返回 (-1, -1)。"""
+    if not needle:
+        return (-1, -1)
+    low_text = text.lower()
+    low_needle = needle.lower()
+    low_start = low_text.find(low_needle)
+    if low_start < 0:
+        return (-1, -1)
+    low_end = low_start + len(low_needle)
+    def _map_back(low_pos):
+        pos = 0
+        lp = 0
+        while lp < low_pos:
+            lp += len(text[pos].lower())
+            pos += 1
+        return pos
+    return (_map_back(low_start), _map_back(low_end))
+
 def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_text=""):
     core = str(name_no_ext or "")
     mode_clean = (mode or "").strip() or "smart_legacy"
@@ -1095,14 +1114,14 @@ def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_t
         anchor_words = [w for w in anchor_clean.split('|') if w]
         excludes = [w for w in exclude_clean.split('|') if w]
         for w in anchor_words:
-            idx = core.find(w)
-            if idx < 0:
+            a_start, a_end = _find_ci_range_agent(core, w)
+            if a_start < 0:
                 continue
-            if excludes and any(core.find(ex) >= 0 for ex in excludes):
+            if excludes and any(_find_ci_range_agent(core, ex)[0] >= 0 for ex in excludes):
                 continue
             if mode_clean == "before_anchor":
-                return idx, f"before_anchor:{w}"
-            return idx + len(w), f"after_anchor:{w}"
+                return a_start, f"before_anchor:{w}"
+            return a_end, f"after_anchor:{w}"
         return len(core), "before_ext"
     # smart_legacy
     year_match = re.search(r'\\b(19\\d{2}|20\\d{2})\\b', core)
