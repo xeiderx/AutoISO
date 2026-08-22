@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.5.7"
+APP_VERSION = "v1.5.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2683,7 +2683,16 @@ def process_all_qbs():
         # === [全量转移] 终极清道夫：带层级保护的穿透式物理搬运 ===
         rename_enabled_flag = get_setting("rename_enabled") == "1"
         move_all_flag = get_setting("rename_move_all") == "1"
-        
+        size_suffix_enabled = get_size_suffix_enabled() == "1"
+        size_suffix_template = get_size_suffix_template() or "[{value}{unit}]"
+
+        # 文件大小后缀幂等判断：用模板中的正则字符近似匹配已存在的大小标签
+        # 支持常见的 [ ] 【 】 ( ) { } 「 」 < > 包裹 + 小数点数字 + MB/GB/TB/PB
+        SIZE_SUFFIX_IDEMPOTENT_RE = re.compile(
+            r'[\[\【\(\{「\<][\s]*[0-9]+(?:\.[0-9]+)?[\s]*(?:MB|GB|TB|PB)[\s]*[\]\】\)\}」\>]',
+            re.IGNORECASE,
+        )
+
         if rename_enabled_flag and move_all_flag:
             src_dir = get_setting("mp_staging_path")
             dst_dir = get_setting("mp_final_path")
@@ -2713,8 +2722,59 @@ def process_all_qbs():
                                 os.remove(dst_file)
                                 
                             shutil.move(src_file, dst_file)
+
+                            # --------------------------------------------------------
+                            # 文件大小后缀（全量转移独立追加）
+                            # 仅当 开关开启 + 目标文件存在 + 文件名里尚未包含大小标签时执行
+                            # 由于清道夫搬运的文件并未命中监控标签，不会追加自定义标签后缀，
+                            # 因此这里只按 size_tag_insert_mode/size_tag_insert_anchor 插入大小后缀
+                            # --------------------------------------------------------
+                            if size_suffix_enabled and os.path.isfile(dst_file):
+                                dst_filename = os.path.basename(dst_file)
+                                if not SIZE_SUFFIX_IDEMPOTENT_RE.search(dst_filename):
+                                    try:
+                                        raw_bytes = os.path.getsize(dst_file)
+                                        raw_gb = round(raw_bytes / GB, 3)
+                                        the_suffix = build_size_suffix(
+                                            raw_gb,
+                                            enabled=True,
+                                            template=size_suffix_template,
+                                        )
+                                    except Exception:
+                                        the_suffix = ""
+                                    if the_suffix:
+                                        try:
+                                            size_mode = get_size_tag_insert_mode()
+                                            size_anchor = get_size_tag_insert_anchor()
+                                            custom_mode = get_custom_tag_insert_mode()
+                                            custom_anchor = get_custom_tag_insert_anchor()
+                                            size_order = get_size_order_vs_custom()
+                                            final_name = insert_two_tags(
+                                                dst_filename,
+                                                "",  # 清道夫搬运不追加自定义标签
+                                                the_suffix,
+                                                custom_mode,
+                                                custom_anchor,
+                                                size_mode,
+                                                size_anchor,
+                                                size_order,
+                                            )
+                                            final_path = os.path.join(os.path.dirname(dst_file), final_name)
+                                            if (
+                                                final_path
+                                                and os.path.abspath(final_path) != os.path.abspath(dst_file)
+                                                and not os.path.exists(final_path)
+                                            ):
+                                                os.rename(dst_file, final_path)
+                                                dst_file = final_path
+                                                dst_filename = final_name
+                                        except Exception as e2:
+                                            logger.warning(
+                                                f"⚠️ [全量转移] 大小后缀追加失败，保留原名 {dst_filename}: {e2}"
+                                            )
+
                             # 日志只报文件名，极其清爽
-                            logger.info(f"🚚 [全量转移] 成功搬运闲置文件: {f}")
+                            logger.info(f"🚚 [全量转移] 成功搬运闲置文件: {dst_filename}")
                         except Exception as e:
                             logger.error(f"❌ [全量转移] 搬运失败 {f}: {e}")
                     
