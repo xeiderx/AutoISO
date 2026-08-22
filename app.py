@@ -866,9 +866,41 @@ def build_display_name(raw_name):
         title = (record.title or "").strip()
         year = (record.year or "").strip()
     else:
+        # 兜底：清洗出 clean_title/year 后，用 year + 同年内 title/original_name 直接匹配
+        # 解决手动刮削录入「追捕野蛮人」但传入名是「Hunt for the Wilderpeople 2016...」时精确匹配不上的问题
         clean_title, clean_year = clean_filename(original)
-        title = (clean_title or "").strip()
-        year = (clean_year or "").strip()
+        if clean_year:
+            alt_record = (
+                ScrapeRecord.query.filter(
+                    ScrapeRecord.year == clean_year,
+                    ScrapeRecord.status == SCRAPE_STATUS_SUCCESS,
+                )
+                .order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc())
+                .all()
+            )
+            if alt_record:
+                ct_clean = clean_title.strip().lower() if clean_title else ""
+                for r in alt_record:
+                    t_src = (r.title or r.original_name or "").strip()
+                    if not t_src:
+                        continue
+                    if (ct_clean and t_src.lower() == ct_clean):
+                        title = (r.title or "").strip() or clean_title
+                        year = (r.year or "").strip() or clean_year
+                        break
+                if not title:
+                    for r in alt_record:
+                        r_oname = (r.original_name or "").strip()
+                        if not r_oname:
+                            continue
+                        ro_ct, _ro_cy = clean_filename(r_oname)
+                        if ro_ct and clean_title and ro_ct.lower() == clean_title.lower():
+                            title = (r.title or "").strip() or clean_title
+                            year = (r.year or "").strip() or clean_year
+                            break
+        if not title:
+            title = (clean_title or "").strip()
+            year = (clean_year or "").strip()
 
     if not title:
         title = original
@@ -4201,7 +4233,6 @@ def list_pending_uploads():
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(safe_filename)),
                 "display_name": build_display_name(original_task_name),
-                "_match_original": original_task_name,
             }
         )
         seen_filenames.add(filename_key)
@@ -4246,130 +4277,12 @@ def list_pending_uploads():
                 "status": "待上传 (阻塞中)",
                 "auto_upload": True,
                 "display_name": build_display_name(task_name),
-                "_match_original": str(history_row.task_name or "").strip(),
             }
         )
         seen_filenames.add(filename_key)
 
+    # 按 ID 升序排列：ID 越小（时间越早）的任务排在越前面
     rows.sort(key=lambda x: x.get("id", 0))
-
-    # ============================================================
-    # 二次刮削记录精准对齐：和待封装列表逻辑一致
-    # 两级匹配：
-    #   ① build_task_name_keys 多键别名精确匹配（ScrapeRecord.original_name 与 filename/历史名变体相同）
-    #   ② clean 清洗后 (clean_title, year) 或 (title, clean_year) 匹配
-    #      解决「ScrapeRecord.original_name=追捕野蛮人」但 PackHistory/文件名仍是
-    #      英文PT发布名时，build_display_name 精确匹配失败显示英文原名的问题
-    # ============================================================
-    # 收集所有候选：file_name / task_name / _match_original(原始种子名, 未改名)
-    candidates = []
-    for idx, item in enumerate(rows):
-        cands = []
-        for raw_key in (
-            str(item.get("filename") or "").strip(),
-            os.path.splitext(str(item.get("filename") or ""))[0],
-            str(item.get("_match_original") or "").strip(),
-        ):
-            if raw_key:
-                cands.append(raw_key)
-        candidates.append((idx, cands))
-
-    scrape_keys_low = set()
-    for _idx, cands in candidates:
-        for c in cands:
-            scrape_keys_low |= build_task_name_keys(c)
-
-    records = []
-    if scrape_keys_low:
-        records = (
-            ScrapeRecord.query.filter(
-                func.lower(ScrapeRecord.original_name).in_(list(scrape_keys_low)),
-                ScrapeRecord.status == SCRAPE_STATUS_SUCCESS,
-            )
-            .order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc())
-            .all()
-        )
-    # 若①没命中，再按 (clean_title, year) 扩大查询范围
-    if not records:
-        extra_years = set()
-        for _idx, cands in candidates:
-            for c in cands:
-                _ct, _cy = clean_filename(c)
-                if _cy:
-                    extra_years.add(_cy)
-        if extra_years:
-            extra_records = (
-                ScrapeRecord.query.filter(
-                    ScrapeRecord.year.in_(list(extra_years)),
-                    ScrapeRecord.status == SCRAPE_STATUS_SUCCESS,
-                )
-                .order_by(ScrapeRecord.updated_at.desc(), ScrapeRecord.id.desc())
-                .all()
-            )
-            if extra_records:
-                records = extra_records
-
-    if records:
-        # ① 键别名映射（lowcase original_name -> record）
-        alias_map = {str(r.original_name or "").strip().lower(): r for r in records}
-        # ② (clean_title|title, year) -> record：同一对保留更新时间最新的
-        cy_map = {}
-        for r in records:
-            y = str(r.year or "").strip()
-            if not y:
-                continue
-            for title_src in (
-                str(r.title or "").strip(),
-                str(r.original_name or "").strip(),
-            ):
-                if not title_src:
-                    continue
-                ct, _cy = clean_filename(title_src)
-                if not ct:
-                    continue
-                key = (ct.lower(), y)
-                if key not in cy_map:
-                    cy_map[key] = r
-
-        for idx, cands in candidates:
-            hit = None
-            # ① build_task_name_keys 别名匹配
-            keys = set()
-            for c in cands:
-                keys |= build_task_name_keys(c)
-            for key in keys:
-                hit = alias_map.get(str(key or "").strip().lower())
-                if hit:
-                    break
-            # ② (clean_title, year) 清洗匹配
-            if not hit:
-                for c in cands:
-                    ct, cy = clean_filename(c)
-                    if not ct or not cy:
-                        continue
-                    key = (ct.lower(), cy)
-                    maybe = cy_map.get(key)
-                    if maybe:
-                        hit = maybe
-                        break
-                    # title 本身直接和 clean_title 相等（中文 case）
-                    for r in records:
-                        if not r.year or str(r.year).strip() != cy:
-                            continue
-                        t = (str(r.title or "") or str(r.original_name or "")).strip()
-                        if t and t.lower() == ct.lower():
-                            hit = r
-                            break
-                    if hit:
-                        break
-            if hit and (hit.title or "").strip():
-                yt = str(hit.year or "").strip()
-                rows[idx]["display_name"] = f"{str(hit.title).strip()} ({yt})" if yt else str(hit.title).strip()
-
-    # 去除内部辅助字段
-    for item in rows:
-        item.pop("_match_original", None)
-
     return jsonify(rows)
 
 
