@@ -1899,13 +1899,13 @@ echo "------------------------------------------------"
         if(!historySearchTrigger) {
             historySearchTrigger = initAdvancedSearch({
                 input: $('historySearch'), clearBtn: $('btnClearSearch'), chevron: $('searchChevron'), dropdown: $('searchDropdown'), recentList: $('recentRecordsList'),
-                getRecent: () => Array.from(new Set(histAll.map(x=>x.task_name).filter(Boolean))).slice(0,5),
+                getRecent: () => Array.from(new Set(histAll.map(x=>x.display_name||x.task_name).filter(Boolean))).slice(0,5),
                 onSearch: (kw) => {
                     histFiltered = histAll.filter(x => {
                         const isFail = (x.status||'').includes('失败');
                         if(kw === '成功') return !isFail;
                         if(kw === '失败') return isFail;
-                        return (!kw || (x.task_name||'').toLowerCase().includes(kw) || (x.qb_server_name||'').toLowerCase().includes(kw) || (x.status||'').toLowerCase().includes(kw));
+                        return (!kw || (x.task_name||'').toLowerCase().includes(kw) || (x.display_name||'').toLowerCase().includes(kw) || (x.qb_server_name||'').toLowerCase().includes(kw) || (x.status||'').toLowerCase().includes(kw));
                     });
                     histPage = 1; renderHistory();
                 }
