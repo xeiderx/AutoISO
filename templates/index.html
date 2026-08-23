@@ -1717,12 +1717,12 @@ echo "------------------------------------------------"
 
     function statsRow(title, iconClass, data) {
         const cards = [
+            ['本月次数', data.month_count||0, data.nas_month_count||0, data.vps_month_count||0, '次'],
+            ['本月数据', data.month_size_text||'-', data.nas_month_size_text||'-', data.vps_month_size_text||'-', ''],
             ['总次数', data.total_count||0, data.nas_count||0, data.vps_count||0, '次'],
             ['总数据', data.total_size_text||'-', data.nas_size_text||'-', data.vps_size_text||'-', ''],
             ['平均耗时', data.avg_duration_text||'-', data.nas_avg_duration_text||'-', data.vps_avg_duration_text||'-', ''],
-            ['平均速率', data.avg_rate_text||'-', data.nas_avg_rate_text||'-', data.vps_avg_rate_text||'-', ''],
-            ['本月次数', data.month_count||0, data.nas_month_count||0, data.vps_month_count||0, '次'],
-            ['本月数据', data.month_size_text||'-', data.nas_month_size_text||'-', data.vps_month_size_text||'-', '']
+            ['平均速率', data.avg_rate_text||'-', data.nas_avg_rate_text||'-', data.vps_avg_rate_text||'-', '']
         ];
         const headHtml = `
             <div class="stats-head py-2">
