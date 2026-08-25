@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.6.5"
+APP_VERSION = "v1.6.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -710,6 +710,12 @@ def init_task_auto_upload(filename, task_id=None):
     if not safe_name:
         raise ValueError("文件名不合法")
     global_enabled = bool(get_global_auto_upload())
+    # 清理同 task_id 但 filename 不同的旧记录，避免 UNIQUE 冲突
+    if task_id is not None:
+        UploadHistory.query.filter(
+            UploadHistory.task_id == task_id,
+            UploadHistory.filename != safe_name
+        ).delete()
     row = UploadHistory.query.filter_by(filename=safe_name).first()
     if not row:
         row = UploadHistory(
@@ -1246,6 +1252,11 @@ def mark_upload_status(filename, status, message="", task_id=None):
             row.task_id = task_id
         if is_new_task_cycle:
             row.auto_upload = global_auto_upload
+        # 防御：改 filename 前先清理占用该 filename 的其他记录，避免 UNIQUE 冲突
+        if row.filename != filename:
+            conflict = UploadHistory.query.filter_by(filename=filename).first()
+            if conflict and conflict.id != row.id:
+                db.session.delete(conflict)
         row.filename = filename
         row.status = status
         row.message = message or ""
