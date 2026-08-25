@@ -1744,6 +1744,15 @@ echo "------------------------------------------------"
         return `<div class="stats-line-wrap mb-3"><div class="stats-line">${headHtml}${cardsHtml}</div></div>`;
     }
     
+    // 根据原始文件名从待上传列表里查找刮削后的展示名
+    function findDisplayName(fileName){
+      if(!fileName) return '';
+      const found = (pendingUploadsAll||[]).find(x =>
+        (x.file_name||x.filename||'') === fileName
+      );
+      return found ? (found.display_name||fileName) : fileName;
+    }
+
     async function loadStatsAndProgress(){
       const stats=await api('/api/stats');
       currentUploadingFile=String(stats.current_uploading_file||'');
@@ -1785,9 +1794,10 @@ echo "------------------------------------------------"
       let uploadHtml = '';
       if(active){
           const f=up.file_name||cs.file_name||'';
+          const fDisplay=findDisplayName(f);
           const pct=Number(up.percentage||0);
           const paused=currentUploadStatus==='paused';
-          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(f)}">${esc(f)} <span class="badge bg-light text-secondary border ms-2">NAS</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(f)}">${esc(fDisplay)} <span class="badge bg-light text-secondary border ms-2">NAS</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar ${paused?'bg-warning':'bg-success progress-bar-striped progress-bar-animated'}" style="width:${pct.toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(up.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(up.eta||'-')}</span><span class="${paused?'text-warning':'text-success'}">${pct.toFixed(2)}%</span></div></div>`;
       }
       
       uploadingVpsTasks.forEach(t => {
