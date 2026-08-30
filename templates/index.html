@@ -1398,12 +1398,12 @@ def worker_loop():
                         save_path = os.path.join(t.get('save_path', ''), name)
                     
                     rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
-                    logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
+                    logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                     
                     if os.path.isfile(save_path):
                         actual_filename = os.path.basename(save_path)
                         # 先按「自定义标签配置」生成临时名，用于copy2落盘
-                        temp_single_name = insert_suffix_smart(actual_filename, rename_suffix, custom_mode, custom_anchor)
+                        temp_single_name = insert_suffix_smart(actual_filename, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                         target_temp = os.path.join(temp_path, temp_single_name)
                         log(f"====== 开始单文件转存: {name} ======")
                         report(identity, logical_name, "packing", 10, size_gb=size_gb)
@@ -1445,7 +1445,7 @@ def worker_loop():
                     else:
                         # --- VPS ISO：一次性协同插入自定义标签 + 文件大小标签 ---
                         pseudo_iso_filename = f"{name or 'AUTOISO'}.iso"
-                        temp_iso_base = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
+                        temp_iso_base = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                         final_name = f"{temp_iso_base}.iso"
                         target_temp = os.path.join(temp_path, final_name)
                         log(f"====== 开始打包任务: {name} ======")
@@ -1500,16 +1500,16 @@ def worker_loop():
                 size_gb = t.get('size', 0) / (1024**3)
                 
                 rename_suffix = resolve_rename_suffix_for_agent(tags, identity['master_url'], identity['token'])
-                logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor)
+                logical_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                 save_path = t.get('content_path')
                 if not save_path or not os.path.exists(save_path):
                     save_path = os.path.join(t.get('save_path', ''), name)
                 
                 if os.path.isfile(save_path):
                     actual_filename = os.path.basename(save_path)
-                    base_final = insert_suffix_by_anchor_agent(actual_filename, rename_suffix, custom_mode, custom_anchor)
+                    base_final = insert_suffix_by_anchor_agent(actual_filename, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                 else:
-                    base_iso_name = insert_suffix_by_anchor_agent(name, rename_suffix, custom_mode, custom_anchor)
+                    base_iso_name = insert_suffix_by_anchor_agent(name, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                     base_final = f"{base_iso_name}.iso"
 
                 # VPS 上传：先查封装阶段映射 → 再按"两标签协同插入"精确匹配 → 前缀兜底
