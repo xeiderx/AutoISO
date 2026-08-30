@@ -1406,6 +1406,9 @@ def worker_loop():
                         temp_single_name = insert_suffix_smart(actual_filename, rename_suffix, custom_mode, custom_anchor, custom_exclude)
                         target_temp = os.path.join(temp_path, temp_single_name)
                         log(f"====== 开始单文件转存: {name} ======")
+                        # 封装开始：待封装 → 封装中（与主控行为一致）
+                        session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                        session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装中"})
                         report(identity, logical_name, "packing", 10, size_gb=size_gb)
                         try:
                             if os.path.abspath(save_path) != os.path.abspath(target_temp):
@@ -1435,12 +1438,18 @@ def worker_loop():
                                     final_name = temp_single_name
                             # --------------------------------------------------------
                             _save_iso_map(temp_path, t['hash'], final_name)
-                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装,封装中"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             report(identity, logical_name, "pending_upload", 100, size_gb=real_size_gb if real_size_gb > 0 else size_gb, final_name=final_name)
                             log(f" 转存完成，已生成单文件: {final_name}")
                         except Exception as e:
                             log(f" 转存失败: {name}, error: {e}")
+                            # 封装失败：封装中 → 封装失败（与主控行为一致）
+                            try:
+                                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "封装中"})
+                                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装失败"})
+                            except Exception:
+                                pass
                             report(identity, logical_name, "error", 0, size_gb=size_gb)
                     else:
                         # --- VPS ISO：一次性协同插入自定义标签 + 文件大小标签 ---
@@ -1449,6 +1458,9 @@ def worker_loop():
                         final_name = f"{temp_iso_base}.iso"
                         target_temp = os.path.join(temp_path, final_name)
                         log(f"====== 开始打包任务: {name} ======")
+                        # 封装开始：待封装 → 封装中（与主控行为一致）
+                        session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                        session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装中"})
                         report(identity, logical_name, "packing", 10, size_gb=size_gb)
                         pack_stop = threading.Event()
                         pack_reporter = start_progress_reporter(
@@ -1482,12 +1494,18 @@ def worker_loop():
                                     final_name = os.path.basename(target_temp)
                             # ------------------------------------------------------------
                             _save_iso_map(temp_path, t['hash'], final_name)
-                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装,封装中"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
                             report(identity, logical_name, "pending_upload", 100, size_gb=real_size_gb if real_size_gb > 0 else size_gb, final_name=final_name)
                             log(f" 打包完成，已生成 ISO: {final_name}")
                         except Exception as e:
                             log(f" 打包失败: {name}, error: {e}")
+                            # 封装失败：封装中 → 封装失败（与主控行为一致）
+                            try:
+                                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "封装中"})
+                                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装失败"})
+                            except Exception:
+                                pass
                             report(identity, logical_name, "error", 0, size_gb=size_gb)
                         finally:
                             pack_stop.set()
