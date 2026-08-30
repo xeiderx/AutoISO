@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.6.8"
+APP_VERSION = "v1.6.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2011,7 +2011,7 @@ def insert_two_tags(filename, custom_suffix, size_suffix,
     return result + ext
 
 
-# ---- 兼容旧接口：insert_suffix_smart 现在默认按「自定义标签配置」插入 ----
+# ---- 兼容旧接口：insert_suffix_smart 现在默认按「自定义标签配置」插入（含过滤词，与 agent 端规则一致） ----
 def insert_suffix_smart(filename, suffix):
     if not suffix:
         return filename
@@ -2020,6 +2020,7 @@ def insert_suffix_smart(filename, suffix):
         suffix,
         get_custom_tag_insert_mode(),
         get_custom_tag_insert_anchor(),
+        get_custom_tag_insert_anchor_exclude(),
     )
 
 
@@ -3366,7 +3367,8 @@ def agent_report():
                 "last_processed_bytes": processed_bytes,
             }
 
-    if status in {"packing", "pending_upload", "finished"}:
+    # 仅在状态发生变化时触发刮削：packing 期间每次上报（约4秒一次）不再重复派发
+    if status in {"packing", "pending_upload", "finished"} and new_status and old_status != new_status:
         try:
             trigger_auto_scrape_async(safe_final_name, search_keyword=safe_final_name)
         except Exception:

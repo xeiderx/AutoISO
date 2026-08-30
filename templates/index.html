@@ -1380,9 +1380,27 @@ def worker_loop():
             # 1. 遍历检查并执行封装
             for t in torrents:
                 tags = t.get('tags', '')
-                if '待封装' in tags and t.get('progress', 0) == 1:
+                if ('待封装' in tags or '封装中' in tags) and '已封装' not in tags and '封装失败' not in tags and t.get('progress', 0) == 1:
                     name = t['name']
                     size_gb = t.get('size', 0) / (1024**3)
+                    # 中断自愈：agent 重启/重新部署会杀掉正在进行的封装，任务会卡在「封装中」。
+                    # 有完成映射则补打「已封装」；否则回退「待封装」继续走下面的正常封装流程
+                    if '封装中' in tags and '待封装' not in tags:
+                        try:
+                            _prev = _load_iso_map(temp_path).get(t['hash'])
+                        except Exception:
+                            _prev = None
+                        if _prev and os.path.exists(os.path.join(temp_path, _prev)):
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "封装中"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            log(f" 检测到上次封装实际已完成，补打「已封装」标签: {_prev}")
+                            continue
+                        log(" 检测到上次封装被中断（agent 重启），自动恢复重新封装")
+                        try:
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "封装中"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "待封装"})
+                        except Exception:
+                            pass
                     # 防止 qB 标签更新失败导致同一任务被重复封装：若映射中已有文件则跳过
                     try:
                         _prev = _load_iso_map(temp_path).get(t['hash'])
