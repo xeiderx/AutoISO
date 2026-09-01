@@ -1098,6 +1098,28 @@ def _find_ci_range_agent(text, needle):
         return pos
     return (_map_back(low_start), _map_back(low_end))
 
+def _find_ci_all_agent(text, needle):
+    """大小写不敏感查找所有出现位置，返回按起始位置升序的 [(start, end), ...]。"""
+    if not needle:
+        return []
+    low_text = text.lower()
+    low_needle = needle.lower()
+    spans = []
+    low_pos = low_text.find(low_needle)
+    while low_pos >= 0:
+        spans.append((low_pos, low_pos + len(low_needle)))
+        low_pos = low_text.find(low_needle, low_pos + 1)
+    if not spans:
+        return []
+    def _map_back(low_p):
+        pos = 0
+        lp = 0
+        while lp < low_p:
+            lp += len(text[pos].lower())
+            pos += 1
+        return pos
+    return [(_map_back(s), _map_back(e)) for s, e in spans]
+
 def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_text=""):
     core = str(name_no_ext or "")
     mode_clean = (mode or "").strip() or "smart_legacy"
@@ -1113,12 +1135,20 @@ def find_insert_position_by_mode_agent(name_no_ext, mode, anchor_text, exclude_t
     if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
         anchor_words = [w for w in anchor_clean.split('|') if w]
         excludes = [w for w in exclude_clean.split('|') if w]
+        # 过滤词按「出现位置」过滤：落在过滤词区间内的锚点出现位置被跳过
+        # （如 DTS-HD、Blu-ray 里的 -），取所有锚点词中最靠前的干净出现位置；
+        # 全部被过滤或未命中才兜底 before_ext
+        exclude_ranges = []
+        for ex in excludes:
+            exclude_ranges.extend(_find_ci_all_agent(core, ex))
+        candidates = []
         for w in anchor_words:
-            a_start, a_end = _find_ci_range_agent(core, w)
-            if a_start < 0:
-                continue
-            if excludes and any(_find_ci_range_agent(core, ex)[0] >= 0 for ex in excludes):
-                continue
+            for a_start, a_end in _find_ci_all_agent(core, w):
+                if any(er_start <= a_start and a_end <= er_end for er_start, er_end in exclude_ranges):
+                    continue
+                candidates.append((a_start, a_end, w))
+        if candidates:
+            a_start, a_end, w = min(candidates, key=lambda c: c[0])
             if mode_clean == "before_anchor":
                 return a_start, f"before_anchor:{w}"
             return a_end, f"after_anchor:{w}"

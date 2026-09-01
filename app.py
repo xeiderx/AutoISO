@@ -25,7 +25,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.6.9"
+APP_VERSION = "v1.7.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1888,6 +1888,32 @@ def _find_ci_range(text, needle):
     return (_map_back(low_start), _map_back(low_end))
 
 
+def _find_ci_all(text, needle):
+    """大小写不敏感查找所有出现位置，返回按起始位置升序的 [(start, end), ...]。
+    索引映射逻辑与 _find_ci_range 一致。"""
+    if not needle:
+        return []
+    low_text = text.lower()
+    low_needle = needle.lower()
+    spans = []
+    low_pos = low_text.find(low_needle)
+    while low_pos >= 0:
+        spans.append((low_pos, low_pos + len(low_needle)))
+        low_pos = low_text.find(low_needle, low_pos + 1)
+    if not spans:
+        return []
+
+    def _map_back(low_p):
+        pos = 0
+        lp = 0
+        while lp < low_p:
+            lp += len(text[pos].lower())
+            pos += 1
+        return pos
+
+    return [(_map_back(s), _map_back(e)) for s, e in spans]
+
+
 def find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text=""):
     """
     在不含扩展名的主文件名上，根据 mode 和 anchor_text 计算插入位置。
@@ -1914,23 +1940,28 @@ def find_insert_position_by_mode(name_no_ext, mode, anchor_text, exclude_text=""
         return len(core), "before_ext"
 
     # 3) before_anchor / after_anchor
-    #     anchor_text 支持 | 分隔多词，从左到右取第一个能命中的词（大小写不敏感）
-    #     anchor_exclude 支持 | 分隔多过滤词，整个文件名命中任一过滤词即跳过当前锚点
+    #     anchor_text 支持 | 分隔多词（大小写不敏感）
+    #     过滤词按「出现位置」过滤：落在过滤词命中区间内的锚点出现位置被跳过
+    #     （如 DTS-HD、Blu-ray 里的 -），取所有锚点词中最靠前的干净出现位置；
+    #     全部被过滤或未命中才兜底 before_ext
     if mode_clean in ("before_anchor", "after_anchor") and anchor_clean:
         anchor_words = [w for w in anchor_clean.split('|') if w]
-        # 过滤词：整个文件名核心命中任一即视为被过滤
         excludes = [w for w in (exclude_text or "").split('|') if w]
+        exclude_ranges = []
+        for ex in excludes:
+            exclude_ranges.extend(_find_ci_all(core, ex))
+        candidates = []
         for w in anchor_words:
-            a_start, a_end = _find_ci_range(core, w)
-            if a_start < 0:
-                continue
-            # 整个文件名出现过滤词 → 跳过当前锚点
-            if excludes and any(_find_ci_range(core, ex)[0] >= 0 for ex in excludes):
-                continue
+            for a_start, a_end in _find_ci_all(core, w):
+                if any(er_start <= a_start and a_end <= er_end for er_start, er_end in exclude_ranges):
+                    continue
+                candidates.append((a_start, a_end, w))
+        if candidates:
+            a_start, a_end, w = min(candidates, key=lambda c: c[0])
             if mode_clean == "before_anchor":
                 return a_start, f"before_anchor:{w}"
             return a_end, f"after_anchor:{w}"
-        # 没找到兜底
+        # 所有出现位置都被过滤或未命中锚点 → 兜底
         return len(core), "before_ext"
 
     # 4) 默认 smart_legacy（原insert_suffix_smart的三级策略）
