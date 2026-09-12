@@ -1244,7 +1244,7 @@ def get_config(identity):
     r.raise_for_status()
     return r.json()
 
-def report(identity, task_name, status, progress=0, size_gb=0, final_name=None):
+def report(identity, task_name, status, progress=0, size_gb=0, final_name=None, eps_total=None, eps_done=None):
     url = f"{identity['master_url']}/api/agent/report"
     speed_mbps = 0.0
     try:
@@ -1277,6 +1277,10 @@ def report(identity, task_name, status, progress=0, size_gb=0, final_name=None):
     }
     if final_name:
         payload["final_name"] = final_name
+    if eps_total is not None:
+        payload["eps_total"] = eps_total
+        if eps_done is not None:
+            payload["eps_done"] = eps_done
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception:
@@ -1287,6 +1291,72 @@ def safe_get_size(path):
         return os.path.getsize(path)
     except Exception:
         return 0
+
+def safe_get_dir_size(path):
+    total = 0
+    try:
+        for dp, _dns, fns in os.walk(path):
+            for f in fns:
+                try: total += os.path.getsize(os.path.join(dp, f))
+                except Exception: pass
+    except Exception: pass
+    return total
+
+# ---- 剧集组（多集媒体文件夹）支持：判定/收集/清单，与主控规则一致 ----
+SERIES_MANIFEST_NAME = '.autoiso_manifest.json'
+DISC_STRUCT_DIR_NAMES = {'bdmv', 'video_ts'}
+SERIES_MEDIA_EXTS = {'.mkv', '.mp4', '.avi', '.ts', '.rmvb', '.iso'}
+SERIES_SKIP_DIR_NAMES = {'sample', 'extras', 'featurettes', 'trailers', 'proof', '@eadir'}
+
+def detect_dir_kind_agent(path):
+    """'disc'=原盘(BDMV/VIDEO_TS)，'series'=多集媒体文件夹，'empty'=无可识别媒体"""
+    if not path or not os.path.isdir(path): return 'empty'
+    found_disc = False
+    media = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        if any(d.lower() in DISC_STRUCT_DIR_NAMES for d in dirnames):
+            found_disc = True; break
+        dirnames[:] = [d for d in dirnames if d.lower() not in SERIES_SKIP_DIR_NAMES and not d.startswith('.')]
+        rel = os.path.relpath(dirpath, path)
+        for f in filenames:
+            if os.path.splitext(f)[1].lower() in SERIES_MEDIA_EXTS:
+                media.append(os.path.normpath(os.path.join(rel, f)).replace(os.sep, '/'))
+    if found_disc: return 'disc'
+    return 'series' if media else 'empty'
+
+def collect_series_media_agent(path):
+    """返回 [(rel_path, size_bytes), ...]，rel_path 统一 / 分隔并排序"""
+    items = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = [d for d in dirnames if d.lower() not in SERIES_SKIP_DIR_NAMES and not d.startswith('.')]
+        rel = os.path.relpath(dirpath, path)
+        for f in filenames:
+            if os.path.splitext(f)[1].lower() not in SERIES_MEDIA_EXTS: continue
+            try: sz = os.path.getsize(os.path.join(dirpath, f))
+            except Exception: sz = 0
+            items.append((os.path.normpath(os.path.join(rel, f)).replace(os.sep, '/'), sz))
+    items.sort(key=lambda x: x[0])
+    return items
+
+def _series_manifest_path_agent(group_dir):
+    return os.path.join(group_dir, SERIES_MANIFEST_NAME)
+
+def _write_series_manifest_agent(group_dir, rel_files):
+    try:
+        data = {'version': 1, 'files': [{'path': rel, 'size': int(sz or 0)} for rel, sz in rel_files]}
+        with open(_series_manifest_path_agent(group_dir), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(data, ensure_ascii=False))
+    except Exception: pass
+
+def _read_series_manifest_agent(group_dir):
+    try:
+        with open(_series_manifest_path_agent(group_dir), 'r', encoding='utf-8') as f:
+            data = json.loads(f.read() or '{}')
+        files = data.get('files') if isinstance(data, dict) else None
+        if isinstance(files, list) and files:
+            return [x for x in files if isinstance(x, dict) and x.get('path')]
+    except Exception: pass
+    return []
 
 def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func, stop_event):
     def _runner():
@@ -1499,6 +1569,73 @@ def worker_loop():
                             except Exception:
                                 pass
                             report(identity, logical_name, "error", 0, size_gb=size_gb)
+                    elif detect_dir_kind_agent(save_path) == 'series':
+                        # --- VPS 剧集组：不打 ISO，逐集转存为组目录 ---
+                        media_items = collect_series_media_agent(save_path)
+                        total_eps = len(media_items)
+                        prev = _load_iso_map(temp_path).get(t['hash'])
+                        if prev and os.path.isdir(os.path.join(temp_path, prev)):
+                            temp_group_name = prev  # 中断续传：沿用已建组目录
+                        else:
+                            temp_group_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor, custom_exclude) or 'SERIES'
+                        group_dir = os.path.join(temp_path, temp_group_name)
+                        log(f"====== 开始剧集转存({total_eps}集): {name} ======")
+                        # 封装开始：待封装 → 封装中（与主控行为一致）
+                        session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
+                        session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装中"})
+                        report(identity, logical_name, "packing", 10, size_gb=size_gb, eps_total=total_eps, eps_done=0)
+                        pack_stop = threading.Event()
+                        pack_reporter = start_progress_reporter(
+                            identity, logical_name, "packing", size_gb, lambda gd=group_dir: safe_get_dir_size(gd), pack_stop
+                        )
+                        try:
+                            os.makedirs(group_dir, exist_ok=True)
+                            copied = []
+                            idx = 0
+                            for rel, sz in media_items:
+                                idx += 1
+                                src_f = os.path.join(save_path, *rel.split('/'))
+                                dst_f = os.path.join(group_dir, *rel.split('/'))
+                                if not (os.path.isfile(dst_f) and (sz <= 0 or safe_get_size(dst_f) == sz)):
+                                    os.makedirs(os.path.dirname(dst_f), exist_ok=True)
+                                    shutil.copy2(src_f, dst_f)  # 断点续传：已复制且大小一致则跳过
+                                copied.append((rel, safe_get_size(dst_f) if sz <= 0 else sz))
+                                report(identity, logical_name, "packing", int(10 + 85 * idx / total_eps), size_gb=size_gb, eps_total=total_eps, eps_done=idx)
+                                log(f" 剧集转存 ({idx}/{total_eps}): {rel}")
+                            # 写清单供上传阶段逐集跟踪
+                            _write_series_manifest_agent(group_dir, copied)
+                            # 按全剧总大小生成最终组名（两标签协同）
+                            real_total_gb = round(sum(sz for _r, sz in copied) / (1024**3), 3)
+                            size_suffix = build_size_suffix(real_total_gb, size_suffix_enabled, size_suffix_template)
+                            computed_group = insert_two_tags_agent(
+                                temp_group_name, rename_suffix, size_suffix,
+                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                custom_exclude, size_exclude,
+                            ) or temp_group_name
+                            if computed_group != temp_group_name:
+                                new_dir = os.path.join(temp_path, computed_group)
+                                if os.path.exists(new_dir): shutil.rmtree(new_dir, ignore_errors=True)
+                                os.rename(group_dir, new_dir)
+                                group_dir = new_dir
+                                log(f"📏 [锚点插入] 剧集组名重命名完成: {temp_group_name} -> {computed_group}")
+                            _save_iso_map(temp_path, t['hash'], computed_group)
+                            session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装,封装中"})
+                            session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
+                            report(identity, logical_name, "pending_upload", 100, size_gb=real_total_gb if real_total_gb > 0 else size_gb, final_name=computed_group, eps_total=total_eps, eps_done=total_eps)
+                            log(f" 剧集转存完成，共{total_eps}集: {computed_group}")
+                        except Exception as e:
+                            log(f" 剧集转存失败: {name}, error: {e}")
+                            # 封装失败：封装中 → 封装失败（与主控行为一致）
+                            try:
+                                session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "封装中"})
+                                session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装失败"})
+                            except Exception:
+                                pass
+                            report(identity, logical_name, "error", 0, size_gb=size_gb)
+                        finally:
+                            pack_stop.set()
+                            try: pack_reporter.join(timeout=2)
+                            except Exception: pass
                     else:
                         # --- VPS ISO：一次性协同插入自定义标签 + 文件大小标签 ---
                         pseudo_iso_filename = f"{name or 'AUTOISO'}.iso"
@@ -1657,37 +1794,99 @@ def worker_loop():
                 target_dest = os.path.join(cd2_path, final_name)
                 
                 if '已封装' in tags and os.path.exists(target_temp) and os.path.exists(cd2_path):
-                    report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name)
-                    try:
-                        up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": logical_name}, timeout=10)
-                        if up_res.status_code == 200 and up_res.json().get("can_upload", True):
-                            log(f" 获得主控放行许可！开始移入 CD2: {final_name}")
-                            report(identity, logical_name, "uploading", 50, size_gb=size_gb, final_name=final_name)
-                            try:
-                                if os.path.exists(target_dest):
-                                    try: os.remove(target_dest)
+                    if os.path.isdir(target_temp):
+                        # --- 剧集组逐集上传：已传集数 = 清单中已从临时区消失的文件 ---
+                        _eps = _read_series_manifest_agent(target_temp)
+                        _total_eps = len(_eps)
+                        _remaining = [
+                            ep for ep in _eps
+                            if os.path.isfile(os.path.join(target_temp, *str(ep.get('path') or '').split('/')))
+                        ]
+                        _done_before = _total_eps - len(_remaining)
+                        report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done_before)
+                        if _total_eps <= 0:
+                            try: shutil.rmtree(target_temp, ignore_errors=True)
+                            except Exception: pass
+                            _remove_iso_map(temp_path, t['hash'])
+                            continue
+                        try:
+                            up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": logical_name}, timeout=10)
+                            if up_res.status_code == 200 and up_res.json().get("can_upload", True):
+                                log(f" 获得主控放行许可！开始逐集移入 CD2: {final_name}（{_done_before}/{_total_eps} 已完成）")
+                                _done = _done_before
+                                _failed = False
+                                for gi, ep in enumerate(_remaining, 1):
+                                    rel = str(ep.get('path') or '')
+                                    src_ep = os.path.join(target_temp, *rel.split('/'))
+                                    dst_ep = os.path.join(cd2_path, final_name, *rel.split('/'))
+                                    report(identity, logical_name, "uploading", int(90 * (_done) / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                    try:
+                                        if os.path.exists(dst_ep):
+                                            try: os.remove(dst_ep)
+                                            except Exception: pass
+                                        progress_state = {"bytes": 0}
+                                        progress_lock = threading.Lock()
+                                        upload_stop = threading.Event()
+                                        upload_reporter = start_progress_reporter(
+                                            identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
+                                        )
+                                        try:
+                                            copy_with_progress(src_ep, dst_ep, progress_state, progress_lock)
+                                        finally:
+                                            upload_stop.set()
+                                            try: upload_reporter.join(timeout=2)
+                                            except Exception: pass
+                                        try: os.remove(src_ep)
+                                        except Exception: pass
+                                        _done += 1
+                                        report(identity, logical_name, "uploading", int(90 * _done / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                        log(f" 剧集上传 ({_done}/{_total_eps}): {rel}")
+                                    except Exception as e:
+                                        log(f" 单集移入失败: {rel}, err: {e}")
+                                        _failed = True
+                                        break
+                                if not _failed and _done >= _total_eps:
+                                    try: shutil.rmtree(target_temp, ignore_errors=True)
                                     except Exception: pass
-                                progress_state = {"bytes": 0}
-                                progress_lock = threading.Lock()
-                                upload_stop = threading.Event()
-                                upload_reporter = start_progress_reporter(
-                                    identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
-                                )
+                                    _remove_iso_map(temp_path, t['hash'])
+                                    log(f" 剧集全部移入网盘挂载点: {final_name}（共{_total_eps}集）")
+                                    report(identity, logical_name, "finished", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_total_eps)
+                                else:
+                                    # 未完成：汇报剩余，等下一轮继续
+                                    report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                        except Exception: pass
+                    elif os.path.isfile(target_temp):
+                        report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name)
+                        try:
+                            up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": logical_name}, timeout=10)
+                            if up_res.status_code == 200 and up_res.json().get("can_upload", True):
+                                log(f" 获得主控放行许可！开始移入 CD2: {final_name}")
+                                report(identity, logical_name, "uploading", 50, size_gb=size_gb, final_name=final_name)
                                 try:
-                                    copy_with_progress(target_temp, target_dest, progress_state, progress_lock)
-                                finally:
-                                    upload_stop.set()
-                                    try: upload_reporter.join(timeout=2)
+                                    if os.path.exists(target_dest):
+                                        try: os.remove(target_dest)
+                                        except Exception: pass
+                                    progress_state = {"bytes": 0}
+                                    progress_lock = threading.Lock()
+                                    upload_stop = threading.Event()
+                                    upload_reporter = start_progress_reporter(
+                                        identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
+                                    )
+                                    try:
+                                        copy_with_progress(target_temp, target_dest, progress_state, progress_lock)
+                                    finally:
+                                        upload_stop.set()
+                                        try: upload_reporter.join(timeout=2)
+                                        except Exception: pass
+                                    try: os.remove(target_temp)
                                     except Exception: pass
-                                try: os.remove(target_temp)
-                                except Exception: pass
-                                _remove_iso_map(temp_path, t['hash'])
-                                log(f" 成功移入网盘挂载点: {final_name}")
-                                report(identity, logical_name, "finished", 100, size_gb=size_gb, final_name=final_name)
-                            except Exception as e:
-                                log(f" 移入失败: {final_name}, err: {e}")
-                                report(identity, logical_name, "error", 0, size_gb=size_gb, final_name=final_name)
-                    except Exception: pass
+                                    _remove_iso_map(temp_path, t['hash'])
+                                    log(f" 成功移入网盘挂载点: {final_name}")
+                                    report(identity, logical_name, "finished", 100, size_gb=size_gb, final_name=final_name)
+                                except Exception as e:
+                                    log(f" 移入失败: {final_name}, err: {e}")
+                                    report(identity, logical_name, "error", 0, size_gb=size_gb, final_name=final_name)
+                        except Exception: pass
 
         except Exception: pass
         time.sleep(10)
@@ -1845,11 +2044,19 @@ echo "------------------------------------------------"
       });
       
       currentPackingTasks = packingTasks.map(t => t.task_name);
-      
+
+      // 剧集组进度徽章（总集数存在时显示）
+      const epsBadge = (t) => {
+          const tt = Number(t.episodes_total||0);
+          if (!tt) return '';
+          const dd = Math.min(Number(t.episodes_done||0), tt);
+          return `<span class="badge text-nowrap ms-2" style="background-color:#e0e7ff; color:#4338ca;" title="剧集进度">🎬 ${dd}/${tt}</span>`;
+      };
+
       if(!packingTasks.length){
         $('packingTasks').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
+        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
       }
       
       const up=stats.upload_progress||{};
@@ -1867,7 +2074,7 @@ echo "------------------------------------------------"
       }
       
       uploadingVpsTasks.forEach(t => {
-          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span></div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
       });
 
       if(!uploadHtml){
@@ -1954,6 +2161,8 @@ echo "------------------------------------------------"
 
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
+            const epsTotal = Number(x.episodes_total||0);
+            const epsHtml = epsTotal ? `<span class="badge rounded-pill text-nowrap" style="background-color:#e0e7ff; color:#4338ca; border:1px solid #c7d2fe;" title="剧集剩余集数">剩余 ${Math.max(0, epsTotal - Number(x.episodes_done||0))}/${epsTotal}</span>` : '';
 
             let autoIcon = '';
             if (isVps) {
@@ -1989,7 +2198,7 @@ echo "------------------------------------------------"
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.filename||'')}</div></td>
               <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
-              <td class="text-center">${statusBadge}</td>
+              <td class="text-center">${statusBadge}${epsHtml?' '+epsHtml:''}</td>
               <td class="text-center">${autoIcon}</td>
               <td class="text-center align-middle px-2">${actionBtns}</td>
             </tr>`

@@ -1,5 +1,6 @@
 import atexit
 import hmac
+import json
 import logging
 import os
 import re
@@ -25,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.0"
+APP_VERSION = "v1.7.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1177,6 +1178,146 @@ def get_current_upload_status_snapshot():
     return dict(current_upload_status)
 
 
+# ---- 剧集组（多集媒体文件夹）支持 ----
+SERIES_MANIFEST_NAME = ".autoiso_manifest.json"
+DISC_STRUCT_DIR_NAMES = {"bdmv", "video_ts"}
+SERIES_MEDIA_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".rmvb", ".iso"}
+SERIES_SKIP_DIR_NAMES = {"sample", "extras", "featurettes", "trailers", "proof", "@eadir"}
+
+
+def _is_series_media_file(fname):
+    return os.path.splitext(fname)[1].lower() in SERIES_MEDIA_EXTS
+
+
+def detect_dir_kind(path):
+    """判定目录类型：'disc'=原盘(BDMV/VIDEO_TS)，'series'=多集媒体文件夹，'empty'=无可识别媒体。"""
+    if not path or not os.path.isdir(path):
+        return "empty"
+    found_disc = False
+    media_files = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        if any(d.lower() in DISC_STRUCT_DIR_NAMES for d in dirnames):
+            found_disc = True
+            break
+        # 跳过 Sample/Extras 及隐藏目录
+        dirnames[:] = [d for d in dirnames if d.lower() not in SERIES_SKIP_DIR_NAMES and not d.startswith(".")]
+        rel = os.path.relpath(dirpath, path)
+        for f in filenames:
+            if _is_series_media_file(f):
+                media_files.append(os.path.normpath(os.path.join(rel, f)).replace(os.sep, "/"))
+    if found_disc:
+        return "disc"
+    return "series" if media_files else "empty"
+
+
+def collect_series_media(path):
+    """收集媒体文件，返回 [(rel_path, size_bytes), ...]，rel_path 统一用 / 分隔并排序。"""
+    items = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = [d for d in dirnames if d.lower() not in SERIES_SKIP_DIR_NAMES and not d.startswith(".")]
+        rel = os.path.relpath(dirpath, path)
+        for f in filenames:
+            if not _is_series_media_file(f):
+                continue
+            full = os.path.join(dirpath, f)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                size = 0
+            rel_norm = os.path.normpath(os.path.join(rel, f)).replace(os.sep, "/")
+            items.append((rel_norm, size))
+    items.sort(key=lambda x: x[0])
+    return items
+
+
+def _series_manifest_path(group_dir):
+    return os.path.join(group_dir, SERIES_MANIFEST_NAME)
+
+
+def write_series_manifest(group_dir, rel_files):
+    """rel_files: [(rel_path, size_bytes), ...] → 在组目录写入清单 JSON。"""
+    data = {
+        "version": 1,
+        "created_at": now_local().isoformat(timespec="seconds"),
+        "files": [{"path": rel, "size": int(size or 0)} for rel, size in rel_files],
+    }
+    try:
+        with open(_series_manifest_path(group_dir), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        logger.exception("写入剧集清单失败: %s", group_dir)
+
+
+def read_series_manifest(group_dir):
+    """返回清单中的文件列表 [{path, size}, ...]；无清单返回 []。"""
+    try:
+        with open(_series_manifest_path(group_dir), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        files = data.get("files") if isinstance(data, dict) else None
+        if isinstance(files, list) and files:
+            return [x for x in files if isinstance(x, dict) and x.get("path")]
+    except Exception:
+        pass
+    return []
+
+
+def is_series_group_dir(path):
+    """OUTPUT_DIR 下带清单的目录视为剧集组。"""
+    return bool(path) and os.path.isdir(path) and os.path.isfile(_series_manifest_path(path))
+
+
+def series_file_key(group_name, rel_path):
+    """剧集单集在上传历史中的虚拟键：组名/相对路径（避免 S01E01.mkv 这类重名冲突）。"""
+    return f"{group_name}/{str(rel_path or '').strip()}".replace(os.sep, "/")
+
+
+def series_group_stats(group_dir):
+    """按清单+上传历史统计：返回 (总集数, 已上传集数, 总字节数, 已上传字节数)。"""
+    files = read_series_manifest(group_dir)
+    total = len(files)
+    uploaded = 0
+    total_bytes = 0.0
+    uploaded_bytes = 0.0
+    group_name = os.path.basename(os.path.normpath(group_dir))
+    for item in files:
+        rel = str(item.get("path") or "")
+        size = float(item.get("size") or 0)
+        total_bytes += size
+        row = UploadHistory.query.filter_by(filename=series_file_key(group_name, rel)).first()
+        if row and (row.status or "").strip().lower() == "uploaded":
+            uploaded += 1
+            uploaded_bytes += size
+    return total, uploaded, total_bytes, uploaded_bytes
+
+
+def find_pack_row_for_group(group_name):
+    safe_name = os.path.basename(str(group_name or "").strip())
+    if not safe_name:
+        return None
+    return (
+        PackHistory.query.filter(
+            PackHistory.task_name == safe_name,
+            PackHistory.message.like("SERIES:%"),
+        )
+        .order_by(PackHistory.id.desc())
+        .first()
+    )
+
+
+def _dir_size(path):
+    total = 0
+    try:
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for f in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
 def is_valid_upload_file(name):
     if not name:
         return False
@@ -1185,7 +1326,10 @@ def is_valid_upload_file(name):
     if name.endswith(PACKING_SUFFIX):
         return False
     file_path = os.path.join(OUTPUT_DIR, name)
-    return os.path.isfile(file_path)
+    if os.path.isfile(file_path):
+        return True
+    # 剧集组目录（带清单）也算可上传对象
+    return is_series_group_dir(file_path)
 
 
 def get_pending_upload_files():
@@ -1273,11 +1417,12 @@ def find_pack_row_for_upload(file_name):
     iso_path = os.path.join(OUTPUT_DIR, safe_name)
     iso_msg = f"ISO: {iso_path}"
     file_msg = f"FILE: {iso_path}"
+    series_msg = f"SERIES: {iso_path}"
 
     row = (
         PackHistory.query.filter(
             PackHistory.task_name.in_([safe_name, task_name]),
-            PackHistory.message.in_([iso_msg, file_msg]),
+            PackHistory.message.in_([iso_msg, file_msg, series_msg]),
             PackHistory.status.in_([STATUS_PACKED_PENDING_UPLOAD, STATUS_UPLOADING]),
         )
         .order_by(PackHistory.id.desc())
@@ -1289,7 +1434,7 @@ def find_pack_row_for_upload(file_name):
     return (
         PackHistory.query.filter(
             PackHistory.task_name.in_([safe_name, task_name]),
-            PackHistory.message.in_([iso_msg, file_msg]),
+            PackHistory.message.in_([iso_msg, file_msg, series_msg]),
         )
         .order_by(PackHistory.id.desc())
         .first()
@@ -1306,7 +1451,7 @@ def get_or_create_external_server_id():
     return server.id
 
 
-def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, final_name=""):
+def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, final_name="", eps_total=None, eps_done=None):
     safe_name = os.path.basename(str(file_name or "").strip())
     if not safe_name:
         return None
@@ -1323,6 +1468,16 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, 
     mapped_status = status_map.get(safe_status)
     if not mapped_status:
         return None
+
+    # info 里的 node= 必须保持在第一个分号前（extract_node_name_from_history_info 依赖此格式）
+    info_str = f"node={(node_name or '').strip() or 'VPS'}"
+    try:
+        if eps_total is not None and int(eps_total) > 0:
+            info_str += f"; eps_total={int(eps_total)}"
+            if eps_done is not None:
+                info_str += f"; eps_done={int(eps_done)}"
+    except (TypeError, ValueError):
+        pass
 
     now_dt = now_local()
     normalized_size_gb = max(0.0, float(file_size_gb or 0.0))
@@ -1349,7 +1504,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, 
                 start_time=now_dt,
                 file_size_gb=normalized_size_gb,
                 message="Agent report: packing",
-                info=f"node={node_label}",
+                info=info_str,
             )
             db.session.add(row)
             db.session.commit()
@@ -1360,7 +1515,7 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, 
         if normalized_size_gb > 0 or not (row.file_size_gb and row.file_size_gb > 0):
             row.file_size_gb = normalized_size_gb
         row.message = "Agent report: packing"
-        row.info = f"node={node_label}"
+        row.info = info_str
         db.session.commit()
         return row
 
@@ -1371,13 +1526,13 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, 
             status=mapped_status,
             start_time=now_dt,
             message=f"Agent report: {safe_status}",
-            info=f"node={node_label}",
+            info=info_str,
         )
         db.session.add(row)
 
     row.status = mapped_status
     row.message = f"Agent report: {safe_status}"
-    row.info = f"node={node_label}"
+    row.info = info_str
     if normalized_size_gb > 0 or not (row.file_size_gb and row.file_size_gb > 0):
         row.file_size_gb = normalized_size_gb
 
@@ -2217,6 +2372,238 @@ def get_iso_path_for_history(row: PackHistory):
     return os.path.join(OUTPUT_DIR, f"{row.task_name}.iso")
 
 
+def _process_series_group_upload(group_dir, group_name, delete_after_upload):
+    """剧集组逐集上传：按清单把剩余集数逐个移入 CloudDrive，全部完成后收尾。
+    返回 (uploaded_count, failed_count)。"""
+    group_row = find_pack_row_for_group(group_name)
+
+    # 组级自动上传开关（组名作为键）
+    task_auto = get_task_auto_upload(group_name)
+    if not task_auto:
+        reason = "task auto upload disabled"
+        if group_row:
+            group_row.status = STATUS_PACKED_ONLY
+            group_row.info = reason
+            db.session.commit()
+        mark_upload_status(group_name, "packed", reason)
+        logger.info("剧集组自动上传已跳过，组=%s，原因=%s", group_name, reason)
+        return 0, 0
+
+    files = read_series_manifest(group_dir)
+    if not files:
+        logger.warning("剧集组清单为空，跳过: %s", group_dir)
+        return 0, 0
+
+    total = len(files)
+    done_before = 0
+    for item in files:
+        row = UploadHistory.query.filter_by(filename=series_file_key(group_name, item.get("path") or "")).first()
+        if row and (row.status or "").strip().lower() == "uploaded":
+            done_before += 1
+
+    if group_row:
+        group_row.status = STATUS_UPLOADING
+        group_row.info = f"uploading series: {done_before}/{total}"
+        db.session.commit()
+    mark_upload_status(group_name, "uploading", f"uploading series: {done_before}/{total}")
+
+    if get_notify_flag("notify_upload_start", True) and done_before == 0:
+        send_tg_notification(f"[AutoISO] 📤 开始转移剧集至 CloudDrive：{group_name}（共{total}集）")
+
+    clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
+    uploaded_count = done_before
+    failed_count = 0
+
+    try:
+        for item in files:
+            rel = str(item.get("path") or "")
+            if not rel:
+                continue
+            v_key = series_file_key(group_name, rel)
+            ep_row = UploadHistory.query.filter_by(filename=v_key).first()
+            if ep_row and (ep_row.status or "").strip().lower() == "uploaded":
+                continue
+
+            src_path = os.path.join(group_dir, *rel.split("/"))
+            if not os.path.isfile(src_path):
+                # 本地已不存在且未标记 uploaded → 视为失败（可能被手动删除）
+                failed_count += 1
+                mark_upload_status(v_key, "failed", "episode file missing")
+                continue
+            dst_path = os.path.join(clouddrive_path, group_name, *rel.split("/"))
+
+            mark_upload_status(v_key, "uploading", f"uploading: {src_path}")
+            logger.info("🚀 [剧集转移] 开始上传: %s (%s)", v_key, rel)
+            try:
+                uploaded_ok = upload_file_with_progress(src_path, dst_path, delete_after=False)
+                if not uploaded_ok:
+                    mark_upload_status(v_key, "aborted", "upload aborted by user")
+                    failed_count += 1
+                    logger.warning("[剧集转移] 上传中止: %s", v_key)
+                    break
+                mark_upload_status(v_key, "uploaded", f"uploaded to {dst_path}")
+                uploaded_count += 1
+                logger.info("🎉 [剧集转移] 单集完成: %s（%s/%s）", rel, uploaded_count, total)
+                if group_row:
+                    group_row.info = f"uploading series: {uploaded_count}/{total}"
+                    db.session.commit()
+                mark_upload_status(group_name, "uploading", f"uploading series: {uploaded_count}/{total}")
+                if delete_after_upload:
+                    try:
+                        os.remove(src_path)
+                    except OSError:
+                        pass
+            except Exception as exc:
+                failed_count += 1
+                mark_upload_status(v_key, "failed", str(exc))
+                logger.exception("[剧集转移] 单集上传失败: %s，err=%s", v_key, exc)
+                break
+    finally:
+        if uploaded_count >= total and total > 0:
+            # 全部完成：组级收尾
+            final_dst = os.path.join(clouddrive_path, group_name)
+            mark_upload_status(group_name, "uploaded", f"uploaded series to {final_dst}")
+            if group_row:
+                group_row.status = STATUS_UPLOADED
+                group_row.end_time = now_local()
+                group_row.message = f"已上传: {final_dst}"
+                group_row.info = f"series {total}/{total}"
+                db.session.commit()
+            if delete_after_upload:
+                shutil.rmtree(group_dir, ignore_errors=True)
+            logger.info("🏁 [剧集转移] 全部完成: %s（共%s集）", group_name, total)
+            if get_notify_flag("notify_upload_end", True):
+                send_tg_notification(f"[AutoISO] 🏁 剧集全部上传完成：{group_name}（共{total}集）")
+        else:
+            mark_upload_status(group_name, "pending", f"series remaining: {total - uploaded_count}/{total}")
+            if group_row and group_row.status == STATUS_UPLOADING:
+                group_row.status = STATUS_PACKED_PENDING_UPLOAD
+                group_row.info = f"series remaining: {total - uploaded_count}/{total}"
+                db.session.commit()
+            logger.info("⏸ [剧集转移] 本轮结束: %s，已传 %s/%s，剩余 %s", group_name, uploaded_count, total, total - uploaded_count)
+
+    return uploaded_count, failed_count
+
+
+def _pack_series_group(server, torrent, client, history, source_path, rename_suffix, started, torrent_hash, task_key):
+    """剧集组转存：逐集复制到 OUTPUT_DIR 的组目录并写清单，不打 ISO。"""
+    logger.info("📚 [本地封装] 检测到剧集文件夹，逐集转存（不打 ISO）: %s", torrent.name)
+    media_items = collect_series_media(source_path)
+    total = len(media_items)
+    total_bytes = sum(s for _r, s in media_items)
+
+    # 1. 先用「自定义标签」生成临时组名落盘（大小后缀等全部完成后再按总大小补齐）
+    temp_group_name = insert_suffix_smart(torrent.name, rename_suffix) or "SERIES"
+    group_dir = os.path.join(OUTPUT_DIR, temp_group_name)
+
+    with ACTIVE_TASKS_LOCK:
+        ACTIVE_TASKS[task_key] = {
+            "task_name": temp_group_name,
+            "server_name": server.name,
+            "source_path": source_path,
+            "source_size_bytes": total_bytes,
+            "iso_path": group_dir,
+            "pack_mode": "series",
+            "episodes_total": total,
+            "start_time": started,
+            "task_id": history.id,
+        }
+
+    copied = []
+    ok = True
+    err_msg = ""
+    try:
+        os.makedirs(group_dir, exist_ok=True)
+        for idx, (rel, _size) in enumerate(media_items, 1):
+            src_file = os.path.join(source_path, *rel.split("/"))
+            dst_file = os.path.join(group_dir, *rel.split("/"))
+            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+            copied.append((rel, os.path.getsize(dst_file)))
+            with ACTIVE_TASKS_LOCK:
+                entry = ACTIVE_TASKS.get(task_key)
+                if entry is not None:
+                    entry["episodes_done"] = idx
+            logger.info("📚 [剧集转存] (%s/%s) %s", idx, total, rel)
+    except Exception as exc:
+        ok = False
+        err_msg = str(exc)
+        logger.exception("剧集转存失败，组=%s", temp_group_name)
+
+    finished = now_local()
+    duration = format_seconds((finished - started).total_seconds())
+
+    if not ok or not copied:
+        history.status = STATUS_FAILED
+        history.end_time = finished
+        history.message = f"series copy failed: {err_msg}"
+        history.info = err_msg
+        db.session.commit()
+        qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+        qb_add_tags(client, torrent_hash, [FAILED_TAG])
+        if get_notify_flag("notify_pack_end", True):
+            send_tg_notification(f"[AutoISO] ❌ 剧集转存失败 | 节点: {server.name} | 任务: {torrent.name}")
+        with ACTIVE_TASKS_LOCK:
+            ACTIVE_TASKS.pop(task_key, None)
+        return
+
+    # 2. 写清单（相对路径 + 字节大小），供上传阶段逐集跟踪
+    write_series_manifest(group_dir, copied)
+
+    # 3. 按全剧总大小生成最终组名（协同插入自定义标签 + 大小标签）
+    real_total_gb = round(total_bytes / GB, 3)
+    final_group_dir = group_dir
+    final_group_name = temp_group_name
+    try:
+        size_suffix = build_size_suffix(real_total_gb)
+        computed = insert_two_tags(
+            temp_group_name, rename_suffix, size_suffix,
+            get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
+            get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
+            get_size_order_vs_custom(),
+            get_custom_tag_insert_anchor_exclude(), get_size_tag_insert_anchor_exclude(),
+        )
+        if computed and computed != temp_group_name:
+            candidate = os.path.join(OUTPUT_DIR, computed)
+            if os.path.abspath(candidate) != os.path.abspath(group_dir):
+                if os.path.exists(candidate):
+                    shutil.rmtree(candidate, ignore_errors=True)
+                os.rename(group_dir, candidate)
+            final_group_dir = candidate
+            final_group_name = computed
+            logger.info("📏 [锚点插入] 剧集组名按配置重命名完成: %s -> %s", temp_group_name, computed)
+    except Exception as exc:
+        logger.warning("剧集组名锚点插入失败(忽略继续，保留临时名): err=%s", exc)
+
+    # 4. 历史与上传状态
+    auto_upload_enabled = False
+    try:
+        auto_upload_enabled = init_task_auto_upload(final_group_name, history.id)
+    except Exception:
+        logger.exception("剧集组 init_task_auto_upload 失败，忽略继续")
+    try:
+        history.task_name = final_group_name
+        history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
+        history.end_time = finished
+        history.message = f"SERIES: {final_group_dir}"
+        history.info = f"series {total} episodes"
+        history.file_size_gb = real_total_gb
+        db.session.commit()
+        mark_upload_status(final_group_name, "pending" if auto_upload_enabled else "packed", "series group ready")
+    except Exception:
+        logger.exception("剧集组 DB/Upload 状态更新失败，忽略继续")
+
+    qb_remove_tags(client, torrent_hash, [PACKING_TAG])
+    qb_add_tags(client, torrent_hash, [DONE_TAG])
+    if get_notify_flag("notify_pack_end", True):
+        send_tg_notification(
+            f"[AutoISO] ✅ 剧集转存完成（共{total}集），等待上传 | 节点: {server.name} | 任务: {torrent.name}"
+        )
+    logger.info("剧集组转存完成，组=%s，共%s集，耗时=%s", final_group_name, total, duration)
+    with ACTIVE_TASKS_LOCK:
+        ACTIVE_TASKS.pop(task_key, None)
+
+
 def process_uploads():
     global current_uploading_file
     if not UPLOAD_ENGINE_LOCK.acquire(blocking=False):
@@ -2239,6 +2626,32 @@ def process_uploads():
 
             for file_name in pending_names:
                 src_path = os.path.join(OUTPUT_DIR, file_name)
+                # 剧集组：逐集上传，不进入单文件流程
+                if is_series_group_dir(src_path):
+                    if not global_auto_upload:
+                        logger.info("剧集组自动上传已跳过（全局开关关闭），组=%s", file_name)
+                        continue
+                    logger.info("📚 [定时调度] 检测到剧集组，开始逐集上传: %s", file_name)
+                    current_uploading_file = file_name
+                    set_upload_command("running")
+                    update_current_upload_status(active=True, file_name=file_name, status="uploading")
+                    try:
+                        _process_series_group_upload(src_path, file_name, delete_after_upload)
+                    except Exception:
+                        logger.exception("剧集组上传异常: %s", file_name)
+                    finally:
+                        current_uploading_file = None
+                        set_upload_command("running")
+                        update_current_upload_status(active=False, file_name="", status="idle")
+                        update_upload_progress(
+                            active=False,
+                            file_name="",
+                            status="uploading",
+                            percentage=0.0,
+                            speed_mbps=0.0,
+                            eta="-",
+                        )
+                    continue
                 dst_path = os.path.join(clouddrive_path, file_name)
                 task_name = os.path.splitext(file_name)[0]
                 row = find_pack_row_for_upload(file_name)
@@ -2342,6 +2755,30 @@ def process_single_upload(file_name):
                 return
 
             src_path = os.path.join(OUTPUT_DIR, safe_name)
+            # 剧集组：逐集上传剩余集数
+            if is_series_group_dir(src_path):
+                logger.info("📚 [手动转移] 剧集组开始逐集上传: %s", safe_name)
+                current_uploading_file = safe_name
+                set_upload_command("running")
+                update_current_upload_status(active=True, file_name=safe_name, status="uploading")
+                try:
+                    _process_series_group_upload(src_path, safe_name, delete_after_upload)
+                except Exception:
+                    logger.exception("剧集组手动上传异常: %s", safe_name)
+                finally:
+                    current_uploading_file = None
+                    set_upload_command("running")
+                    update_current_upload_status(active=False, file_name="", status="idle")
+                    update_upload_progress(
+                        active=False,
+                        file_name="",
+                        status="uploading",
+                        percentage=0.0,
+                        speed_mbps=0.0,
+                        eta="-",
+                    )
+                return
+
             dst_path = os.path.join(clouddrive_path, safe_name)
             row = find_pack_row_for_upload(safe_name)
             task_id = row.id if row else None
@@ -2560,6 +2997,11 @@ def process_one_torrent(server: QBServer, client, torrent):
                 logger.info("[节点:%s] 任务 '%s' 封装失败(目录不存在)。", server.name, torrent.name)
                 send_tg_notification(f"[AutoISO] ❌ 封装失败 (目录不存在) | 节点: {server.name} | 任务: {torrent.name}")
             logger.error("封装失败：源目录不存在，任务=%s，路径=%s", torrent.name, source_path)
+            return
+
+        # --- 剧集组（多集媒体文件夹，非原盘）：不打 ISO，逐集转存为组目录 ---
+        if detect_dir_kind(source_path) == "series":
+            _pack_series_group(server, torrent, client, history, source_path, rename_suffix, started, torrent_hash, task_key)
             return
 
         safe_vol_id = re.sub(r"[^a-zA-Z0-9_]", "_", torrent.name or "AUTOISO")[:30]
@@ -3335,7 +3777,10 @@ def agent_report():
     old_status = old_row.status if old_row else None
 
     try:
-        updated_row = upsert_agent_history_status(node, safe_final_name, status, file_size_gb=file_size_gb, final_name=final_name_payload)
+        updated_row = upsert_agent_history_status(
+            node, safe_final_name, status, file_size_gb=file_size_gb, final_name=final_name_payload,
+            eps_total=payload.get("eps_total"), eps_done=payload.get("eps_done"),
+        )
         if updated_row and updated_row.task_name != safe_final_name:
             updated_row.task_name = safe_final_name[:255]
             db.session.commit()
@@ -3396,6 +3841,8 @@ def agent_report():
                 "eta_text": eta_text,
                 "last_update": last_update,
                 "last_processed_bytes": processed_bytes,
+                "eps_total": payload.get("eps_total"),
+                "eps_done": payload.get("eps_done"),
             }
 
     # 仅在状态发生变化时触发刮削：packing 期间每次上报（约4秒一次）不再重复派发
@@ -4149,7 +4596,11 @@ def get_progress():
     for key, task in snapshot.items():
         source_size = task.get("source_size_bytes", 0)
         iso_path = task.get("iso_path", "")
-        iso_size = os.path.getsize(iso_path) if iso_path and os.path.exists(iso_path) else 0
+        if task.get("pack_mode") == "series" and iso_path and os.path.isdir(iso_path):
+            # 剧集组：按组目录累计大小计算进度
+            iso_size = _dir_size(iso_path)
+        else:
+            iso_size = os.path.getsize(iso_path) if iso_path and os.path.exists(iso_path) else 0
         percent = 0.0
         if source_size > 0:
             percent = min(100.0, max(0.0, (iso_size / source_size) * 100))
@@ -4183,6 +4634,9 @@ def get_progress():
                 "speed_mbps": round(float(speed_mbps), 2),
                 "eta_seconds": eta_seconds,
                 "eta_text": format_eta(eta_seconds) if eta_seconds is not None else "-",
+                "pack_mode": task.get("pack_mode", ""),
+                "episodes_total": task.get("episodes_total"),
+                "episodes_done": task.get("episodes_done"),
             }
         )
 
@@ -4222,6 +4676,8 @@ def get_progress():
                 "eta_text": eta_text,
                 "status": task.get("status", "packing"),
                 "from_agent": True,
+                "episodes_total": task.get("eps_total"),
+                "episodes_done": task.get("eps_done"),
             }
         )
 
@@ -4388,6 +4844,16 @@ def list_pending_uploads():
             size_bytes = os.path.getsize(file_path)
         except OSError:
             size_bytes = 0
+
+        # 剧集组：大小取清单合计，并统计已上传集数
+        episodes_total = None
+        episodes_done = None
+        if os.path.isdir(file_path):
+            ep_total, ep_done, ep_bytes, _ep_uploaded_bytes = series_group_stats(file_path)
+            if ep_total > 0:
+                episodes_total = ep_total
+                episodes_done = ep_done
+                size_bytes = int(ep_bytes)
         size_gb = round(size_bytes / GB, 3)
 
         upload_row = UploadHistory.query.filter_by(filename=safe_filename).first()
@@ -4420,6 +4886,8 @@ def list_pending_uploads():
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(safe_filename)),
                 "display_name": build_display_name(original_task_name),
+                "episodes_total": episodes_total,
+                "episodes_done": episodes_done,
             }
         )
         seen_filenames.add(filename_key)
@@ -4452,6 +4920,12 @@ def list_pending_uploads():
 
         node_name = info_node or qb_name or "VPS"
         size_gb = round(max(0.0, float(history_row.file_size_gb or 0.0)), 3)
+        # VPS 剧集组：从 info 解析集数进度（node=xxx; eps_total=12; eps_done=2）
+        info_text = str(history_row.info or "")
+        m_total = re.search(r"eps_total\s*=\s*(\d+)", info_text)
+        m_done = re.search(r"eps_done\s*=\s*(\d+)", info_text)
+        episodes_total = int(m_total.group(1)) if m_total else None
+        episodes_done = int(m_done.group(1)) if m_done else None
         node_policy = agent_policy_map.get(node_name, AGENT_UPLOAD_DEFAULT_POLICY)
         rows.append(
             {
@@ -4464,6 +4938,8 @@ def list_pending_uploads():
                 "status": "待上传 (阻塞中)",
                 "auto_upload": True,
                 "display_name": build_display_name(task_name),
+                "episodes_total": episodes_total,
+                "episodes_done": episodes_done,
             }
         )
         seen_filenames.add(filename_key)
@@ -4516,6 +4992,28 @@ def delete_local_file(filename):
         return jsonify({"error": "文件名不合法"}), 400
 
     file_path = os.path.join(OUTPUT_DIR, safe_name)
+    if os.path.isdir(file_path):
+        # 剧集组：删除整个组目录，并把未完成单集标记为已删除
+        if not is_series_group_dir(file_path):
+            return jsonify({"error": "文件名不合法"}), 400
+        group_name = safe_name
+        for item in read_series_manifest(file_path):
+            rel = str(item.get("path") or "")
+            v_key = series_file_key(group_name, rel)
+            ep_row = UploadHistory.query.filter_by(filename=v_key).first()
+            if ep_row and (ep_row.status or "").strip().lower() != "uploaded":
+                mark_upload_status(v_key, "deleted_local", "series group deleted")
+        shutil.rmtree(file_path, ignore_errors=True)
+        if os.path.exists(file_path):
+            return jsonify({"error": "删除失败: 组目录未能完全清除"}), 500
+        mark_upload_status(group_name, "deleted_local", "series group deleted")
+        group_row = find_pack_row_for_group(group_name)
+        if group_row:
+            group_row.status = "本地已删除"
+            group_row.info = "local series group deleted"
+            db.session.commit()
+        return jsonify({"ok": True, "file_name": group_name})
+
     try:
         os.remove(file_path)
     except FileNotFoundError:
