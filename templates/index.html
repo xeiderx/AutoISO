@@ -1358,7 +1358,7 @@ def _read_series_manifest_agent(group_dir):
     except Exception: pass
     return []
 
-def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func, stop_event):
+def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func, stop_event, report_kwargs=None, progress_calc=None):
     def _runner():
         last_report = 0.0
         while not stop_event.is_set():
@@ -1369,11 +1369,21 @@ def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func,
                     processed = float(get_bytes_func() or 0)
                 except Exception:
                     processed = 0
-                total_bytes = float(size_gb) * GB if size_gb else 0
-                progress = 0.0
-                if total_bytes > 0:
-                    progress = min(100.0, (processed / total_bytes) * 100.0)
-                report(identity, filename, status, progress, size_gb=size_gb)
+                if progress_calc:
+                    try:
+                        progress = float(progress_calc(processed) or 0.0)
+                    except Exception:
+                        progress = 0.0
+                else:
+                    total_bytes = float(size_gb) * GB if size_gb else 0
+                    progress = 0.0
+                    if total_bytes > 0:
+                        progress = min(100.0, (processed / total_bytes) * 100.0)
+                try:
+                    extra = report_kwargs() if callable(report_kwargs) else (report_kwargs or {})
+                except Exception:
+                    extra = {}
+                report(identity, filename, status, progress, size_gb=size_gb, **extra)
                 last_report = now_ts
             time.sleep(0.5)
     t = threading.Thread(target=_runner, daemon=True)
@@ -1585,8 +1595,18 @@ def worker_loop():
                         session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装中"})
                         report(identity, logical_name, "packing", 10, size_gb=size_gb, eps_total=total_eps, eps_done=0)
                         pack_stop = threading.Event()
+                        pack_meta = {"done": 0, "final": None}
+                        def _pack_kwargs():
+                            kw = {"eps_total": total_eps, "eps_done": pack_meta["done"]}
+                            if pack_meta["final"]: kw["final_name"] = pack_meta["final"]
+                            return kw
+                        def _pack_calc(b, _total_gb=float(size_gb or 0)):
+                            tb = _total_gb * GB
+                            if tb <= 0: return 10.0
+                            return min(95.0, 10.0 + 85.0 * min(1.0, b / tb))
                         pack_reporter = start_progress_reporter(
-                            identity, logical_name, "packing", size_gb, lambda gd=group_dir: safe_get_dir_size(gd), pack_stop
+                            identity, logical_name, "packing", size_gb, lambda gd=group_dir: safe_get_dir_size(gd), pack_stop,
+                            report_kwargs=_pack_kwargs, progress_calc=_pack_calc
                         )
                         try:
                             os.makedirs(group_dir, exist_ok=True)
@@ -1600,6 +1620,7 @@ def worker_loop():
                                     os.makedirs(os.path.dirname(dst_f), exist_ok=True)
                                     shutil.copy2(src_f, dst_f)  # 断点续传：已复制且大小一致则跳过
                                 copied.append((rel, safe_get_size(dst_f) if sz <= 0 else sz))
+                                pack_meta["done"] = idx
                                 report(identity, logical_name, "packing", int(10 + 85 * idx / total_eps), size_gb=size_gb, eps_total=total_eps, eps_done=idx)
                                 log(f" 剧集转存 ({idx}/{total_eps}): {rel}")
                             # 写清单供上传阶段逐集跟踪
@@ -1618,6 +1639,7 @@ def worker_loop():
                                 os.rename(group_dir, new_dir)
                                 group_dir = new_dir
                                 log(f"📏 [锚点插入] 剧集组名重命名完成: {temp_group_name} -> {computed_group}")
+                            pack_meta["final"] = computed_group
                             _save_iso_map(temp_path, t['hash'], computed_group)
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装,封装中"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
@@ -1819,8 +1841,21 @@ def worker_loop():
                                     rel = str(ep.get('path') or '')
                                     src_ep = os.path.join(target_temp, *rel.split('/'))
                                     dst_ep = os.path.join(cd2_path, final_name, *rel.split('/'))
-                                    report(identity, logical_name, "uploading", int(90 * (_done) / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
                                     try:
+                                        _ep_bytes = int(ep.get('size') or 0)
+                                    except (TypeError, ValueError):
+                                        _ep_bytes = 0
+                                    if _ep_bytes <= 0:
+                                        _ep_bytes = safe_get_size(src_ep)
+                                    def _up_kwargs(_fn=final_name, _tt=_total_eps, _dd=_done):
+                                        return {"final_name": _fn, "eps_total": _tt, "eps_done": _dd}
+                                    def _up_calc(b, _dd=_done, _tt=_total_eps, _eb=_ep_bytes):
+                                        frac = min(1.0, b / _eb) if _eb > 0 else 0.0
+                                        return min(100.0, 100.0 * (_dd + frac) / _tt)
+                                    report(identity, logical_name, "uploading", int(100 * (_done) / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                    try:
+                                        # 关键：先创建剧集组子目录（含嵌套季目录），否则 open 目标文件会立即失败
+                                        os.makedirs(os.path.dirname(dst_ep), exist_ok=True)
                                         if os.path.exists(dst_ep):
                                             try: os.remove(dst_ep)
                                             except Exception: pass
@@ -1828,7 +1863,8 @@ def worker_loop():
                                         progress_lock = threading.Lock()
                                         upload_stop = threading.Event()
                                         upload_reporter = start_progress_reporter(
-                                            identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop
+                                            identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop,
+                                            report_kwargs=_up_kwargs, progress_calc=_up_calc
                                         )
                                         try:
                                             copy_with_progress(src_ep, dst_ep, progress_state, progress_lock)
@@ -1839,7 +1875,7 @@ def worker_loop():
                                         try: os.remove(src_ep)
                                         except Exception: pass
                                         _done += 1
-                                        report(identity, logical_name, "uploading", int(90 * _done / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                        report(identity, logical_name, "uploading", int(100 * _done / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
                                         log(f" 剧集上传 ({_done}/{_total_eps}): {rel}")
                                     except Exception as e:
                                         log(f" 单集移入失败: {rel}, err: {e}")

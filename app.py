@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.2"
+APP_VERSION = "v1.7.3"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1622,6 +1622,12 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
     temp_dst_path = f"{dst_path}{UPLOADING_SUFFIX}"
     aborted = False
     paused_logged = False
+
+    # 剧集组等场景目标在子目录下，先确保父目录存在，否则 open 写文件会直接失败
+    try:
+        os.makedirs(os.path.dirname(dst_path) or ".", exist_ok=True)
+    except OSError:
+        logger.warning("创建上传目标目录失败: %s", os.path.dirname(dst_path))
 
     try:
         if os.path.exists(temp_dst_path):
