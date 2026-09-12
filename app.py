@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.3"
+APP_VERSION = "v1.7.4"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1452,10 +1452,26 @@ def get_or_create_external_server_id():
 
 
 def _parse_eps_from_info(info_str, kind="total"):
-    """从 history info 字段解析集数：node=VPS; eps_total=24; eps_done=3"""
-    key = f"eps_{kind}"
-    m = re.search(rf"{key}\s*=\s*(\d+)", info_str or "")
-    return int(m.group(1)) if m else None
+    """从 history info 解析集数。
+    VPS 格式：node=VPS; eps_total=24; eps_done=3
+    NAS 格式：series 24 episodes / uploading series: 3/24 / series remaining: 21/24"""
+    text = info_str or ""
+    m = re.search(rf"eps_{kind}\s*=\s*(\d+)", text)
+    if m:
+        return int(m.group(1))
+    if "series" in text:
+        if kind == "total":
+            m2 = re.search(r"series\D{0,24}\d+\s*/\s*(\d+)", text)
+            if m2:
+                return int(m2.group(1))
+            m3 = re.search(r"series\s+(\d+)\s+episodes", text)
+            if m3:
+                return int(m3.group(1))
+        elif kind == "done":
+            m4 = re.search(r"series\D{0,24}(\d+)\s*/\s*\d+", text)
+            if m4:
+                return int(m4.group(1))
+    return None
 
 
 def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, final_name="", eps_total=None, eps_done=None):
