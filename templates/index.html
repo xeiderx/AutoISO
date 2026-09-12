@@ -1371,7 +1371,7 @@ def _flat_episode_dest_agent(dest_root, rel_path, src_ep, dup_names):
     个电影走同一路径，互不影响。
     撞名兜底：清单内存在重复裸文件名（如 Season 01/ep01.mkv 与 Season 02/ep01.mkv）
     时，给后写入的文件加季前缀 S02-ep01.mkv。"""
-    rel_norm = (rel_path or '').replace('\\', '/')
+    rel_norm = (rel_path or '').replace('\\\\', '/')
     base = os.path.basename(rel_norm) or os.path.basename(src_ep)
     candidate = os.path.join(dest_root, base)
     if not os.path.exists(candidate) or base not in dup_names:
@@ -1860,7 +1860,7 @@ def worker_loop():
                         # 拍平上传时的撞名检测：裸文件名在清单中出现 2 次及以上才需要季前缀兜底
                         _base_counts = {}
                         for ep in _eps:
-                            b = os.path.basename(str(ep.get('path') or '').replace('\\', '/'))
+                            b = os.path.basename(str(ep.get('path') or '').replace('\\\\', '/'))
                             _base_counts[b] = _base_counts.get(b, 0) + 1
                         _dup_names = set(b for b, c in _base_counts.items() if c >= 2)
                         report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done_before)
