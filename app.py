@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.6"
+APP_VERSION = "v1.7.7"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1658,14 +1658,15 @@ def finalize_pack_history_after_upload(file_name, dst_path, task_id=None):
     db.session.commit()
 
 
-def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=None):
+def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=None, finalize_history=True):
     global current_uploading_file
     chunk_size = 10 * 1024 * 1024
     total_bytes = os.path.getsize(src_path)
     bytes_done = 0
     start_ts = time.time()
     upload_started_at = now_local()
-    update_upload_timestamps(os.path.basename(src_path), start_time=upload_started_at, task_id=task_id)
+    if finalize_history:
+        update_upload_timestamps(os.path.basename(src_path), start_time=upload_started_at, task_id=task_id)
     temp_dst_path = f"{dst_path}{UPLOADING_SUFFIX}"
     aborted = False
     paused_logged = False
@@ -1772,8 +1773,9 @@ def upload_file_with_progress(src_path, dst_path, delete_after=False, task_id=No
         if delete_after:
             os.remove(src_path)
 
-        update_upload_timestamps(os.path.basename(src_path), end_time=now_local(), task_id=task_id)
-        finalize_pack_history_after_upload(os.path.basename(src_path), dst_path, task_id=task_id)
+        if finalize_history:
+            update_upload_timestamps(os.path.basename(src_path), end_time=now_local(), task_id=task_id)
+            finalize_pack_history_after_upload(os.path.basename(src_path), dst_path, task_id=task_id)
         return True
     except Exception:
         try:
@@ -2505,7 +2507,9 @@ def _process_series_group_upload(group_dir, group_name, delete_after_upload):
             mark_upload_status(v_key, "uploading", f"uploading: {src_path}")
             logger.info("🚀 [剧集转移] 开始上传: %s (%s)", v_key, rel)
             try:
-                uploaded_ok = upload_file_with_progress(src_path, dst_path, delete_after=False)
+                # 剧集单集上传：历史记录由 _process_series_group_upload 统一管理组行，
+                # 跳过 finalize 避免每集新建一条 PackHistory 杂项行
+                uploaded_ok = upload_file_with_progress(src_path, dst_path, delete_after=False, finalize_history=False)
                 if not uploaded_ok:
                     mark_upload_status(v_key, "aborted", "upload aborted by user")
                     failed_count += 1
