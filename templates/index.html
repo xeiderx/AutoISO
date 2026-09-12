@@ -633,7 +633,7 @@
         
         <div class="table-responsive bg-white border border-light rounded-4 d-none d-md-block">
           <table id="historyTable" class="table table-hover table-fixed resizable-table align-middle border-0 mb-0" style="min-width: 950px;">
-            <colgroup><col class="check-col"><col style="width:4%"><col style="width:20%"><col style="width:14%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"><col style="width:6%"></colgroup>
+            <colgroup><col class="check-col"><col style="width:4%"><col style="width:18%"><col style="width:16%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"><col style="width:6%"></colgroup>
             <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><div class="manage-checkbox-wrap d-none"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></div></th><th class="text-center align-middle border-0 text-nowrap">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">操作</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
@@ -1017,7 +1017,7 @@ EOF
 
 # 4. 写入核心挂机脚本 agent.py
 cat << 'EOF' > /opt/autoiso_agent/agent.py
-import os, sys, time, json, requests, subprocess, shutil, threading
+import os, sys, time, json, requests, subprocess, shutil, threading, re
 IDENTITY_FILE = "/opt/autoiso_agent/identity.json"
 ERROR_COUNT = 0
 SPEED_STATE = {}
@@ -1363,6 +1363,32 @@ def _read_series_manifest_agent(group_dir):
             return [x for x in files if isinstance(x, dict) and x.get('path')]
     except Exception: pass
     return []
+
+def _flat_episode_dest_agent(dest_root, rel_path, src_ep, dup_names):
+    """剧集逐集上传时拍平到网盘接收根目录（不再放 剧名/ 子目录）。
+    背景：放进子目录后 symedia 归档会把整个父目录移走，其余集的 CD2 上传任务
+    绑定的云端父目录随之失效（115 错误 10014 云端目录不存在）。根部散文件与单
+    个电影走同一路径，互不影响。
+    撞名兜底：清单内存在重复裸文件名（如 Season 01/ep01.mkv 与 Season 02/ep01.mkv）
+    时，给后写入的文件加季前缀 S02-ep01.mkv。"""
+    rel_norm = (rel_path or '').replace('\\', '/')
+    base = os.path.basename(rel_norm) or os.path.basename(src_ep)
+    candidate = os.path.join(dest_root, base)
+    if not os.path.exists(candidate) or base not in dup_names:
+        return candidate
+    if safe_get_size(candidate) == safe_get_size(src_ep):
+        return candidate  # 同集上轮残留（大小一致），由调用方覆盖重传
+    parts = [p for p in rel_norm.split('/') if p and p not in ('.', '..')]
+    prefix = ''
+    if len(parts) >= 2:
+        digits = ''.join(ch for ch in parts[-2] if ch.isdigit())
+        if digits:
+            prefix = 'S%02d-' % int(digits)
+        else:
+            cleaned = re.sub(r'[^A-Za-z0-9._-]', '', parts[-2])[:24]
+            if cleaned:
+                prefix = cleaned + '-'
+    return os.path.join(dest_root, prefix + base) if prefix else candidate
 
 def start_progress_reporter(identity, filename, status, size_gb, get_bytes_func, stop_event, report_kwargs=None, progress_calc=None):
     def _runner():
@@ -1831,6 +1857,12 @@ def worker_loop():
                             if os.path.isfile(os.path.join(target_temp, *str(ep.get('path') or '').split('/')))
                         ]
                         _done_before = _total_eps - len(_remaining)
+                        # 拍平上传时的撞名检测：裸文件名在清单中出现 2 次及以上才需要季前缀兜底
+                        _base_counts = {}
+                        for ep in _eps:
+                            b = os.path.basename(str(ep.get('path') or '').replace('\\', '/'))
+                            _base_counts[b] = _base_counts.get(b, 0) + 1
+                        _dup_names = set(b for b, c in _base_counts.items() if c >= 2)
                         report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done_before)
                         if _total_eps <= 0:
                             try: shutil.rmtree(target_temp, ignore_errors=True)
@@ -1846,7 +1878,8 @@ def worker_loop():
                                 for gi, ep in enumerate(_remaining, 1):
                                     rel = str(ep.get('path') or '')
                                     src_ep = os.path.join(target_temp, *rel.split('/'))
-                                    dst_ep = os.path.join(cd2_path, final_name, *rel.split('/'))
+                                    # 拍平到 CD2 接收根目录（散文件），避免 symedia 移走整组目录导致 10014
+                                    dst_ep = _flat_episode_dest_agent(cd2_path, rel, src_ep, _dup_names)
                                     try:
                                         _ep_bytes = int(ep.get('size') or 0)
                                     except (TypeError, ValueError):
@@ -1860,7 +1893,7 @@ def worker_loop():
                                         return min(100.0, 100.0 * (_dd + frac) / _tt)
                                     report(identity, logical_name, "uploading", int(100 * (_done) / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
                                     try:
-                                        # 关键：先创建剧集组子目录（含嵌套季目录），否则 open 目标文件会立即失败
+                                        # 防御性确保接收根目录存在（拍平后目标即根目录下散文件）
                                         os.makedirs(os.path.dirname(dst_ep), exist_ok=True)
                                         if os.path.exists(dst_ep):
                                             try: os.remove(dst_ep)

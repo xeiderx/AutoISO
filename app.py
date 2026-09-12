@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.5"
+APP_VERSION = "v1.7.6"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1271,6 +1271,37 @@ def series_file_key(group_name, rel_path):
     return f"{group_name}/{str(rel_path or '').strip()}".replace(os.sep, "/")
 
 
+def flat_series_dest(dest_root, rel_path, src_path, dup_names):
+    """剧集逐集上传时拍平到网盘接收根目录（散文件，不再放 组名/ 子目录）。
+    背景：放进子目录后 symedia 归档会把整个父目录移走，其余集的 CD2 上传任务
+    绑定的云端父目录随之失效（115 错误 10014 云端目录不存在）。根部散文件与单
+    个电影走同一路径，互不影响。
+    撞名兜底：清单内存在重复裸文件名（如 Season 01/ep01.mkv 与 Season 02/ep01.mkv）
+    时，给后写入的文件加季前缀 S02-ep01.mkv。"""
+    rel_norm = str(rel_path or "").replace("\\", "/")
+    base = os.path.basename(rel_norm) or os.path.basename(src_path)
+    candidate = os.path.join(dest_root, base)
+    if not os.path.exists(candidate) or base not in dup_names:
+        return candidate
+    try:
+        same_size = os.path.getsize(candidate) == os.path.getsize(src_path)
+    except OSError:
+        same_size = False
+    if same_size:
+        return candidate  # 同集上轮残留（大小一致），由调用方覆盖重传
+    parts = [p for p in rel_norm.split("/") if p and p not in (".", "..")]
+    prefix = ""
+    if len(parts) >= 2:
+        digits = "".join(ch for ch in parts[-2] if ch.isdigit())
+        if digits:
+            prefix = "S%02d-" % int(digits)
+        else:
+            cleaned = re.sub(r"[^A-Za-z0-9._-]", "", parts[-2])[:24]
+            if cleaned:
+                prefix = cleaned + "-"
+    return os.path.join(dest_root, prefix + base) if prefix else candidate
+
+
 def series_group_stats(group_dir):
     """按清单+上传历史统计：返回 (总集数, 已上传集数, 总字节数, 已上传字节数)。"""
     files = read_series_manifest(group_dir)
@@ -2445,6 +2476,12 @@ def _process_series_group_upload(group_dir, group_name, delete_after_upload):
     clouddrive_path = (get_clouddrive_path() or "").strip() or DEFAULT_CLOUDDRIVE_PATH
     uploaded_count = done_before
     failed_count = 0
+    # 拍平上传时的撞名检测：裸文件名在清单中出现 2 次及以上才需要季前缀兜底
+    _base_counts = {}
+    for item in files:
+        b = os.path.basename(str(item.get("path") or "").replace("\\", "/"))
+        _base_counts[b] = _base_counts.get(b, 0) + 1
+    dup_names = {b for b, c in _base_counts.items() if c >= 2}
 
     try:
         for item in files:
@@ -2462,7 +2499,8 @@ def _process_series_group_upload(group_dir, group_name, delete_after_upload):
                 failed_count += 1
                 mark_upload_status(v_key, "failed", "episode file missing")
                 continue
-            dst_path = os.path.join(clouddrive_path, group_name, *rel.split("/"))
+            # 拍平到网盘接收根目录（散文件），避免 symedia 移走整组目录导致 10014
+            dst_path = flat_series_dest(clouddrive_path, rel, src_path, dup_names)
 
             mark_upload_status(v_key, "uploading", f"uploading: {src_path}")
             logger.info("🚀 [剧集转移] 开始上传: %s (%s)", v_key, rel)
@@ -2492,13 +2530,12 @@ def _process_series_group_upload(group_dir, group_name, delete_after_upload):
                 break
     finally:
         if uploaded_count >= total and total > 0:
-            # 全部完成：组级收尾
-            final_dst = os.path.join(clouddrive_path, group_name)
-            mark_upload_status(group_name, "uploaded", f"uploaded series to {final_dst}")
+            # 全部完成：组级收尾（剧集逐集拍平到接收根目录，由 symedia 统一归档）
+            mark_upload_status(group_name, "uploaded", f"uploaded series {total} eps (flat) to {clouddrive_path}")
             if group_row:
                 group_row.status = STATUS_UPLOADED
                 group_row.end_time = now_local()
-                group_row.message = f"已上传: {final_dst}"
+                group_row.message = f"已上传 {total} 集: {clouddrive_path}"
                 group_row.info = f"series {total}/{total}"
                 db.session.commit()
             if delete_after_upload:
