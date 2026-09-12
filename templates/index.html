@@ -633,7 +633,7 @@
         
         <div class="table-responsive bg-white border border-light rounded-4 d-none d-md-block">
           <table id="historyTable" class="table table-hover table-fixed resizable-table align-middle border-0 mb-0" style="min-width: 950px;">
-            <colgroup><col class="check-col"><col style="width:4%"><col style="width:15%"><col style="width:20%"><col style="width:6%"><col style="width:8%"><col style="width:5%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"><col style="width:6%"></colgroup>
+            <colgroup><col class="check-col"><col style="width:4%"><col style="width:20%"><col style="width:14%"><col style="width:6%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:5%"><col style="width:6%"></colgroup>
             <thead class="table-light"><tr><th class="check-col text-center align-middle border-0"><div class="manage-checkbox-wrap d-none"><input type="checkbox" id="historyCheckAll" class="form-check-input shadow-sm m-0"></div></th><th class="text-center align-middle border-0 text-nowrap">ID</th><th class="align-middle border-0">名称</th><th class="align-middle border-0">源任务</th><th class="text-center align-middle border-0">节点</th><th class="text-center align-middle border-0">状态</th><th class="text-center align-middle border-0">大小<br><small class="text-muted fw-normal">(GB)</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">开始</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">结束</small></th><th class="text-center align-middle border-0">封装<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">上传<br><small class="text-muted fw-normal">耗时</small></th><th class="text-center align-middle border-0">操作</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
@@ -757,11 +757,11 @@
     let pendingUploadsAll=[], pendingUploadsPage=1, pendingUploadsSize=5;
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
-    // 剧集标识小标：紫色渐变胶囊 📺剧集 24集（total 为空时不显示）
+    // 剧集标识小标：极淡靛蓝底 + 发丝边框的扁平软芯片 📺 24集（total 为空时不显示）
     function seriesTag(total, extraStyle=''){
         const tt = Number(total||0);
         if(!tt) return '';
-        return `<span class="text-nowrap" title="剧集 · 共${tt}集" style="display:inline-flex;align-items:center;gap:2px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;font-size:0.68rem;font-weight:600;padding:0.18em 0.62em;border-radius:999px;letter-spacing:0.3px;box-shadow:0 2px 6px rgba(99,102,241,0.35);${extraStyle}">📺剧集 ${tt}集</span>`;
+        return `<span class="text-nowrap" title="剧集 · 共${tt}集" style="display:inline-flex;align-items:center;gap:2px;background:#eef2ff;border:1px solid #e0e7ff;color:#4f46e5;font-size:0.66rem;font-weight:600;font-variant-numeric:tabular-nums;padding:0.15em 0.5em;border-radius:6px;letter-spacing:0.2px;line-height:1.5;${extraStyle}">📺 ${tt}集</span>`;
     }
     
     function cleanName(raw) {
@@ -2328,7 +2328,7 @@ echo "------------------------------------------------"
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
         $('historyBody').innerHTML = pageData.length ? pageData.map(x => {
             const isVps = x.qb_server_name && x.qb_server_name !== 'NAS';
-            const epsBadgeHist = seriesTag(x.eps_total, 'flex-shrink:0;');
+            const epsBadgeSize = seriesTag(x.eps_total, 'margin-bottom:3px;padding:0.12em 0.4em;');
             return `<tr>
               <td class="check-col align-middle text-center">
                 <div class="manage-checkbox-wrap d-none">
@@ -2336,11 +2336,11 @@ echo "------------------------------------------------"
                 </div>
               </td>
               <td class="history-cell text-muted fw-medium align-middle text-center text-nowrap">${x.id}</td>
-              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;"><div class="d-flex align-items-center" style="gap:5px; min-width:0;"><span class="text-truncate" style="min-width:0;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}</span>${epsBadgeHist}</div></td>
+              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}</td>
               <td class="history-cell align-middle raw-task-name">${rawTaskName(x.final_task_name || x.task_name)}</td>
               <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
               <td class="align-middle text-center">${badge(x.status)}</td>
-              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;">${Number(x.file_size_gb||0).toFixed(2)}</td>
+              <td class="history-cell align-middle text-center time-col font-monospace text-nowrap" style="font-size:0.75rem;"><div class="d-flex flex-column align-items-center">${epsBadgeSize}<span>${Number(x.file_size_gb||0).toFixed(2)}</span></div></td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.start_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.end_time)}</td>
               <td class="history-cell align-middle text-center time-col font-monospace" style="font-size:0.75rem;">${fmtDt(x.upload_start_time)}</td>
