@@ -757,11 +757,11 @@
     let pendingUploadsAll=[], pendingUploadsPage=1, pendingUploadsSize=5;
 
     function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
-    // 剧集标识小标：极淡靛蓝底 + 发丝边框的扁平软芯片 📺 24集（total 为空时不显示）
+    // 剧集标识小标：极淡靛蓝底 + 发丝边框的扁平软芯片 🎬 24集（total 为空时不显示）
     function seriesTag(total, extraStyle=''){
         const tt = Number(total||0);
         if(!tt) return '';
-        return `<span class="text-nowrap" title="剧集 · 共${tt}集" style="display:inline-flex;align-items:center;gap:2px;background:#eef2ff;border:1px solid #e0e7ff;color:#4f46e5;font-size:0.66rem;font-weight:600;font-variant-numeric:tabular-nums;padding:0.15em 0.5em;border-radius:6px;letter-spacing:0.2px;line-height:1.5;${extraStyle}">📺 ${tt}集</span>`;
+        return `<span class="text-nowrap" title="剧集 · 共${tt}集" style="display:inline-flex;align-items:center;gap:2px;background:#eef2ff;border:1px solid #e0e7ff;color:#4f46e5;font-size:0.66rem;font-weight:600;font-variant-numeric:tabular-nums;padding:0.15em 0.5em;border-radius:6px;letter-spacing:0.2px;line-height:1.5;${extraStyle}">🎬 ${tt}集</span>`;
     }
     
     function cleanName(raw) {
