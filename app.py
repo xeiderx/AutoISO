@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.1"
+APP_VERSION = "v1.7.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -1451,6 +1451,13 @@ def get_or_create_external_server_id():
     return server.id
 
 
+def _parse_eps_from_info(info_str, kind="total"):
+    """从 history info 字段解析集数：node=VPS; eps_total=24; eps_done=3"""
+    key = f"eps_{kind}"
+    m = re.search(rf"{key}\s*=\s*(\d+)", info_str or "")
+    return int(m.group(1)) if m else None
+
+
 def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, final_name="", eps_total=None, eps_done=None):
     safe_name = os.path.basename(str(file_name or "").strip())
     if not safe_name:
@@ -1489,7 +1496,10 @@ def upsert_agent_history_status(node_name, file_name, status, file_size_gb=0.0, 
             PackHistory.qb_server_id == server_id,
             PackHistory.task_name.in_([safe_name, task_name_no_ext]),
             PackHistory.message.like("Agent report:%"),
-            PackHistory.info == f"node={node_label}",
+            or_(
+                PackHistory.info == f"node={node_label}",
+                PackHistory.info.like(f"node={node_label};%"),
+            ),
         )
         .order_by(PackHistory.id.desc())
         .first()
@@ -3769,7 +3779,10 @@ def agent_report():
             PackHistory.qb_server_id == server_id,
             PackHistory.task_name == safe_final_name,
             PackHistory.message.like("Agent report:%"),
-            PackHistory.info == f"node={node}",
+            or_(
+                PackHistory.info == f"node={node}",
+                PackHistory.info.like(f"node={node};%"),
+            ),
         )
         .order_by(PackHistory.id.desc())
         .first()
@@ -4521,6 +4534,8 @@ def list_history():
                 "upload_start_time": row.upload_start_time or "",
                 "upload_end_time": row.upload_end_time or "",
                 "upload_duration_seconds": upload_duration_seconds,
+                "eps_total": _parse_eps_from_info(row.info or "", "total"),
+                "eps_done": _parse_eps_from_info(row.info or "", "done"),
             }
         )
     return jsonify(data)

@@ -2052,11 +2052,17 @@ echo "------------------------------------------------"
           const dd = Math.min(Number(t.episodes_done||0), tt);
           return `<span class="badge text-nowrap ms-2" style="background-color:#e0e7ff; color:#4338ca;" title="剧集进度">🎬 ${dd}/${tt}</span>`;
       };
+      const epsProgressText = (t) => {
+          const tt = Number(t.episodes_total||0);
+          if (!tt) return `${Number(t.progress||0).toFixed(2)}%`;
+          const dd = Math.min(Number(t.episodes_done||0), tt);
+          return `${dd}/${tt}`;
+      };
 
       if(!packingTasks.length){
         $('packingTasks').innerHTML='<div class="text-muted fw-medium py-3 text-center bg-light rounded-3 border border-light">暂无封装任务</div>';
       }else{
-        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${Number(t.progress||0).toFixed(2)}%</span></div></div>`).join('');
+        $('packingTasks').innerHTML=packingTasks.map(t=>`<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-light text-secondary border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-primary">${epsProgressText(t)}</span></div></div>`).join('');
       }
       
       const up=stats.upload_progress||{};
@@ -2074,7 +2080,7 @@ echo "------------------------------------------------"
       }
       
       uploadingVpsTasks.forEach(t => {
-          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${Number(t.progress||0).toFixed(2)}%</span></div></div>`;
+          uploadHtml += `<div class="border rounded-3 p-3 mb-2 bg-white shadow-sm"><div class="fw-bold mb-2 text-dark text-truncate" style="font-size:0.9rem;" title="${esc(t.task_name)}">${esc(t.display_name||t.task_name)} <span class="badge bg-dark border ms-2">${esc(t.server_name)}</span>${epsBadge(t)}</div><div class="progress mb-2" style="height:8px; border-radius:4px;"><div class="progress-bar bg-info progress-bar-striped progress-bar-animated" style="width:${Number(t.progress||0).toFixed(2)}%"></div></div><div class="d-flex justify-content-between text-secondary" style="font-size:0.75rem; font-weight:600;"><span><i class="bi bi-speedometer2 me-1"></i>${Number(t.speed_mbps||0).toFixed(2)} MB/s</span><span><i class="bi bi-hourglass-split me-1"></i>${esc(t.eta_text||'-')}</span><span class="text-info">${epsProgressText(t)}</span></div></div>`;
       });
 
       if(!uploadHtml){
@@ -2161,8 +2167,6 @@ echo "------------------------------------------------"
 
             const autoUpload = x.auto_upload!==false;
             const statusBadge = up?'<span class="badge rounded-pill text-nowrap" style="background-color:#d1fae5; color:#059669; border:1px solid #a7f3d0;">已上传</span>':badge(x.status || '待上传');
-            const epsTotal = Number(x.episodes_total||0);
-            const epsHtml = epsTotal ? `<span class="badge rounded-pill text-nowrap" style="background-color:#e0e7ff; color:#4338ca; border:1px solid #c7d2fe;" title="剧集剩余集数">剩余 ${Math.max(0, epsTotal - Number(x.episodes_done||0))}/${epsTotal}</span>` : '';
 
             let autoIcon = '';
             if (isVps) {
@@ -2198,7 +2202,7 @@ echo "------------------------------------------------"
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.filename||'')}</div></td>
               <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
-              <td class="text-center">${statusBadge}${epsHtml?' '+epsHtml:''}</td>
+              <td class="text-center">${statusBadge}</td>
               <td class="text-center">${autoIcon}</td>
               <td class="text-center align-middle px-2">${actionBtns}</td>
             </tr>`
@@ -2282,6 +2286,7 @@ echo "------------------------------------------------"
         const pageData = histFiltered.slice((histPage - 1) * histSize, histPage * histSize);
         $('historyBody').innerHTML = pageData.length ? pageData.map(x => {
             const isVps = x.qb_server_name && x.qb_server_name !== 'NAS';
+            const epsBadgeHist = Number(x.eps_total||0) ? `<span class="badge text-nowrap ms-1" style="background-color:#e0e7ff; color:#4338ca; font-size:0.7rem;" title="剧集集数">🎬${x.eps_total}</span>` : '';
             return `<tr>
               <td class="check-col align-middle text-center">
                 <div class="manage-checkbox-wrap d-none">
@@ -2289,7 +2294,7 @@ echo "------------------------------------------------"
                 </div>
               </td>
               <td class="history-cell text-muted fw-medium align-middle text-center text-nowrap">${x.id}</td>
-              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}</td>
+              <td class="history-cell align-middle ellipsis-cell fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||x.task_name||'')}">${esc(x.display_name||x.task_name||'')}${epsBadgeHist}</td>
               <td class="history-cell align-middle raw-task-name">${rawTaskName(x.final_task_name || x.task_name)}</td>
               <td class="history-cell align-middle text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.qb_server_name||'-')}</span></td>
               <td class="align-middle text-center">${badge(x.status)}</td>
@@ -2310,6 +2315,7 @@ echo "------------------------------------------------"
 
         $('historyCards').innerHTML = pageData.length ? pageData.map(x => {
             let statusBadge = badge(x.status || '-');
+            const epsBadgeCard = Number(x.eps_total||0) ? `<span class="badge text-nowrap ms-1" style="background-color:#e0e7ff; color:#4338ca; font-size:0.7rem;" title="剧集集数">🎬${x.eps_total}</span>` : '';
             return `<div class="card mb-3 shadow-sm border-0" style="background-color: var(--bs-body-bg); border: 1px solid var(--bs-border-color-translucent) !important; border-radius: 0.75rem;">
               <div class="card-body p-3">
                 <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
@@ -2318,7 +2324,7 @@ echo "------------------------------------------------"
                     <input class="form-check-input history-check m-0 flex-shrink-0" type="checkbox" value="${x.id}" style="width: 1.2em; height: 1.2em; cursor: pointer;" onchange="updateSelectedCount()">
                   </div>
                   <div class="fw-bold text-truncate" style="font-size: 0.95rem;" title="${esc(x.display_name||x.task_name||'')}">
-                    ${esc(x.display_name||x.task_name||'')}
+                    ${esc(x.display_name||x.task_name||'')}${epsBadgeCard}
                   </div>
                 </div>
                   <div class="d-flex align-items-center gap-2 flex-shrink-0">
