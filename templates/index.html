@@ -1619,13 +1619,14 @@ def worker_loop():
                         if prev and os.path.isdir(os.path.join(temp_path, prev)):
                             temp_group_name = prev  # 中断续传：沿用已建组目录
                         else:
-                            temp_group_name = insert_suffix_smart(name, rename_suffix, custom_mode, custom_anchor, custom_exclude) or 'SERIES'
+                            temp_group_name = name or 'SERIES'  # 组名纯名（标签下放到每集文件名）
                         group_dir = os.path.join(temp_path, temp_group_name)
                         log(f"====== 开始剧集转存({total_eps}集): {name} ======")
                         # 封装开始：待封装 → 封装中（与主控行为一致）
                         session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装"})
                         session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装中"})
-                        report(identity, logical_name, "packing", 10, size_gb=size_gb, eps_total=total_eps, eps_done=0)
+                        # 剧集上报：task_name 用纯剧名（匹配键），final_name 用带标签显示名
+                        report(identity, name, "packing", 10, size_gb=size_gb, eps_total=total_eps, eps_done=0, final_name=logical_name)
                         pack_stop = threading.Event()
                         pack_meta = {"done": 0, "final": None}
                         def _pack_kwargs():
@@ -1637,7 +1638,7 @@ def worker_loop():
                             if tb <= 0: return 10.0
                             return min(95.0, 10.0 + 85.0 * min(1.0, b / tb))
                         pack_reporter = start_progress_reporter(
-                            identity, logical_name, "packing", size_gb, lambda gd=group_dir: safe_get_dir_size(gd), pack_stop,
+                            identity, name, "packing", size_gb, lambda gd=group_dir: safe_get_dir_size(gd), pack_stop,
                             report_kwargs=_pack_kwargs, progress_calc=_pack_calc
                         )
                         try:
@@ -1647,36 +1648,39 @@ def worker_loop():
                             for rel, sz in media_items:
                                 idx += 1
                                 src_f = os.path.join(save_path, *rel.split('/'))
-                                dst_f = os.path.join(group_dir, *rel.split('/'))
-                                if not (os.path.isfile(dst_f) and (sz <= 0 or safe_get_size(dst_f) == sz)):
-                                    os.makedirs(os.path.dirname(dst_f), exist_ok=True)
-                                    shutil.copy2(src_f, dst_f)  # 断点续传：已复制且大小一致则跳过
-                                copied.append((rel, safe_get_size(dst_f) if sz <= 0 else sz))
+                                ep_name = os.path.basename(rel)
+                                ep_size = sz if sz and sz > 0 else safe_get_size(src_f)
+                                # 每集协同插入自定义标签 + 单集大小标签（确定性命名，支持断点续传）
+                                try:
+                                    ep_size_suffix = build_size_suffix(round(ep_size / (1024**3), 3), size_suffix_enabled, size_suffix_template)
+                                    ep_tagged = insert_two_tags_agent(
+                                        ep_name, rename_suffix, ep_size_suffix,
+                                        custom_mode, custom_anchor, size_mode, size_anchor, size_order,
+                                        custom_exclude, size_exclude,
+                                    ) or ep_name
+                                except Exception:
+                                    ep_tagged = ep_name
+                                ep_dir_rel = os.path.dirname(rel)
+                                dst_dir = os.path.join(group_dir, *ep_dir_rel.split('/')) if ep_dir_rel else group_dir
+                                os.makedirs(dst_dir, exist_ok=True)
+                                dst_f = os.path.join(dst_dir, ep_tagged)
+                                if not (os.path.isfile(dst_f) and safe_get_size(dst_f) == ep_size):
+                                    shutil.copy2(src_f, dst_f)  # 断点续传：已存在且大小一致则跳过
+                                tagged_rel = (ep_dir_rel + '/' + ep_tagged) if ep_dir_rel else ep_tagged
+                                copied.append((tagged_rel, safe_get_size(dst_f)))
                                 pack_meta["done"] = idx
-                                report(identity, logical_name, "packing", int(10 + 85 * idx / total_eps), size_gb=size_gb, eps_total=total_eps, eps_done=idx)
-                                log(f" 剧集转存 ({idx}/{total_eps}): {rel}")
+                                report(identity, name, "packing", int(10 + 85 * idx / total_eps), size_gb=size_gb, eps_total=total_eps, eps_done=idx)
+                                log(f" 剧集转存 ({idx}/{total_eps}): {tagged_rel}")
                             # 写清单供上传阶段逐集跟踪
                             _write_series_manifest_agent(group_dir, copied)
-                            # 按全剧总大小生成最终组名（两标签协同）
                             real_total_gb = round(sum(sz for _r, sz in copied) / (1024**3), 3)
-                            size_suffix = build_size_suffix(real_total_gb, size_suffix_enabled, size_suffix_template)
-                            computed_group = insert_two_tags_agent(
-                                temp_group_name, rename_suffix, size_suffix,
-                                custom_mode, custom_anchor, size_mode, size_anchor, size_order,
-                                custom_exclude, size_exclude,
-                            ) or temp_group_name
-                            if computed_group != temp_group_name:
-                                new_dir = os.path.join(temp_path, computed_group)
-                                if os.path.exists(new_dir): shutil.rmtree(new_dir, ignore_errors=True)
-                                os.rename(group_dir, new_dir)
-                                group_dir = new_dir
-                                log(f"📏 [锚点插入] 剧集组名重命名完成: {temp_group_name} -> {computed_group}")
-                            pack_meta["final"] = computed_group
-                            _save_iso_map(temp_path, t['hash'], computed_group)
+                            # 组名保持纯名；带标签显示名通过 final_name 上报（不影响匹配键）
+                            pack_meta["final"] = logical_name
+                            _save_iso_map(temp_path, t['hash'], temp_group_name)
                             session.post(f"{qb_url}/api/v2/torrents/removeTags", data={"hashes": t['hash'], "tags": "待封装,封装中"})
                             session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "已封装"})
-                            report(identity, logical_name, "pending_upload", 100, size_gb=real_total_gb if real_total_gb > 0 else size_gb, final_name=computed_group, eps_total=total_eps, eps_done=total_eps)
-                            log(f" 剧集转存完成，共{total_eps}集: {computed_group}")
+                            report(identity, name, "pending_upload", 100, size_gb=real_total_gb if real_total_gb > 0 else size_gb, final_name=logical_name, eps_total=total_eps, eps_done=total_eps)
+                            log(f" 剧集转存完成，共{total_eps}集: {temp_group_name}")
                         except Exception as e:
                             log(f" 剧集转存失败: {name}, error: {e}")
                             # 封装失败：封装中 → 封装失败（与主控行为一致）
@@ -1685,7 +1689,7 @@ def worker_loop():
                                 session.post(f"{qb_url}/api/v2/torrents/addTags", data={"hashes": t['hash'], "tags": "封装失败"})
                             except Exception:
                                 pass
-                            report(identity, logical_name, "error", 0, size_gb=size_gb)
+                            report(identity, name, "error", 0, size_gb=size_gb)
                         finally:
                             pack_stop.set()
                             try: pack_reporter.join(timeout=2)
@@ -1863,14 +1867,14 @@ def worker_loop():
                             b = os.path.basename(str(ep.get('path') or '').replace('\\\\', '/'))
                             _base_counts[b] = _base_counts.get(b, 0) + 1
                         _dup_names = set(b for b, c in _base_counts.items() if c >= 2)
-                        report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done_before)
+                        report(identity, name, "pending_upload", 100, size_gb=size_gb, final_name=logical_name, eps_total=_total_eps, eps_done=_done_before)
                         if _total_eps <= 0:
                             try: shutil.rmtree(target_temp, ignore_errors=True)
                             except Exception: pass
                             _remove_iso_map(temp_path, t['hash'])
                             continue
                         try:
-                            up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": logical_name}, timeout=10)
+                            up_res = requests.get(f"{identity['master_url']}/api/agent/can_upload", params={"node_name": identity["node_name"], "token": identity["token"], "filename": name}, timeout=10)
                             if up_res.status_code == 200 and up_res.json().get("can_upload", True):
                                 log(f" 获得主控放行许可！开始逐集移入 CD2: {final_name}（{_done_before}/{_total_eps} 已完成）")
                                 _done = _done_before
@@ -1886,12 +1890,12 @@ def worker_loop():
                                         _ep_bytes = 0
                                     if _ep_bytes <= 0:
                                         _ep_bytes = safe_get_size(src_ep)
-                                    def _up_kwargs(_fn=final_name, _tt=_total_eps, _dd=_done):
+                                    def _up_kwargs(_fn=logical_name, _tt=_total_eps, _dd=_done):
                                         return {"final_name": _fn, "eps_total": _tt, "eps_done": _dd}
                                     def _up_calc(b, _dd=_done, _tt=_total_eps, _eb=_ep_bytes):
                                         frac = min(1.0, b / _eb) if _eb > 0 else 0.0
                                         return min(100.0, 100.0 * (_dd + frac) / _tt)
-                                    report(identity, logical_name, "uploading", int(100 * (_done) / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                    report(identity, name, "uploading", int(100 * (_done) / _total_eps), size_gb=size_gb, final_name=logical_name, eps_total=_total_eps, eps_done=_done)
                                     try:
                                         # 防御性确保接收根目录存在（拍平后目标即根目录下散文件）
                                         os.makedirs(os.path.dirname(dst_ep), exist_ok=True)
@@ -1902,7 +1906,7 @@ def worker_loop():
                                         progress_lock = threading.Lock()
                                         upload_stop = threading.Event()
                                         upload_reporter = start_progress_reporter(
-                                            identity, logical_name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop,
+                                            identity, name, "uploading", size_gb, lambda ps=progress_state, pl=progress_lock: get_progress_bytes(ps, pl), upload_stop,
                                             report_kwargs=_up_kwargs, progress_calc=_up_calc
                                         )
                                         try:
@@ -1914,7 +1918,7 @@ def worker_loop():
                                         try: os.remove(src_ep)
                                         except Exception: pass
                                         _done += 1
-                                        report(identity, logical_name, "uploading", int(100 * _done / _total_eps), size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                        report(identity, name, "uploading", int(100 * _done / _total_eps), size_gb=size_gb, final_name=logical_name, eps_total=_total_eps, eps_done=_done)
                                         log(f" 剧集上传 ({_done}/{_total_eps}): {rel}")
                                     except Exception as e:
                                         log(f" 单集移入失败: {rel}, err: {e}")
@@ -1925,10 +1929,10 @@ def worker_loop():
                                     except Exception: pass
                                     _remove_iso_map(temp_path, t['hash'])
                                     log(f" 剧集全部移入网盘挂载点: {final_name}（共{_total_eps}集）")
-                                    report(identity, logical_name, "finished", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_total_eps)
+                                    report(identity, name, "finished", 100, size_gb=size_gb, final_name=logical_name, eps_total=_total_eps, eps_done=_total_eps)
                                 else:
                                     # 未完成：汇报剩余，等下一轮继续
-                                    report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name, eps_total=_total_eps, eps_done=_done)
+                                    report(identity, name, "pending_upload", 100, size_gb=size_gb, final_name=logical_name, eps_total=_total_eps, eps_done=_done)
                         except Exception: pass
                     elif os.path.isfile(target_temp):
                         report(identity, logical_name, "pending_upload", 100, size_gb=size_gb, final_name=final_name)
@@ -2275,7 +2279,7 @@ echo "------------------------------------------------"
               <td class="text-center fw-medium text-muted">${(pendingUploadsPage-1)*pendingUploadsSize+i+1}</td>
               <td class="text-center"><span class="badge ${isVps?'bg-dark':'bg-light text-dark border'} text-nowrap px-2 py-1">${esc(x.node||'NAS')}</span></td>
               <td><div class="text-clamp-2 fw-bold text-dark" style="font-size:0.9rem;" title="${esc(x.display_name||'')}">${esc(x.display_name||x.filename||'')}</div></td>
-              <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.filename||'')}">${esc(x.filename||'')}</div></td>
+              <td class="text-break"><div class="text-clamp-2 text-muted font-monospace" style="font-size:0.75rem; line-height:1.3;" title="${esc(x.tagged_name||x.filename||'')}">${esc(x.tagged_name||x.filename||'')}</div></td>
               <td class="text-center fw-bold text-secondary">${Number(x.size_gb||x.size||0).toFixed(3)}</td>
               <td class="text-center">${statusBadge}</td>
               <td class="text-center">${autoIcon}</td>

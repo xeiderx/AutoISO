@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.7"
+APP_VERSION = "v1.7.8"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -2565,8 +2565,8 @@ def _pack_series_group(server, torrent, client, history, source_path, rename_suf
     total = len(media_items)
     total_bytes = sum(s for _r, s in media_items)
 
-    # 1. 先用「自定义标签」生成临时组名落盘（大小后缀等全部完成后再按总大小补齐）
-    temp_group_name = insert_suffix_smart(torrent.name, rename_suffix) or "SERIES"
+    # 1. 组目录用纯剧名（自定义标签下放到每一集的文件名上，键名保持纯名以便上报匹配）
+    temp_group_name = torrent.name or "SERIES"
     group_dir = os.path.join(OUTPUT_DIR, temp_group_name)
 
     with ACTIVE_TASKS_LOCK:
@@ -2587,17 +2587,39 @@ def _pack_series_group(server, torrent, client, history, source_path, rename_suf
     err_msg = ""
     try:
         os.makedirs(group_dir, exist_ok=True)
-        for idx, (rel, _size) in enumerate(media_items, 1):
+        for idx, (rel, src_size) in enumerate(media_items, 1):
             src_file = os.path.join(source_path, *rel.split("/"))
-            dst_file = os.path.join(group_dir, *rel.split("/"))
-            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
-            shutil.copy2(src_file, dst_file)
-            copied.append((rel, os.path.getsize(dst_file)))
+            ep_name = os.path.basename(rel)
+            try:
+                ep_size = int(src_size) if src_size and int(src_size) > 0 else os.path.getsize(src_file)
+            except (OSError, TypeError, ValueError):
+                ep_size = os.path.getsize(src_file)
+            # 每集协同插入自定义标签 + 单集大小标签（确定性命名：同名同大小 → 同名，支持断点续传）
+            try:
+                ep_size_suffix = build_size_suffix(round(ep_size / GB, 3))
+                ep_tagged = insert_two_tags(
+                    ep_name, rename_suffix, ep_size_suffix,
+                    get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
+                    get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
+                    get_size_order_vs_custom(),
+                    get_custom_tag_insert_anchor_exclude(), get_size_tag_insert_anchor_exclude(),
+                ) or ep_name
+            except Exception as ep_exc:
+                logger.warning("单集标签插入失败(回退原始名): %s, err=%s", ep_name, ep_exc)
+                ep_tagged = ep_name
+            ep_rel_dir = os.path.dirname(rel)
+            dst_dir = os.path.join(group_dir, *ep_rel_dir.split("/")) if ep_rel_dir else group_dir
+            os.makedirs(dst_dir, exist_ok=True)
+            dst_file = os.path.join(dst_dir, ep_tagged)
+            if not (os.path.isfile(dst_file) and os.path.getsize(dst_file) == ep_size):
+                shutil.copy2(src_file, dst_file)  # 断点续传：已存在且大小一致则跳过
+            tagged_rel = f"{ep_rel_dir}/{ep_tagged}" if ep_rel_dir else ep_tagged
+            copied.append((tagged_rel, os.path.getsize(dst_file)))
             with ACTIVE_TASKS_LOCK:
                 entry = ACTIVE_TASKS.get(task_key)
                 if entry is not None:
                     entry["episodes_done"] = idx
-            logger.info("📚 [剧集转存] (%s/%s) %s", idx, total, rel)
+            logger.info("📚 [剧集转存] (%s/%s) %s", idx, total, tagged_rel)
     except Exception as exc:
         ok = False
         err_msg = str(exc)
@@ -2623,30 +2645,10 @@ def _pack_series_group(server, torrent, client, history, source_path, rename_suf
     # 2. 写清单（相对路径 + 字节大小），供上传阶段逐集跟踪
     write_series_manifest(group_dir, copied)
 
-    # 3. 按全剧总大小生成最终组名（协同插入自定义标签 + 大小标签）
+    # 3. 组名保持纯名；带标签的显示名写入 final_task_name（独立列，不参与任何匹配）
     real_total_gb = round(total_bytes / GB, 3)
     final_group_dir = group_dir
     final_group_name = temp_group_name
-    try:
-        size_suffix = build_size_suffix(real_total_gb)
-        computed = insert_two_tags(
-            temp_group_name, rename_suffix, size_suffix,
-            get_custom_tag_insert_mode(), get_custom_tag_insert_anchor(),
-            get_size_tag_insert_mode(), get_size_tag_insert_anchor(),
-            get_size_order_vs_custom(),
-            get_custom_tag_insert_anchor_exclude(), get_size_tag_insert_anchor_exclude(),
-        )
-        if computed and computed != temp_group_name:
-            candidate = os.path.join(OUTPUT_DIR, computed)
-            if os.path.abspath(candidate) != os.path.abspath(group_dir):
-                if os.path.exists(candidate):
-                    shutil.rmtree(candidate, ignore_errors=True)
-                os.rename(group_dir, candidate)
-            final_group_dir = candidate
-            final_group_name = computed
-            logger.info("📏 [锚点插入] 剧集组名按配置重命名完成: %s -> %s", temp_group_name, computed)
-    except Exception as exc:
-        logger.warning("剧集组名锚点插入失败(忽略继续，保留临时名): err=%s", exc)
 
     # 4. 历史与上传状态
     auto_upload_enabled = False
@@ -2656,6 +2658,7 @@ def _pack_series_group(server, torrent, client, history, source_path, rename_suf
         logger.exception("剧集组 init_task_auto_upload 失败，忽略继续")
     try:
         history.task_name = final_group_name
+        history.final_task_name = (insert_suffix_smart(torrent.name, rename_suffix) or final_group_name)[:255]
         history.status = STATUS_PACKED_PENDING_UPLOAD if auto_upload_enabled else STATUS_PACKED_ONLY
         history.end_time = finished
         history.message = f"SERIES: {final_group_dir}"
@@ -4964,6 +4967,7 @@ def list_pending_uploads():
                 "status": status_text,
                 "auto_upload": bool(get_task_auto_upload(safe_filename)),
                 "display_name": build_display_name(original_task_name),
+                "tagged_name": (history_row.final_task_name or "") if history_row else "",
                 "episodes_total": episodes_total,
                 "episodes_done": episodes_done,
             }
@@ -5016,6 +5020,7 @@ def list_pending_uploads():
                 "status": "待上传 (阻塞中)",
                 "auto_upload": True,
                 "display_name": build_display_name(task_name),
+                "tagged_name": history_row.final_task_name or "",
                 "episodes_total": episodes_total,
                 "episodes_done": episodes_done,
             }
