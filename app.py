@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.8"
+APP_VERSION = "v1.7.9"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -3854,6 +3854,24 @@ def agent_report():
         .first()
     )
     old_status = old_row.status if old_row else None
+
+    # 状态单向闸：封装已完成（待上传/上传中/成功）后 2 分钟内收到的 packing 上报视为竞态旧包，
+    # 直接丢弃，防止进度汇报线程的迟到包把状态拉回"封装中"而误触发"开始封装"通知。
+    # 合法场景不受影响：首次封装（无旧记录）、封装中→封装中、失败后的重新封装（间隔超过 2 分钟）。
+    if status == "packing":
+        with AGENT_TASKS_LOCK:
+            _prev_task = dict(AGENT_TASKS.get(safe_final_name) or {})
+        _prev_status = str(_prev_task.get("status") or "")
+        _prev_ts = _prev_task.get("last_update")
+        _recent = False
+        if isinstance(_prev_ts, datetime):
+            try:
+                _recent = (now_local() - _prev_ts).total_seconds() < 120
+            except Exception:
+                _recent = False
+        if _recent and (_prev_status in {"pending_upload", "uploading"} or old_status in {"待上传 (阻塞中)", "上传中", "成功"}):
+            logger.info("丢弃迟到的封装状态上报（防状态回跳）: node=%s 任务=%s 当前=%s", node, safe_final_name, _prev_status or old_status)
+            return jsonify({"status": "stale_packing_ignored"})
 
     try:
         updated_row = upsert_agent_history_status(
