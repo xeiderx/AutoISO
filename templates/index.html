@@ -683,6 +683,9 @@
           <button type="button" class="btn-close btn-close-white opacity-75 shadow-none" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body p-0 position-relative bg-dark">
+          <div id="deployMasterWarn" class="alert alert-danger d-none m-3 mb-0 py-2 px-3 fw-bold" style="font-size: 0.85rem;">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="deployMasterWarnText"></span>
+          </div>
           <textarea id="deployCommandText" class="form-control border-0 bg-transparent text-success font-monospace p-4 rounded-0 shadow-none" style="font-size: 0.85rem; min-height: 500px; resize: none;" readonly></textarea>
         </div>
         <div class="modal-footer border-0 p-4" style="background: #0f172a;">
@@ -985,6 +988,20 @@ echo "------------------------------------------------"
         const masterUrl = window.location.origin;
         const token = window.globalAgentToken || 'autoiso_secret_token';
         $('deployModalTitle').textContent = nodeName;
+
+        // 内网地址检测：VPS 节点无法回连内网主控，部署前醒目警告
+        const h = window.location.hostname;
+        const isPrivate = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(h)
+            || /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+            || /^(::1|\[::1\]|fc|fd|fe80)/i.test(h);
+        const warnBox = $('deployMasterWarn');
+        if (isPrivate) {
+            $('deployMasterWarnText').textContent =
+                `当前面板地址 ${masterUrl} 是内网地址！生成的部署脚本会把该地址写入节点 identity.json，VPS 节点将无法回连主控（表现为 agent 反复"通信超时自愈"）。请改用公网地址（域名/DDNS/frp）访问本面板后，再重新生成部署代码。`;
+            warnBox.classList.remove('d-none');
+        } else {
+            warnBox.classList.add('d-none');
+        }
         
         const bash = `# ==========================================
 # AutoISO 边缘节点 (${nodeName}) 极速部署脚本 
@@ -1476,8 +1493,9 @@ def reporter_loop():
                     timeout=10
                 )
             ERROR_COUNT = 0
-        except Exception:
+        except Exception as e:
             ERROR_COUNT += 1
+            log(f"⚠️ 状态汇报通信异常 ({ERROR_COUNT}/6): {type(e).__name__}: {e}")
             if ERROR_COUNT >= 6:
                 log("🚨 连续通信超时异常达 6 次，触发断网自愈，强制重启进程以重置网络连接池...")
                 os._exit(1)
@@ -1971,7 +1989,8 @@ def worker_loop():
                                     report(identity, logical_name, "error", 0, size_gb=size_gb, final_name=final_name)
                         except Exception: pass
 
-        except Exception: pass
+        except Exception as e:
+            log(f"⚠️ 任务处理循环异常: {type(e).__name__}: {e}")
         time.sleep(10)
 
 if __name__ == "__main__":
