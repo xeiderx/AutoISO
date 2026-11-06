@@ -552,7 +552,14 @@
                 </div>
                 <div class="row g-2">
                   <div class="col-4">
-                    <label class="form-label text-muted small fw-bold mb-1">扫描间隔 (分钟, 0=仅WebHook)</label>
+                    <label class="form-label text-muted small fw-bold mb-1 d-flex align-items-center gap-1">
+                      扫描间隔
+                      <i class="bi bi-info-circle text-muted"
+                         style="font-size: 0.8rem; cursor: help;"
+                         data-bs-toggle="tooltip"
+                         data-bs-placement="top"
+                         title="单位分钟。0 表示关闭轮询、仅由 CD2 WebHook 触发。建议保留 30~60 分钟兜底；配置 CD2 强制刷新后可放心调到 2~3 分钟。"></i>
+                    </label>
                     <input type="number" min="0" class="form-control border-0" id="transferSizeInterval" placeholder="10">
                   </div>
                   <div class="col-4">
@@ -560,7 +567,14 @@
                     <input type="number" min="0" class="form-control border-0" id="transferSizeMinSizeMb" placeholder="100">
                   </div>
                   <div class="col-4">
-                    <label class="form-label text-muted small fw-bold mb-1">稳定确认 (分钟)</label>
+                    <label class="form-label text-muted small fw-bold mb-1 d-flex align-items-center gap-1">
+                      稳定确认
+                      <i class="bi bi-info-circle text-muted"
+                         style="font-size: 0.8rem; cursor: help;"
+                         data-bs-toggle="tooltip"
+                         data-bs-placement="top"
+                         title="单位分钟。文件需连续两轮扫描（体积和修改时间都不变）才会改名，避免把正在落盘/转存的半成品改坏。设为 0 表示两轮间隔为 0，即两次扫描之间元组完全相同就立即改名。默认 3 分钟。"></i>
+                    </label>
                     <input type="number" min="0" class="form-control border-0" id="transferSizeStableMinutes" placeholder="3">
                   </div>
                 </div>
