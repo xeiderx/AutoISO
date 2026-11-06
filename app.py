@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import unquote
 
 import qbittorrentapi
 import requests
@@ -86,6 +87,10 @@ TRANSFER_SIZE_MEDIA_EXTS = {
 TRANSFER_SIZE_TEMP_SUFFIXES = (".part", ".tmp", ".downloading", ".!qb", ".aria2")
 # CD2 WebHook 触发防抖窗口：窗口期内的多个事件合并为一次扫描
 TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS", "10"))
+# CD2 gRPC-Web 接口（扫描前强制刷新目录缓存，解决网盘服务端转存无文件事件的问题）
+DEFAULT_TRANSFER_SIZE_CD2_URL = os.getenv("TRANSFER_SIZE_CD2_URL", "")
+DEFAULT_TRANSFER_SIZE_CD2_USERNAME = os.getenv("TRANSFER_SIZE_CD2_USERNAME", "")
+DEFAULT_TRANSFER_SIZE_CD2_PASSWORD = os.getenv("TRANSFER_SIZE_CD2_PASSWORD", "")
 SIZE_SUFFIX_IDEMPOTENT_RE = re.compile(
     r'[\[\【\(\{「\<][\s]*[0-9]+(?:\.[0-9]+)?[\s]*(?:MB|GB|TB|PB)[\s]*[\]\】\)\}」\>]',
     re.IGNORECASE,
@@ -625,6 +630,18 @@ def get_transfer_size_stable_minutes():
     except (TypeError, ValueError):
         value = DEFAULT_TRANSFER_SIZE_STABLE_MINUTES
     return max(0.0, value)
+
+
+def get_transfer_size_cd2_url():
+    return (get_setting("transfer_size_cd2_url") or DEFAULT_TRANSFER_SIZE_CD2_URL).strip()
+
+
+def get_transfer_size_cd2_username():
+    return (get_setting("transfer_size_cd2_username") or DEFAULT_TRANSFER_SIZE_CD2_USERNAME).strip()
+
+
+def get_transfer_size_cd2_password():
+    return (get_setting("transfer_size_cd2_password") or DEFAULT_TRANSFER_SIZE_CD2_PASSWORD).strip()
 
 
 def format_size_value_with_unit(gb_value):
@@ -3493,6 +3510,175 @@ def _is_transfer_size_media_file(fname):
     return os.path.splitext(fname)[1].lower() in TRANSFER_SIZE_MEDIA_EXTS
 
 
+# ---- CD2 gRPC-Web 客户端：扫描前强制刷新目录缓存 ----
+# CD2 的 HTTP API 为 gRPC-Web 协议（application/grpc-web+proto）：
+#   POST /clouddrive.CloudDriveFileSrv/GetToken    GetTokenRequest{userName=1, password=2}
+#   POST /clouddrive.CloudDriveFileSrv/GetSubFiles ListSubFileRequest{path=1, forceRefresh=2}（服务器流式）
+# 鉴权：Authorization: Bearer <token>
+_CD2_TOKEN_LOCK = threading.Lock()
+_CD2_TOKEN_CACHE = {"key": None, "token": None}
+
+
+def _pb_varint(value):
+    out = b""
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out += bytes([byte | (0x80 if value else 0)])
+        if not value:
+            return out
+
+
+def _pb_string(field, value):
+    data = str(value).encode("utf-8")
+    return bytes([(field << 3) | 2]) + _pb_varint(len(data)) + data
+
+
+def _pb_bool(field, value):
+    return bytes([(field << 3), 1 if value else 0])
+
+
+def _pb_parse_fields(data):
+    """极简 protobuf 解析：返回 {field: value}，仅支持 varint / length-delimited。"""
+    out, i = {}, 0
+    while i < len(data):
+        tag = data[i]
+        field, wire = tag >> 3, tag & 0x07
+        i += 1
+        if wire == 0:
+            value, shift = 0, 0
+            while i < len(data):
+                byte = data[i]
+                i += 1
+                value |= (byte & 0x7F) << shift
+                shift += 7
+                if not byte & 0x80:
+                    break
+            out[field] = value
+        elif wire == 2:
+            length, shift = 0, 0
+            while i < len(data):
+                byte = data[i]
+                i += 1
+                length |= (byte & 0x7F) << shift
+                shift += 7
+                if not byte & 0x80:
+                    break
+            out[field] = data[i:i + length]
+            i += length
+        else:
+            break
+    return out
+
+
+def _cd2_grpc_call(base_url, method, msg, token=None, timeout=12):
+    """调用 CD2 gRPC-Web 方法，返回 (grpc_status:int, grpc_message:str, body:bytes)。
+
+    注意：gRPC-Web 通过响应头传递状态，业务数据在 body 中；body 可能为空（如出错时）。
+    """
+    frame = b"\x00" + len(msg).to_bytes(4, "big") + msg
+    headers = {"Content-Type": "application/grpc-web+proto"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    resp = requests.post(
+        f"{base_url}/clouddrive.CloudDriveFileSrv/{method}",
+        data=frame, headers=headers, timeout=timeout,
+    )
+    status = int(resp.headers.get("grpc-status") or 0)
+    # grpc-message 为百分号编码，解码后便于日志阅读
+    message = unquote(resp.headers.get("grpc-message") or "")
+    return status, message, resp.content
+
+
+def _cd2_login(base_url, username, password):
+    """调用 GetToken 换取 JWT，成功返回 token，失败返回 None。"""
+    msg = _pb_string(1, username) + _pb_string(2, password)
+    try:
+        status, message, body = _cd2_grpc_call(base_url, "GetToken", msg)
+        if status != 0:
+            logger.warning("📡 [转存补大小] CD2 登录失败: %s", message)
+            return None
+        # 响应为 gRPC-Web 帧（5字节头）+ JWTToken{success=1, errorMessage=2, token=3}
+        if len(body) <= 5:
+            logger.warning("📡 [转存补大小] CD2 登录响应为空")
+            return None
+        fields = _pb_parse_fields(body[5:])
+        if not fields.get(1):
+            logger.warning("📡 [转存补大小] CD2 登录被拒绝: %s", (fields.get(2) or b"").decode(errors="replace"))
+            return None
+        token = (fields.get(3) or b"").decode(errors="replace").strip()
+        if not token:
+            logger.warning("📡 [转存补大小] CD2 登录成功但未返回 token")
+            return None
+        return token
+    except Exception as exc:
+        logger.warning("📡 [转存补大小] CD2 登录请求异常: %s", exc)
+        return None
+
+
+def _get_cd2_token(base_url, username, password):
+    """获取 CD2 JWT（内存缓存）；失败返回 None。"""
+    key = f"{base_url}|{username}"
+    with _CD2_TOKEN_LOCK:
+        if _CD2_TOKEN_CACHE["key"] == key and _CD2_TOKEN_CACHE["token"]:
+            return _CD2_TOKEN_CACHE["token"]
+    token = _cd2_login(base_url, username, password)
+    if token:
+        with _CD2_TOKEN_LOCK:
+            _CD2_TOKEN_CACHE["key"] = key
+            _CD2_TOKEN_CACHE["token"] = token
+    return token
+
+
+def _map_mount_path_to_cd2(monitor_path):
+    """容器内挂载路径 → CD2 文件树路径：去掉第一级挂载根目录。
+    如 /CloudNAS/115open/最近接收 → /115open/最近接收。"""
+    parts = [p for p in monitor_path.strip().split("/") if p]
+    if len(parts) <= 1:
+        return "/"
+    return "/" + "/".join(parts[1:])
+
+
+def cd2_refresh_directory(monitor_path):
+    """扫描前通过 CD2 接口强制刷新监控目录缓存。
+
+    网盘服务端转存（TG bot / 网页端）不产生文件事件，CD2 只能看到缓存里的旧列表；
+    用 GetSubFiles(forceRefresh=True) 让 CD2 重新拉取 115 目录，随后 os.walk 才能看到新文件。
+    未配置 CD2 时静默跳过，不影响原有扫描流程。
+    """
+    base_url = get_transfer_size_cd2_url().rstrip("/")
+    username = get_transfer_size_cd2_username()
+    password = get_transfer_size_cd2_password()
+    if not base_url or not username:
+        return False
+    if not base_url.startswith(("http://", "https://")):
+        base_url = f"http://{base_url}"
+
+    cd2_path = _map_mount_path_to_cd2(monitor_path)
+    try:
+        token = _get_cd2_token(base_url, username, password)
+        if not token:
+            return False
+        msg = _pb_string(1, cd2_path) + _pb_bool(2, True)
+        status, message, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token)
+        if status == 16:
+            # JWT 过期/失效：清缓存重登一次再试
+            with _CD2_TOKEN_LOCK:
+                _CD2_TOKEN_CACHE["key"], _CD2_TOKEN_CACHE["token"] = None, None
+            token = _get_cd2_token(base_url, username, password)
+            if not token:
+                return False
+            status, message, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token)
+        if status != 0:
+            logger.warning("📡 [转存补大小] CD2 刷新目录失败(%s): %s", cd2_path, message or f"grpc-status={status}")
+            return False
+        logger.info("📡 [转存补大小] 已通过 CD2 强制刷新目录缓存: %s", cd2_path)
+        return True
+    except Exception as exc:
+        logger.warning("📡 [转存补大小] CD2 刷新目录异常: %s", exc)
+        return False
+
+
 def scan_transfer_size_folder():
     """定时任务入口：调度器线程没有 Flask 请求上下文，需手动压入 app context。"""
     with app.app_context():
@@ -3511,6 +3697,10 @@ def _scan_transfer_size_folder():
     if not monitor_path or not os.path.isdir(monitor_path):
         logger.warning("转存补大小目录不存在或未配置: %s", monitor_path)
         return
+
+    # 扫描前先让 CD2 强制刷新该目录缓存（网盘服务端转存不产生文件事件，
+    # 不刷新的话 os.walk 可能读到 CD2 缓存里的旧列表）
+    cd2_refresh_directory(monitor_path)
 
     min_bytes = int(get_transfer_size_min_size_mb() * 1024 * 1024)
     stable_seconds = int(get_transfer_size_stable_minutes() * 60)
@@ -4580,6 +4770,9 @@ def get_system_settings():
             "transfer_size_interval_minutes": get_transfer_size_interval_minutes(),
             "transfer_size_min_size_mb": get_transfer_size_min_size_mb(),
             "transfer_size_stable_minutes": get_transfer_size_stable_minutes(),
+            "transfer_size_cd2_url": get_transfer_size_cd2_url(),
+            "transfer_size_cd2_username": get_transfer_size_cd2_username(),
+            "transfer_size_cd2_password": get_transfer_size_cd2_password(),
         }
     )
 
@@ -4704,6 +4897,22 @@ def save_system_settings():
     except (TypeError, ValueError):
         transfer_size_stable_minutes = get_transfer_size_stable_minutes()
     transfer_size_stable_minutes = max(0.0, transfer_size_stable_minutes)
+    # CD2 gRPC-Web 配置（用于扫描前强制刷新目录缓存）
+    transfer_size_cd2_url = (
+        (payload.get("transfer_size_cd2_url") or "").strip()
+        if "transfer_size_cd2_url" in payload
+        else get_transfer_size_cd2_url()
+    )
+    transfer_size_cd2_username = (
+        (payload.get("transfer_size_cd2_username") or "").strip()
+        if "transfer_size_cd2_username" in payload
+        else get_transfer_size_cd2_username()
+    )
+    transfer_size_cd2_password = (
+        (payload.get("transfer_size_cd2_password") or "").strip()
+        if "transfer_size_cd2_password" in payload
+        else get_transfer_size_cd2_password()
+    )
 
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
@@ -4786,6 +4995,15 @@ def save_system_settings():
         set_setting("transfer_size_min_size_mb", str(transfer_size_min_size_mb))
     if "transfer_size_stable_minutes" in payload:
         set_setting("transfer_size_stable_minutes", str(transfer_size_stable_minutes))
+    if "transfer_size_cd2_url" in payload:
+        set_setting("transfer_size_cd2_url", transfer_size_cd2_url)
+    if "transfer_size_cd2_username" in payload:
+        set_setting("transfer_size_cd2_username", transfer_size_cd2_username)
+        # 账号变更后旧 JWT 不再适用，清空令牌缓存
+        with _CD2_TOKEN_LOCK:
+            _CD2_TOKEN_CACHE["key"], _CD2_TOKEN_CACHE["token"] = None, None
+    if "transfer_size_cd2_password" in payload:
+        set_setting("transfer_size_cd2_password", transfer_size_cd2_password)
     normalized = apply_upload_scheduler(upload_cron_expr)
     if any(k in payload for k in transfer_keys):
         apply_transfer_size_scheduler()

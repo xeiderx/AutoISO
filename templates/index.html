@@ -526,6 +526,30 @@
                     在 CD2 → 设置 → WebHook 中添加上述地址。扫描间隔填 0 可关闭轮询、仅由 WebHook 触发；建议保留 30~60 分钟兜底。
                   </div>
                 </div>
+                <div class="mb-2">
+                  <label class="form-label text-muted small fw-bold mb-1 d-flex align-items-center gap-1">
+                    CD2 强制刷新（TG/网页转存必配）
+                    <i class="bi bi-info-circle text-muted"
+                       style="font-size: 0.8rem; cursor: help;"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="top"
+                       title="TG bot / 115 网页端转存发生在网盘服务端，不经过 CD2，CD2 的 WebHook 和缓存都看不到。填写 CD2 地址和账号后，每次扫描前会先调 CD2 接口强制刷新监控目录缓存，再读取文件列表。未填写则跳过刷新。"></i>
+                  </label>
+                  <div class="row g-2">
+                    <div class="col-12 col-md-5">
+                      <input type="text" class="form-control border-0" id="transferSizeCd2Url" placeholder="CD2 地址，如 http://192.168.50.188:19798">
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <input type="text" class="form-control border-0" id="transferSizeCd2Username" placeholder="CD2 用户名" autocomplete="off">
+                    </div>
+                    <div class="col-6 col-md-4">
+                      <input type="password" class="form-control border-0" id="transferSizeCd2Password" placeholder="CD2 密码" autocomplete="new-password">
+                    </div>
+                  </div>
+                  <div class="form-text mt-1 text-muted" style="font-size: 0.78rem;">
+                    配置后扫描间隔可放心调到 2~3 分钟：每轮只多 2 次 CD2 本地接口调用（登录缓存 + 刷新目录），不直接请求 115。
+                  </div>
+                </div>
                 <div class="row g-2">
                   <div class="col-4">
                     <label class="form-label text-muted small fw-bold mb-1">扫描间隔 (分钟, 0=仅WebHook)</label>
@@ -2772,6 +2796,9 @@ echo "------------------------------------------------"
                     $('transferSizeMinSizeMb').value = data.transfer_size_min_size_mb ?? 100;
                     $('transferSizeStableMinutes').value = data.transfer_size_stable_minutes ?? 3;
                     $('transferSizeWebhookUrl').value = `${window.location.origin}/api/webhook/cd2?token=${data.agent_token || ''}`;
+                    $('transferSizeCd2Url').value = data.transfer_size_cd2_url || "";
+                    $('transferSizeCd2Username').value = data.transfer_size_cd2_username || "";
+                    $('transferSizeCd2Password').value = data.transfer_size_cd2_password || "";
                 });
     }
 
@@ -2893,7 +2920,10 @@ echo "------------------------------------------------"
             transfer_size_path: $('transferSizePath').value,
             transfer_size_interval_minutes: $('transferSizeInterval').value === "" ? 10 : Math.max(0, Number($('transferSizeInterval').value) || 0),
             transfer_size_min_size_mb: Number($('transferSizeMinSizeMb').value),
-            transfer_size_stable_minutes: Number($('transferSizeStableMinutes').value)
+            transfer_size_stable_minutes: Number($('transferSizeStableMinutes').value),
+            transfer_size_cd2_url: $('transferSizeCd2Url').value.trim(),
+            transfer_size_cd2_username: $('transferSizeCd2Username').value.trim(),
+            transfer_size_cd2_password: $('transferSizeCd2Password').value
         };
         try {
             await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });

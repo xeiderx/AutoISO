@@ -81,6 +81,11 @@ services:
     volumes:
       # 映射数据库与系统配置 (必填)
       - ./data:/data
+
+      # 【可选】源码热更新：仅在 "build: ." 且当前目录存在 app.py / templates 时启用
+      # 使用上方预编译 image 时请保持注释，否则空目录会覆盖镜像内的程序与模板
+      # - ./app.py:/app/app.py
+      # - ./templates:/app/templates
       
       # 【请修改】映射 qB 下载完成的路径 (可以映射整个文件夹)
       # ⚠️ 注意：冒号右边的路径，必须和你 qBittorrent 容器内的路径完全一致！
