@@ -489,6 +489,59 @@
                 <input type="text" class="form-control" id="mpFinalPath" placeholder="如：/Downloads/115-LINK">
               </div>
               <div class="mb-4 p-3 bg-light border border-secondary border-opacity-10 rounded-4">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                  <label class="form-label text-muted small fw-bold mb-0 d-flex align-items-center gap-1" for="transferSizeEnabled">
+                    转存目录自动补大小
+                    <i class="bi bi-info-circle text-muted"
+                       style="font-size: 0.8rem; cursor: help;"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="top"
+                       title="递归扫描该目录，为缺少大小标识的媒体文件在原文件名中插入大小标签。仅处理文件，不改文件夹名；插入位置沿用上方「大小标签」配置。"></i>
+                  </label>
+                  <div class="form-check form-switch m-0">
+                    <input class="form-check-input shadow-sm m-0" type="checkbox" id="transferSizeEnabled" style="width: 2rem; height: 1rem; cursor: pointer;">
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label text-muted small fw-bold mb-1">监控目录</label>
+                  <input type="text" class="form-control border-0" id="transferSizePath" placeholder="如：/CloudNAS/115/转存影视">
+                  <div class="form-text mt-2 text-muted" style="font-size: 0.78rem;">
+                    需为容器内可见路径；文件体积与修改时间连续两轮扫描不变后才会改名。
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label text-muted small fw-bold mb-1 d-flex align-items-center gap-1">
+                    CD2 WebHook 即时触发（推荐）
+                    <i class="bi bi-info-circle text-muted"
+                       style="font-size: 0.8rem; cursor: help;"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="top"
+                       title="把下方 URL 填到 CloudDrive2 设置的 WebHook 中。一有文件事件即触发扫描（10 秒防抖合并），无事件零请求，不会触发 115 风控。注意：若转存发生在 115 网页端而不经过 CD2，CD2 需先感知目录变化才会推送，建议保留低频轮询兜底。"></i>
+                  </label>
+                  <div class="input-group">
+                    <input type="text" class="form-control border-0 font-monospace" id="transferSizeWebhookUrl" readonly style="font-size: 0.72rem;">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" id="btnCopyTransferWebhook"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text mt-1 text-muted" style="font-size: 0.78rem;">
+                    在 CD2 → 设置 → WebHook 中添加上述地址。扫描间隔填 0 可关闭轮询、仅由 WebHook 触发；建议保留 30~60 分钟兜底。
+                  </div>
+                </div>
+                <div class="row g-2">
+                  <div class="col-4">
+                    <label class="form-label text-muted small fw-bold mb-1">扫描间隔 (分钟, 0=仅WebHook)</label>
+                    <input type="number" min="0" class="form-control border-0" id="transferSizeInterval" placeholder="10">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label text-muted small fw-bold mb-1">最小体积 (MB)</label>
+                    <input type="number" min="0" class="form-control border-0" id="transferSizeMinSizeMb" placeholder="100">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label text-muted small fw-bold mb-1">稳定确认 (分钟)</label>
+                    <input type="number" min="0" class="form-control border-0" id="transferSizeStableMinutes" placeholder="3">
+                  </div>
+                </div>
+              </div>
+              <div class="mb-4 p-3 bg-light border border-secondary border-opacity-10 rounded-4">
                 <div class="mb-2">
                   <label class="form-label text-muted small fw-bold mb-1">文件大小后缀格式模板</label>
                   <input type="text" class="form-control border-0" id="sizeSuffixTemplate" placeholder="[{value}{unit}]">
@@ -2712,6 +2765,13 @@ echo "------------------------------------------------"
                     toggleAnchorBlock('customTagInsertMode', 'customAnchorBlock');
                     toggleAnchorBlock('sizeTagInsertMode', 'sizeAnchorBlock');
                     $('sizeOrderVsCustom').value = data.size_order_vs_custom || "after";
+                    // ---- 转存目录自动补大小 ----
+                    $('transferSizeEnabled').checked = data.transfer_size_enabled === true || data.transfer_size_enabled === "1";
+                    $('transferSizePath').value = data.transfer_size_path || "";
+                    $('transferSizeInterval').value = data.transfer_size_interval_minutes ?? 10;
+                    $('transferSizeMinSizeMb').value = data.transfer_size_min_size_mb ?? 100;
+                    $('transferSizeStableMinutes').value = data.transfer_size_stable_minutes ?? 3;
+                    $('transferSizeWebhookUrl').value = `${window.location.origin}/api/webhook/cd2?token=${data.agent_token || ''}`;
                 });
     }
 
@@ -2827,7 +2887,13 @@ echo "------------------------------------------------"
             size_tag_insert_mode: $('sizeTagInsertMode').value,
             size_tag_insert_anchor: $('sizeTagInsertAnchor').value,
             size_tag_insert_anchor_exclude: $('sizeTagInsertAnchorExclude').value,
-            size_order_vs_custom: $('sizeOrderVsCustom').value
+            size_order_vs_custom: $('sizeOrderVsCustom').value,
+            // ---- 转存目录自动补大小 ----
+            transfer_size_enabled: $('transferSizeEnabled').checked ? "1" : "0",
+            transfer_size_path: $('transferSizePath').value,
+            transfer_size_interval_minutes: $('transferSizeInterval').value === "" ? 10 : Math.max(0, Number($('transferSizeInterval').value) || 0),
+            transfer_size_min_size_mb: Number($('transferSizeMinSizeMb').value),
+            transfer_size_stable_minutes: Number($('transferSizeStableMinutes').value)
         };
         try {
             await api('/api/settings/system', { method: 'POST', body: JSON.stringify(payload) });
@@ -2838,6 +2904,12 @@ echo "------------------------------------------------"
     });
     $('btnRenameRuleCancel')?.addEventListener('click',()=>{resetRenameRuleForm();});
     $('btnSaveRenameSettings')?.addEventListener('click',()=>{$('formRenameSettings').requestSubmit();});
+    $('btnCopyTransferWebhook')?.addEventListener('click',()=>{
+        const input = $('transferSizeWebhookUrl');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(input.value).then(() => notify('WebHook 地址已复制', 'success'));
+        } else { input.select(); document.execCommand('copy'); notify('WebHook 地址已复制', 'success'); }
+    });
     $('renameRuleForm')?.addEventListener('submit',async(e)=>{
       e.preventDefault();
       try{

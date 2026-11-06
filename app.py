@@ -26,7 +26,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.7.9"
+APP_VERSION = "v1.8.0"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -71,6 +71,25 @@ VALID_INSERT_MODES = {"smart_legacy", "after_year", "before_ext", "before_anchor
 VALID_SIZE_ORDERS = {"before", "after"}
 PACK_POLL_INTERVAL_MINUTES = int(os.getenv("PACK_POLL_INTERVAL_MINUTES", "2"))
 LOG_FILE = os.getenv("LOG_FILE", "/data/autoiso.log")
+
+# ---- 转存目录自动补大小（主控本地扫描，不依赖 VPS）----
+DEFAULT_TRANSFER_SIZE_ENABLED = os.getenv("TRANSFER_SIZE_ENABLED", "0")
+DEFAULT_TRANSFER_SIZE_PATH = os.getenv("TRANSFER_SIZE_PATH", "")
+DEFAULT_TRANSFER_SIZE_INTERVAL_MINUTES = int(os.getenv("TRANSFER_SIZE_INTERVAL_MINUTES", "10"))
+DEFAULT_TRANSFER_SIZE_MIN_SIZE_MB = float(os.getenv("TRANSFER_SIZE_MIN_SIZE_MB", "100"))
+DEFAULT_TRANSFER_SIZE_STABLE_MINUTES = float(os.getenv("TRANSFER_SIZE_STABLE_MINUTES", "3"))
+TRANSFER_SIZE_STATE_FILE = os.getenv("TRANSFER_SIZE_STATE_FILE", "/data/transfer_size_state.json")
+TRANSFER_SIZE_MEDIA_EXTS = {
+    ".mkv", ".mp4", ".ts", ".m2ts", ".iso", ".mov", ".avi",
+    ".wmv", ".rmvb", ".flv", ".mpg", ".mpeg", ".m4v", ".webm",
+}
+TRANSFER_SIZE_TEMP_SUFFIXES = (".part", ".tmp", ".downloading", ".!qb", ".aria2")
+# CD2 WebHook 触发防抖窗口：窗口期内的多个事件合并为一次扫描
+TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS", "10"))
+SIZE_SUFFIX_IDEMPOTENT_RE = re.compile(
+    r'[\[\【\(\{「\<][\s]*[0-9]+(?:\.[0-9]+)?[\s]*(?:MB|GB|TB|PB)[\s]*[\]\】\)\}」\>]',
+    re.IGNORECASE,
+)
 
 STATUS_PROCESSING = "Processing"
 STATUS_PACKED_PENDING_UPLOAD = "封装完成，待上传"
@@ -315,6 +334,7 @@ def auth_guard():
         "/api/agent/config",
         "/api/agent/can_upload",
         "/api/agent/rename_rules",
+        "/api/webhook/cd2",
     ]:
         return
     if session.get("logged_in"):
@@ -565,6 +585,46 @@ def get_size_order_vs_custom():
     if raw not in VALID_SIZE_ORDERS:
         return DEFAULT_SIZE_ORDER_VS_CUSTOM
     return raw
+
+
+# ---- 转存目录自动补大小 配置读取 ----
+def get_transfer_size_enabled():
+    raw = (get_setting("transfer_size_enabled") or "").strip()
+    if not raw:
+        return DEFAULT_TRANSFER_SIZE_ENABLED == "1"
+    return raw == "1"
+
+
+def get_transfer_size_path():
+    return (get_setting("transfer_size_path") or DEFAULT_TRANSFER_SIZE_PATH).strip()
+
+
+def get_transfer_size_interval_minutes():
+    """扫描间隔分钟数，0 表示关闭轮询、仅由 CD2 WebHook 触发。"""
+    raw = (get_setting("transfer_size_interval_minutes") or "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_TRANSFER_SIZE_INTERVAL_MINUTES
+    return max(0, value)
+
+
+def get_transfer_size_min_size_mb():
+    raw = (get_setting("transfer_size_min_size_mb") or "").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_TRANSFER_SIZE_MIN_SIZE_MB
+    return max(0.0, value)
+
+
+def get_transfer_size_stable_minutes():
+    raw = (get_setting("transfer_size_stable_minutes") or "").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_TRANSFER_SIZE_STABLE_MINUTES
+    return max(0.0, value)
 
 
 def format_size_value_with_unit(gb_value):
@@ -3306,13 +3366,6 @@ def process_all_qbs():
         size_suffix_enabled = get_size_suffix_enabled() == "1"
         size_suffix_template = get_size_suffix_template() or "[{value}{unit}]"
 
-        # 文件大小后缀幂等判断：用模板中的正则字符近似匹配已存在的大小标签
-        # 支持常见的 [ ] 【 】 ( ) { } 「 」 < > 包裹 + 小数点数字 + MB/GB/TB/PB
-        SIZE_SUFFIX_IDEMPOTENT_RE = re.compile(
-            r'[\[\【\(\{「\<][\s]*[0-9]+(?:\.[0-9]+)?[\s]*(?:MB|GB|TB|PB)[\s]*[\]\】\)\}」\>]',
-            re.IGNORECASE,
-        )
-
         if rename_enabled_flag and move_all_flag:
             src_dir = get_setting("mp_staging_path")
             dst_dir = get_setting("mp_final_path")
@@ -3409,6 +3462,228 @@ def process_all_qbs():
                                 os.rmdir(root)
                         except Exception:
                             pass
+
+
+# ================= 转存目录自动补大小 =================
+def _load_transfer_size_state():
+    try:
+        if os.path.exists(TRANSFER_SIZE_STATE_FILE):
+            with open(TRANSFER_SIZE_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.loads(f.read() or "{}")
+            return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("读取转存补大小状态失败: %s", exc)
+    return {}
+
+
+def _save_transfer_size_state(state):
+    try:
+        state_dir = os.path.dirname(TRANSFER_SIZE_STATE_FILE)
+        if state_dir:
+            os.makedirs(state_dir, exist_ok=True)
+        tmp_file = f"{TRANSFER_SIZE_STATE_FILE}.tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+        os.replace(tmp_file, TRANSFER_SIZE_STATE_FILE)
+    except Exception as exc:
+        logger.warning("保存转存补大小状态失败: %s", exc)
+
+
+def _is_transfer_size_media_file(fname):
+    return os.path.splitext(fname)[1].lower() in TRANSFER_SIZE_MEDIA_EXTS
+
+
+def scan_transfer_size_folder():
+    """定时任务入口：调度器线程没有 Flask 请求上下文，需手动压入 app context。"""
+    with app.app_context():
+        _scan_transfer_size_folder()
+
+
+def _scan_transfer_size_folder():
+    """递归扫描转存目录，为缺少大小标识的媒体文件在原文件名中插入大小标签。
+
+    仅处理单个媒体文件，不改文件夹名。文件需连续两轮扫描 size/mtime 不变
+    （且超过稳定确认时间）才会改名，避免把仍在转存/落盘的文件改坏。
+    """
+    if not get_transfer_size_enabled():
+        return
+    monitor_path = get_transfer_size_path()
+    if not monitor_path or not os.path.isdir(monitor_path):
+        logger.warning("转存补大小目录不存在或未配置: %s", monitor_path)
+        return
+
+    min_bytes = int(get_transfer_size_min_size_mb() * 1024 * 1024)
+    stable_seconds = int(get_transfer_size_stable_minutes() * 60)
+    now_ts = time.time()
+    state = _load_transfer_size_state()
+    next_state = {}
+
+    custom_mode = get_custom_tag_insert_mode()
+    custom_anchor = get_custom_tag_insert_anchor()
+    custom_exclude = get_custom_tag_insert_anchor_exclude()
+    size_mode = get_size_tag_insert_mode()
+    size_anchor = get_size_tag_insert_anchor()
+    size_exclude = get_size_tag_insert_anchor_exclude()
+    size_order = get_size_order_vs_custom()
+    renamed = 0
+
+    for dirpath, dirnames, filenames in os.walk(monitor_path):
+        # 跳过隐藏目录，避免扫到 CD2/网盘的内部缓存目录
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for fname in filenames:
+            if fname.startswith(".") or not _is_transfer_size_media_file(fname):
+                continue
+            if fname.lower().endswith(TRANSFER_SIZE_TEMP_SUFFIXES):
+                continue
+            if SIZE_SUFFIX_IDEMPOTENT_RE.search(fname):
+                continue
+
+            src_path = os.path.join(dirpath, fname)
+            try:
+                st = os.stat(src_path)
+            except OSError as exc:
+                logger.warning("转存补大小读取文件失败: %s err=%s", src_path, exc)
+                continue
+
+            size_bytes = int(st.st_size)
+            if size_bytes < min_bytes:
+                continue
+
+            prev = state.get(src_path)
+            same = (
+                isinstance(prev, dict)
+                and prev.get("size") == size_bytes
+                and abs(float(prev.get("mtime", 0) or 0) - float(st.st_mtime)) < 0.001
+            )
+            first_seen = float(prev.get("first_seen", now_ts)) if same else now_ts
+            if not same or now_ts - first_seen < stable_seconds:
+                next_state[src_path] = {
+                    "size": size_bytes,
+                    "mtime": st.st_mtime,
+                    "first_seen": first_seen,
+                }
+                continue
+
+            size_suffix = build_size_suffix(size_bytes / GB, enabled=True)
+            if not size_suffix:
+                continue
+            new_name = insert_two_tags(
+                fname, "", size_suffix,
+                custom_mode, custom_anchor,
+                size_mode, size_anchor, size_order,
+                custom_exclude, size_exclude,
+            )
+            if new_name == fname:
+                continue
+
+            dst_path = os.path.join(dirpath, new_name)
+            if os.path.exists(dst_path):
+                logger.warning("转存补大小跳过（目标已存在）: %s", dst_path)
+                continue
+            try:
+                os.rename(src_path, dst_path)
+            except OSError as exc:
+                logger.warning("转存补大小改名失败: %s -> %s err=%s", src_path, new_name, exc)
+                next_state[src_path] = {
+                    "size": size_bytes,
+                    "mtime": st.st_mtime,
+                    "first_seen": first_seen,
+                }
+                continue
+
+            renamed += 1
+            logger.info("🏷️ [转存补大小] %s -> %s", fname, new_name)
+
+    _save_transfer_size_state(next_state)
+    if renamed:
+        logger.info("转存补大小本轮完成，共处理 %s 个文件", renamed)
+
+
+def apply_transfer_size_scheduler():
+    """按当前配置创建/更新/移除转存补大小定时任务。间隔为 0 时关闭轮询，仅由 WebHook 触发。"""
+    minutes = get_transfer_size_interval_minutes()
+    job = scheduler.get_job("transfer_size_job")
+    if minutes <= 0:
+        if job:
+            scheduler.remove_job("transfer_size_job")
+            logger.info("转存补大小轮询已关闭（仅 WebHook 触发）")
+        return
+    if job:
+        scheduler.reschedule_job("transfer_size_job", trigger="interval", minutes=minutes)
+    else:
+        scheduler.add_job(
+            func=scan_transfer_size_folder,
+            trigger="interval",
+            minutes=minutes,
+            id="transfer_size_job",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+
+
+# ---- CD2 WebHook 即时触发（防抖合并）----
+_TS_SCAN_LOCK = threading.Lock()
+_TS_SCAN_DUE_AT = None
+_TS_SCAN_THREAD = None
+
+
+def request_transfer_size_scan(reason="webhook"):
+    """请求一次转存补大小扫描。防抖窗口期内的多次请求只执行一次。"""
+    global _TS_SCAN_DUE_AT, _TS_SCAN_THREAD
+    if not get_transfer_size_enabled():
+        return False
+    with _TS_SCAN_LOCK:
+        _TS_SCAN_DUE_AT = time.time() + TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS
+        if _TS_SCAN_THREAD and _TS_SCAN_THREAD.is_alive():
+            return True
+        _TS_SCAN_THREAD = threading.Thread(target=_transfer_size_debounce_loop, daemon=True)
+        _TS_SCAN_THREAD.start()
+    logger.info("📡 [转存补大小] 收到触发事件(%s)，%ss 防抖窗口后执行扫描", reason, TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS)
+    return True
+
+
+def _transfer_size_debounce_loop():
+    global _TS_SCAN_DUE_AT
+    while True:
+        with _TS_SCAN_LOCK:
+            due = _TS_SCAN_DUE_AT
+        if due is None:
+            return
+        wait = due - time.time()
+        if wait <= 0:
+            break
+        time.sleep(min(wait, 1.0))
+    with _TS_SCAN_LOCK:
+        _TS_SCAN_DUE_AT = None
+    try:
+        scan_transfer_size_folder()
+    except Exception as exc:
+        logger.warning("转存补大小 WebHook 触发扫描异常: %s", exc)
+
+
+@app.route("/api/webhook/cd2", methods=["GET", "POST"])
+def cd2_webhook():
+    """接收 CloudDrive2 的文件事件推送，防抖后触发转存目录即时扫描。
+
+    鉴权：URL 参数 token，复用 agent_token。
+    CD2 推送格式不固定，宽容解析路径字段仅用于日志，实际扫描恒为监控目录全量（幂等）。
+    """
+    token = (request.args.get("token") or "").strip()
+    if token != get_agent_token():
+        return jsonify({"ok": False, "error": "invalid token"}), 403
+
+    info = ""
+    payload = request.get_json(force=True, silent=True)
+    if isinstance(payload, dict):
+        for key in ("path", "file", "dir", "name", "toPath", "to_path"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                info = f"{key}={value}"
+                break
+    triggered = request_transfer_size_scan(reason=f"cd2 {info}".strip())
+    return jsonify({"ok": True, "triggered": triggered})
+
 
 def parse_recent_log_entries(hours=24):
     if not os.path.exists(LOG_FILE):
@@ -4299,6 +4574,12 @@ def get_system_settings():
             "size_tag_insert_anchor": get_size_tag_insert_anchor(),
             "size_tag_insert_anchor_exclude": get_size_tag_insert_anchor_exclude(),
             "size_order_vs_custom": get_size_order_vs_custom(),
+            # ---- 转存目录自动补大小 ----
+            "transfer_size_enabled": get_transfer_size_enabled(),
+            "transfer_size_path": get_transfer_size_path(),
+            "transfer_size_interval_minutes": get_transfer_size_interval_minutes(),
+            "transfer_size_min_size_mb": get_transfer_size_min_size_mb(),
+            "transfer_size_stable_minutes": get_transfer_size_stable_minutes(),
         }
     )
 
@@ -4393,6 +4674,37 @@ def save_system_settings():
     if size_order_vs_custom not in VALID_SIZE_ORDERS:
         size_order_vs_custom = DEFAULT_SIZE_ORDER_VS_CUSTOM
 
+    # ---- 转存目录自动补大小：解析 payload（未传字段保持原值）----
+    transfer_size_enabled = parse_bool(
+        payload.get("transfer_size_enabled"), default=get_transfer_size_enabled()
+    )
+    transfer_size_path = (
+        (payload.get("transfer_size_path") or "").strip()
+        if "transfer_size_path" in payload
+        else get_transfer_size_path()
+    )
+    try:
+        transfer_size_interval = int(
+            payload.get("transfer_size_interval_minutes", get_transfer_size_interval_minutes())
+        )
+    except (TypeError, ValueError):
+        transfer_size_interval = get_transfer_size_interval_minutes()
+    transfer_size_interval = max(0, transfer_size_interval)
+    try:
+        transfer_size_min_size_mb = float(
+            payload.get("transfer_size_min_size_mb", get_transfer_size_min_size_mb())
+        )
+    except (TypeError, ValueError):
+        transfer_size_min_size_mb = get_transfer_size_min_size_mb()
+    transfer_size_min_size_mb = max(0.0, transfer_size_min_size_mb)
+    try:
+        transfer_size_stable_minutes = float(
+            payload.get("transfer_size_stable_minutes", get_transfer_size_stable_minutes())
+        )
+    except (TypeError, ValueError):
+        transfer_size_stable_minutes = get_transfer_size_stable_minutes()
+    transfer_size_stable_minutes = max(0.0, transfer_size_stable_minutes)
+
     if not auth_username:
         return jsonify({"error": "账号不能为空"}), 400
 
@@ -4459,7 +4771,24 @@ def save_system_settings():
     if "size_tag_insert_anchor_exclude" in payload:
         set_setting("size_tag_insert_anchor_exclude", size_tag_insert_anchor_exclude or "")
     set_setting("size_order_vs_custom", size_order_vs_custom or DEFAULT_SIZE_ORDER_VS_CUSTOM)
+    # ---- 保存转存目录自动补大小配置 ----
+    transfer_keys = (
+        "transfer_size_enabled", "transfer_size_path", "transfer_size_interval_minutes",
+        "transfer_size_min_size_mb", "transfer_size_stable_minutes",
+    )
+    if "transfer_size_enabled" in payload:
+        set_setting("transfer_size_enabled", "1" if transfer_size_enabled else "0")
+    if "transfer_size_path" in payload:
+        set_setting("transfer_size_path", transfer_size_path)
+    if "transfer_size_interval_minutes" in payload:
+        set_setting("transfer_size_interval_minutes", str(transfer_size_interval))
+    if "transfer_size_min_size_mb" in payload:
+        set_setting("transfer_size_min_size_mb", str(transfer_size_min_size_mb))
+    if "transfer_size_stable_minutes" in payload:
+        set_setting("transfer_size_stable_minutes", str(transfer_size_stable_minutes))
     normalized = apply_upload_scheduler(upload_cron_expr)
+    if any(k in payload for k in transfer_keys):
+        apply_transfer_size_scheduler()
     return jsonify(
         {
             "ok": True,
@@ -4486,6 +4815,11 @@ def save_system_settings():
             "rename_move_all": "1" if rename_move_all else "0",
             "size_suffix_enabled": "1" if size_suffix_enabled else "0",
             "size_suffix_template": size_suffix_template or DEFAULT_SIZE_SUFFIX_TEMPLATE,
+            "transfer_size_enabled": "1" if transfer_size_enabled else "0",
+            "transfer_size_path": transfer_size_path,
+            "transfer_size_interval_minutes": transfer_size_interval,
+            "transfer_size_min_size_mb": transfer_size_min_size_mb,
+            "transfer_size_stable_minutes": transfer_size_stable_minutes,
         }
     )
 
@@ -5373,6 +5707,7 @@ with app.app_context():
     if normalized != init_upload_cron:
         set_setting("upload_cron", normalized)
         db.session.commit()
+    apply_transfer_size_scheduler()
 
 scheduler.add_job(
     func=process_all_qbs,
