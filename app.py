@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.8.0"
+APP_VERSION = "v1.8.1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -91,6 +91,9 @@ TRANSFER_SIZE_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("TRANSFER_SIZE_WEBHOOK_DE
 DEFAULT_TRANSFER_SIZE_CD2_URL = os.getenv("TRANSFER_SIZE_CD2_URL", "")
 DEFAULT_TRANSFER_SIZE_CD2_USERNAME = os.getenv("TRANSFER_SIZE_CD2_USERNAME", "")
 DEFAULT_TRANSFER_SIZE_CD2_PASSWORD = os.getenv("TRANSFER_SIZE_CD2_PASSWORD", "")
+# CD2 内部文件树路径（用于 GetSubFiles forceRefresh）。若留空则由监控路径自动推断（去掉 /CloudNAS 前缀），
+# 但推断未必准确：CD2 给挂载起的别名 / 文件树结构和容器挂载点无必然对应关系，建议显式填写。
+DEFAULT_TRANSFER_SIZE_CD2_REFRESH_PATH = os.getenv("TRANSFER_SIZE_CD2_REFRESH_PATH", "")
 SIZE_SUFFIX_IDEMPOTENT_RE = re.compile(
     r'[\[\【\(\{「\<][\s]*[0-9]+(?:\.[0-9]+)?[\s]*(?:MB|GB|TB|PB)[\s]*[\]\】\)\}」\>]',
     re.IGNORECASE,
@@ -642,6 +645,10 @@ def get_transfer_size_cd2_username():
 
 def get_transfer_size_cd2_password():
     return (get_setting("transfer_size_cd2_password") or DEFAULT_TRANSFER_SIZE_CD2_PASSWORD).strip()
+
+
+def get_transfer_size_cd2_refresh_path():
+    return (get_setting("transfer_size_cd2_refresh_path") or DEFAULT_TRANSFER_SIZE_CD2_REFRESH_PATH).strip()
 
 
 def format_size_value_with_unit(gb_value):
@@ -3630,13 +3637,80 @@ def _get_cd2_token(base_url, username, password):
     return token
 
 
-def _map_mount_path_to_cd2(monitor_path):
-    """容器内挂载路径 → CD2 文件树路径：去掉第一级挂载根目录。
-    如 /CloudNAS/115open/最近接收 → /115open/最近接收。"""
+# CD2 自动探测到的刷新路径缓存：key = base_url|username|monitor_path, value = cd2_path
+_CD2_PATH_CACHE = {}
+_CD2_PATH_CACHE_LOCK = threading.Lock()
+
+
+def _build_cd2_path_candidates(monitor_path):
+    """从容器内监控路径生成若干候选 CD2 内部路径。
+
+    容器里看到的挂载路径 (如 /CloudNAS/CloudDrive/115open/最近接收) 和 CD2 内部
+    文件树 (如 /115open/最近接收) 之间夹着若干 CD2 容器自己的挂载层，逐段剥掉
+    让 CD2 自己验证哪条路径存在。生成顺序是从最完整到最精简，尽早命中。
+    """
     parts = [p for p in monitor_path.strip().split("/") if p]
-    if len(parts) <= 1:
-        return "/"
-    return "/" + "/".join(parts[1:])
+    if not parts:
+        return ["/"]
+    cands = []
+    # 从最完整的（所有段）逐步去掉前缀段，直到只剩最后一段
+    for i in range(len(parts)):
+        cands.append("/" + "/".join(parts[i:]))
+    # 兜底：直接用 "/"
+    if "/" not in cands:
+        cands.append("/")
+    return cands
+
+
+def _probe_cd2_path(base_url, token, candidates):
+    """逐个调用 GetSubFiles(path) 让 CD2 验证哪个候选路径存在。
+    找到第一个 grpc-status=0 的即返回；全部失败返回 None。"""
+    msg_base = candidates[0]  # 仅占位，实际每次重编码
+    for path in candidates:
+        msg = _pb_string(1, path) + _pb_bool(2, False)
+        try:
+            status, _msg, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token, timeout=8)
+            if status == 0:
+                return path
+        except Exception:
+            continue
+    return None
+
+
+def _resolve_cd2_path(base_url, token, monitor_path):
+    """解析监控路径对应的 CD2 内部刷新路径（优先读缓存，否则自动探测）。"""
+    cache_key = f"{base_url}|{monitor_path}"
+    with _CD2_PATH_CACHE_LOCK:
+        hit = _CD2_PATH_CACHE.get(cache_key)
+    if hit:
+        return hit
+
+    # 先试显式配置（环境变量兜底，前端已撤输入框）
+    explicit = get_transfer_size_cd2_refresh_path()
+    if explicit:
+        # 显式配置也要先验证 CD2 上确实存在这个路径
+        msg = _pb_string(1, explicit) + _pb_bool(2, False)
+        status, _msg, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token, timeout=8)
+        if status == 0:
+            with _CD2_PATH_CACHE_LOCK:
+                _CD2_PATH_CACHE[cache_key] = explicit
+            return explicit
+        logger.warning("📡 [转存补大小] 显式配置的 CD2 路径 %s 在 CD2 上不存在，回退自动探测", explicit)
+
+    candidates = _build_cd2_path_candidates(monitor_path)
+    path = _probe_cd2_path(base_url, token, candidates)
+    if path:
+        with _CD2_PATH_CACHE_LOCK:
+            _CD2_PATH_CACHE[cache_key] = path
+        logger.info("📡 [转存补大小] 自动探测到 CD2 内部路径: %s (来自监控目录 %s)", path, monitor_path)
+        return path
+
+    # 全部候选都挂了，把候选列表也打出来方便排障
+    logger.warning(
+        "📡 [转存补大小] 自动探测 CD2 刷新路径失败，候选均不存在: %s",
+        candidates,
+    )
+    return None
 
 
 def cd2_refresh_directory(monitor_path):
@@ -3654,21 +3728,25 @@ def cd2_refresh_directory(monitor_path):
     if not base_url.startswith(("http://", "https://")):
         base_url = f"http://{base_url}"
 
-    cd2_path = _map_mount_path_to_cd2(monitor_path)
+    # 登录拿 token；JWT 过期/无效时自动重登一次
     try:
         token = _get_cd2_token(base_url, username, password)
         if not token:
             return False
+        # 自动探测 CD2 内部刷新路径（从监控路径逐段剥前缀让 CD2 验证哪条存在）
+        cd2_path = _resolve_cd2_path(base_url, token, monitor_path)
+        if not cd2_path:
+            return False
         msg = _pb_string(1, cd2_path) + _pb_bool(2, True)
         status, message, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token)
         if status == 16:
-            # JWT 过期/失效：清缓存重登一次再试
             with _CD2_TOKEN_LOCK:
                 _CD2_TOKEN_CACHE["key"], _CD2_TOKEN_CACHE["token"] = None, None
             token = _get_cd2_token(base_url, username, password)
             if not token:
                 return False
             status, message, _body = _cd2_grpc_call(base_url, "GetSubFiles", msg, token=token)
+            # token 变了，探测路径的缓存 key 不带 token，通常没问题；但重登后路径若还挂就放弃
         if status != 0:
             logger.warning("📡 [转存补大小] CD2 刷新目录失败(%s): %s", cd2_path, message or f"grpc-status={status}")
             return False
