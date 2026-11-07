@@ -433,6 +433,21 @@
                       </button>
                     </div>
                   </div>
+
+                  <!-- 手动填写 Cookie（扫码不可用时兜底） -->
+                  <div class="mt-3">
+                    <a class="text-muted small text-decoration-none" data-bs-toggle="collapse" href="#115ManualCookieBox" role="button">
+                      <i class="bi bi-chevron-down me-1"></i>扫码登录不可用？手动填写 Cookie
+                    </a>
+                    <div class="collapse mt-3" id="115ManualCookieBox">
+                      <label class="form-label text-muted small fw-bold">Cookie（从已登录 115 网页端复制，格式 UID=xxx; CID=xxx; ...）</label>
+                      <textarea class="form-control bg-light border-0" id="115ManualCookie" rows="3"
+                                placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx"></textarea>
+                      <button class="btn btn-sm btn-outline-primary rounded-pill px-3 mt-2" type="button" id="btn115SaveCookie">
+                        保存 Cookie
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -3095,6 +3110,15 @@ echo "------------------------------------------------"
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body text-center py-4">
+          <div class="mb-3">
+            <label class="form-label text-muted small fw-bold">选择登录端</label>
+            <select class="form-select form-select-sm" id="115QrcodeApp">
+              <option value="web" selected>网页版</option>
+              <option value="ios">115 (iOS 端)</option>
+              <option value="android">115 (Android 端)</option>
+              <option value="qandroid">115生活 (Android 端)</option>
+            </select>
+          </div>
           <div id="115QRCodeContainer">
             <div class="spinner-border text-primary mb-3" role="status">
               <span class="visually-hidden">加载中...</span>
@@ -3169,6 +3193,14 @@ echo "------------------------------------------------"
         statusText.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle-fill me-1"></i>未登录</span>';
         btnLogin.classList.remove('d-none');
         btnLogout.classList.add('d-none');
+        // 即使状态查询失败，也尝试加载已保存的文件夹配置
+        try {
+          const foldersData = await api('/api/115/folders');
+          shareFoldersInput.value = foldersData.share_folders || '';
+          offlineFoldersInput.value = foldersData.offline_folders || '';
+        } catch (folderErr) {
+          console.error('加载文件夹配置失败:', folderErr);
+        }
       }
     }
 
@@ -3187,7 +3219,11 @@ echo "------------------------------------------------"
       modal.show();
 
       try {
-        const data = await api('/api/115/qrcode/start', { method: 'POST' });
+        const appType = ($('115QrcodeApp') && $('115QrcodeApp').value) || 'web';
+        const data = await api('/api/115/qrcode/start', {
+          method: 'POST',
+          body: JSON.stringify({ app: appType }),
+        });
         container.innerHTML = `<img src="${data.qrcode_url}" alt="115 登录二维码" class="img-fluid rounded-3" style="max-width: 280px;">`;
         statusDiv.textContent = '等待扫码...';
 
@@ -3249,6 +3285,38 @@ echo "------------------------------------------------"
           }),
         });
         notify('文件夹配置已保存', 'success');
+      } catch (err) {
+        notify(err.message, 'danger');
+      }
+    });
+
+    // 切到「115 助手」标签时刷新状态
+    const tab115Btn = document.querySelector('[data-bs-target="#tab115Assistant"]');
+    if (tab115Btn) {
+      tab115Btn.addEventListener('shown.bs.tab', () => {
+        load115Status().catch(err => console.error('115 状态加载失败:', err));
+      });
+    }
+
+    // 切换登录端后重新生成二维码
+    $('115QrcodeApp').addEventListener('change', () => {
+      if ($('modal115QRCode').classList.contains('show')) {
+        startQRCodeLogin();
+      }
+    });
+
+    // 手动保存 Cookie
+    $('btn115SaveCookie').addEventListener('click', async () => {
+      const cookie = $('115ManualCookie').value.trim();
+      if (!cookie) return notify('请先粘贴 Cookie', 'warning');
+      try {
+        await api('/api/115/cookie', {
+          method: 'POST',
+          body: JSON.stringify({ cookie }),
+        });
+        $('115ManualCookie').value = '';
+        await load115Status();
+        notify('Cookie 已保存', 'success');
       } catch (err) {
         notify(err.message, 'danger');
       }

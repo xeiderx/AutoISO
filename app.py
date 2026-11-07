@@ -664,6 +664,7 @@ def get_115_cookie():
 
 def set_115_cookie(cookie_str):
     set_setting("115_cookie", cookie_str)
+    db.session.commit()
 
 
 def get_115_share_folders():
@@ -6075,8 +6076,9 @@ PASSPORT_API_BASE = "https://passportapi.115.com"
 WEB_API_BASE = "https://webapi.115.com"
 
 # 115 扫码登录状态缓存
-_115_QRCODE_STATE = {"uid": None, "time": None, "sign": None, "status": "idle"}
+_115_QRCODE_STATE = {"uid": None, "time": None, "sign": None, "app": "web", "status": "idle"}
 _115_QRCODE_LOCK = threading.Lock()
+_115_LAST_LOGGED_STATUS = None
 
 # TG Bot Long Polling 状态
 _TG_POLLING_THREAD = None
@@ -6089,6 +6091,7 @@ def _115_request(method, url, cookie=None, **kwargs):
     """115 API 请求封装，自动带 cookie 和常用 headers"""
     headers = kwargs.pop("headers", {})
     headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    headers.setdefault("Referer", "https://115.com/")
     if cookie:
         headers["Cookie"] = cookie
     kwargs["headers"] = headers
@@ -6098,10 +6101,12 @@ def _115_request(method, url, cookie=None, **kwargs):
     return resp
 
 
-def api_115_qrcode_token():
-    """步骤1：获取扫码登录 token (uid, time, sign)"""
+def api_115_qrcode_token(app_type="web"):
+    """步骤1：获取扫码登录 token (uid, time, sign)
+    app_type: web/ios/android/ipad/tv/life，不同端二维码可被对应 APP 扫描
+    """
     try:
-        resp = _115_request("GET", f"{QRCODE_API_BASE}/api/1.0/web/1.0/token/")
+        resp = _115_request("GET", f"{QRCODE_API_BASE}/api/1.0/{app_type}/1.0/token/")
         data = resp.json()
         if data.get("state") != 1:
             return None, data.get("message", "获取 token 失败")
@@ -6112,12 +6117,61 @@ def api_115_qrcode_token():
         return None, str(exc)
 
 
-def api_115_qrcode_image(uid):
+def api_115_qrcode_image(uid, app_type="web"):
     """步骤2：获取二维码图片 URL"""
-    return f"{QRCODE_API_BASE}/api/1.0/web/1.0/qrcode?uid={uid}"
+    return f"{QRCODE_API_BASE}/api/1.0/{app_type}/1.0/qrcode?uid={uid}"
 
 
-def api_115_qrcode_status(uid, time_val, sign):
+def _115_extract_cookie(cookie_obj):
+    """把 115 返回的 cookie 字典拼成 'UID=xxx; CID=xxx; SEID=xxx' 字符串"""
+    if not isinstance(cookie_obj, dict) or not cookie_obj:
+        return None
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookie_obj.items() if v)
+    if "UID=" in cookie_str and "CID=" in cookie_str:
+        return cookie_str
+    return None
+
+
+def _115_fetch_login_cookie(uid, time_val, sign, app_type="web"):
+    """已确认登录后换取 cookie。依次尝试各端接口，成功返回 cookie 字符串"""
+    endpoints = [(f"{PASSPORT_API_BASE}/app/1.0/{app_type}/1.0/login/qrcode", {"uid": uid, "time": time_val, "sign": sign})]
+    if app_type != "web":
+        endpoints.append((f"{PASSPORT_API_BASE}/app/1.0/web/1.0/login/qrcode", {"uid": uid, "time": time_val, "sign": sign}))
+    for url, payload in endpoints:
+        try:
+            resp = _115_request("POST", url, data=payload, timeout=10)
+
+            # 1) JSON body 中的 data.cookie
+            try:
+                data = resp.json()
+                cookie_str = _115_extract_cookie((data.get("data") or {}).get("cookie"))
+                if cookie_str:
+                    return cookie_str
+            except Exception:
+                pass
+
+            # 2) 响应头 Set-Cookie
+            cookies = resp.headers.get("Set-Cookie", "")
+            if cookies:
+                cookie_pairs = []
+                for item in cookies.split(","):
+                    for part in item.split(";"):
+                        part = part.strip()
+                        if "=" in part and not part.lower().startswith(
+                            ("expires", "path", "domain", "max-age", "httponly", "secure", "samesite")
+                        ):
+                            cookie_pairs.append(part)
+                cookie_str = "; ".join(cookie_pairs)
+                if "UID=" in cookie_str and "CID=" in cookie_str:
+                    return cookie_str
+
+            logger.warning("115 换取 cookie 接口无有效返回: %s", url)
+        except Exception as exc:
+            logger.warning("115 换取 cookie 失败 (%s): %s", url, exc)
+    return None
+
+
+def api_115_qrcode_status(uid, time_val, sign, app_type="web"):
     """步骤3：轮询扫码状态。返回 (status, cookie_or_none, error_or_none)
     status: idle/waiting/scanned/success/expired/error
     """
@@ -6139,45 +6193,34 @@ def api_115_qrcode_status(uid, time_val, sign):
         if status is None and isinstance(data.get("data"), int):
             status = data.get("data")
 
-        logger.debug("115 扫码状态返回: %s, 解析后 status=%s", data, status)
+        try:
+            status = int(status) if status is not None else None
+        except (TypeError, ValueError):
+            pass
+
+        # 状态变化时才打日志，避免每 2 秒刷屏
+        global _115_LAST_LOGGED_STATUS
+        if status != _115_LAST_LOGGED_STATUS:
+            logger.info("📥 [115助手] 扫码状态变化: %s -> %s", _115_LAST_LOGGED_STATUS, status)
+            _115_LAST_LOGGED_STATUS = status
 
         if status == 0:
             return "waiting", None, None
         elif status == 1:
             return "scanned", None, None
         elif status == 2:
-            # 扫码成功，获取 cookie
-            # 115 扫码登录最后一步是 POST 请求，cookie 在响应头里
-            cookie_resp = _115_request(
-                "POST",
-                f"{PASSPORT_API_BASE}/app/1.0/web/1.0/login/qrcode",
-                data={"uid": uid, "time": time_val, "sign": sign},
-            )
-            # 从响应头提取 cookie
-            cookies = cookie_resp.headers.get("Set-Cookie", "")
-            if not cookies:
-                # 尝试从 JSON body 获取（某些版本）
-                try:
-                    cookie_data = cookie_resp.json()
-                    if cookie_data.get("state") == 1:
-                        cookie_obj = cookie_data.get("data", {}).get("cookie", {})
-                        if cookie_obj:
-                            cookie_str = "; ".join([f"{k}={v}" for k, v in cookie_obj.items()])
-                            return "success", cookie_str, None
-                except:
-                    pass
-                return "error", None, "未能获取到 cookie"
-            # 解析 Set-Cookie 头，提取关键 cookie
-            cookie_pairs = []
-            for item in cookies.split(","):
-                # 每个 Set-Cookie 可能包含多个 cookie，用分号分隔
-                for part in item.split(";"):
-                    part = part.strip()
-                    if "=" in part and not part.startswith(("expires", "path", "domain", "Max-Age", "HttpOnly", "Secure")):
-                        cookie_pairs.append(part)
-            cookie_str = "; ".join(cookie_pairs)
-            return "success", cookie_str, None
-        elif status == -1:
+            # 已确认登录，用 uid/time/sign 换取 cookie（失败重试一次，避免偶发失败
+            cookie_str = None
+            for attempt in range(2):
+                cookie_str = _115_fetch_login_cookie(uid, time_val, sign, app_type)
+                if cookie_str:
+                    break
+                if attempt == 0:
+                    time.sleep(1)
+            if cookie_str:
+                return "success", cookie_str, None
+            return "error", None, "已确认登录但换取 cookie 失败，请重试或手动填写 Cookie"
+        elif status in (-1, -2):
             return "expired", None, None
         elif status is None:
             # status 为 None 可能是网络问题或 API 变动，继续等待
@@ -6234,26 +6277,38 @@ def api_115_add_offline_task(url, target_cid, cookie):
         return False, str(exc)
 
 
+SHARE_URL_RE = re.compile(r"https?://(?:115(?:cdn)?\.com)/s/[A-Za-z0-9]+(?:[?#][^\s]*)?")
+
+
 def extract_share_code(url):
     """从分享链接提取 share_code。支持 115.com/s/xxx 和 115cdn.com/s/xxx"""
     m = re.search(r"/s/([a-zA-Z0-9]+)", url)
     return m.group(1) if m else None
 
 
+def extract_share_password(url):
+    """从分享链接提取接收码（如 ?password=abcd 或 访问码 abcd）"""
+    m = re.search(r"(?:password|pwd)=([A-Za-z0-9]{4})", url)
+    return m.group(1) if m else ""
+
+
 def detect_link_type(text):
     """识别链接类型。返回 (type, url) 或 (None, None)
     type: share/offline
     """
-    text = text.strip()
-    # 分享链接
-    if "115.com/s/" in text or "115cdn.com/s/" in text:
-        return "share", text
+    text = (text or "").strip()
+    # 分享链接（消息可能带标题/口令，因此用正则搜出链接本体）
+    m = SHARE_URL_RE.search(text)
+    if m:
+        return "share", m.group(0)
     # 磁力
-    if text.startswith("magnet:"):
-        return "offline", text
+    m = re.search(r"magnet:\?[^\s]+", text)
+    if m:
+        return "offline", m.group(0)
     # 电驴
-    if text.startswith("ed2k://"):
-        return "offline", text
+    m = re.search(r"ed2k://[^\s]+", text)
+    if m:
+        return "offline", m.group(0)
     return None, None
 
 
@@ -6379,7 +6434,9 @@ def handle_tg_callback(token, callback_query, proxy_url=None):
             tg_edit_message(token, chat_id, message_id, "❌ 无法解析分享码", proxy_url=proxy_url)
             _TG_PENDING_ACTIONS.pop(chat_id, None)
             return
-        success, result = api_115_share_receive(share_code, "", target_cid, cookie)
+        success, result = api_115_share_receive(
+            share_code, extract_share_password(url), target_cid, cookie
+        )
         action_text = "转存"
     else:
         success, result = api_115_add_offline_task(url, target_cid, cookie)
@@ -6501,21 +6558,32 @@ def get_115_status():
 @require_login
 def start_115_qrcode():
     """开始扫码登录流程"""
-    token_data, error = api_115_qrcode_token()
+    payload = request.get_json(silent=True) or {}
+    app_type = (payload.get("app") or "web").strip()
+    # 实测可用：web(网页版) ios(115 iOS端) android(115 Android端) qandroid(115生活)
+    if app_type not in ("web", "ios", "android", "qandroid"):
+        app_type = "web"
+
+    token_data, error = api_115_qrcode_token(app_type)
     if error:
         return jsonify({"error": error}), 500
+
+    global _115_LAST_LOGGED_STATUS
+    _115_LAST_LOGGED_STATUS = None
 
     with _115_QRCODE_LOCK:
         _115_QRCODE_STATE.update({
             "uid": token_data["uid"],
             "time": token_data["time"],
             "sign": token_data["sign"],
+            "app": app_type,
             "status": "waiting",
         })
 
     return jsonify({
         "uid": token_data["uid"],
-        "qrcode_url": api_115_qrcode_image(token_data["uid"]),
+        "app": app_type,
+        "qrcode_url": api_115_qrcode_image(token_data["uid"], app_type),
     })
 
 
@@ -6529,7 +6597,9 @@ def check_115_qrcode_status():
     if not state.get("uid"):
         return jsonify({"status": "idle"})
 
-    status, cookie, error = api_115_qrcode_status(state["uid"], state["time"], state["sign"])
+    status, cookie, error = api_115_qrcode_status(
+        state["uid"], state["time"], state["sign"], state.get("app") or "web"
+    )
 
     if status == "success" and cookie:
         set_115_cookie(cookie)
@@ -6552,7 +6622,18 @@ def check_115_qrcode_status():
 def logout_115():
     """清除 115 cookie"""
     delete_setting("115_cookie")
+    db.session.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/115/folders", methods=["GET"])
+@require_login
+def get_115_folders():
+    """读取目标文件夹配置（不依赖登录状态）"""
+    return jsonify({
+        "share_folders": get_115_share_folders(),
+        "offline_folders": get_115_offline_folders(),
+    })
 
 
 @app.route("/api/115/folders", methods=["POST"])
@@ -6564,6 +6645,22 @@ def save_115_folders():
         set_setting("115_share_folders", (payload["share_folders"] or "").strip())
     if "offline_folders" in payload:
         set_setting("115_offline_folders", (payload["offline_folders"] or "").strip())
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/115/cookie", methods=["POST"])
+@require_login
+def set_115_cookie_manual():
+    """手动填写 cookie（扫码不可用时的兜底）"""
+    payload = request.get_json(force=True) or {}
+    cookie = (payload.get("cookie") or "").strip()
+    if not cookie:
+        return jsonify({"error": "cookie 不能为空"}), 400
+    if "UID=" not in cookie or "CID=" not in cookie:
+        return jsonify({"error": "cookie 需包含 UID 和 CID 字段"}), 400
+    set_115_cookie(cookie)
+    logger.info("📥 [115助手] 已手动保存 cookie")
     return jsonify({"ok": True})
 
 
