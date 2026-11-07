@@ -6132,42 +6132,59 @@ def _115_extract_cookie(cookie_obj):
     return None
 
 
+# 扫码登录时绑定设备（ssoent）与 UA 的对应关系
+_115_QRCONDE_APP_KEYS = {
+    "web": ("web", None),
+    "ios": ("ios", "UPhone/1.0.0"),
+    "android": ("android", None),
+    "qandroid": ("qandroid", None),
+    "115ios": ("115ios", None),
+    "115android": ("115android", None),
+    "115ipad": ("115ipad", None),
+    "tv": ("tv", None),
+}
+
+
 def _115_fetch_login_cookie(uid, time_val, sign, app_type="web"):
-    """已确认登录后换取 cookie。依次尝试各端接口，成功返回 cookie 字符串"""
-    endpoints = [(f"{PASSPORT_API_BASE}/app/1.0/{app_type}/1.0/login/qrcode", {"uid": uid, "time": time_val, "sign": sign})]
-    if app_type != "web":
-        endpoints.append((f"{PASSPORT_API_BASE}/app/1.0/web/1.0/login/qrcode", {"uid": uid, "time": time_val, "sign": sign}))
-    for url, payload in endpoints:
+    """已确认登录后换取 cookie。
+
+    官方实现（p115client）：POST https://qrcodeapi.115.com/app/1.0/{app}/1.0/login/qrcode/
+    参数只有 {"account": <扫码 uid>}，返回 JSON 的 data.cookie 中带 UID/CID/SEID/KID
+    """
+    app_key, ua = _115_QRCONDE_APP_KEYS.get(app_type, ("web", None))
+    url = f"{QRCODE_API_BASE}/app/1.0/{app_key}/1.0/login/qrcode/"
+    headers = {"User-Agent": ua} if ua else {}
+    try:
+        resp = _115_request("POST", url, data={"account": uid}, headers=headers, timeout=10)
+
+        # 1) JSON body 中的 data.cookie
         try:
-            resp = _115_request("POST", url, data=payload, timeout=10)
+            data = resp.json()
+            cookie_str = _115_extract_cookie((data.get("data") or {}).get("cookie"))
+            if cookie_str:
+                return cookie_str
+            logger.warning("115 换取 cookie 返回异常: %s", str(data)[:200])
+        except Exception:
+            pass
 
-            # 1) JSON body 中的 data.cookie
-            try:
-                data = resp.json()
-                cookie_str = _115_extract_cookie((data.get("data") or {}).get("cookie"))
-                if cookie_str:
-                    return cookie_str
-            except Exception:
-                pass
+        # 2) 响应头 Set-Cookie
+        cookies = resp.headers.get("Set-Cookie", "")
+        if cookies:
+            cookie_pairs = []
+            for item in cookies.split(","):
+                for part in item.split(";"):
+                    part = part.strip()
+                    if "=" in part and not part.lower().startswith(
+                        ("expires", "path", "domain", "max-age", "httponly", "secure", "samesite")
+                    ):
+                        cookie_pairs.append(part)
+            cookie_str = "; ".join(cookie_pairs)
+            if "UID=" in cookie_str and "CID=" in cookie_str:
+                return cookie_str
 
-            # 2) 响应头 Set-Cookie
-            cookies = resp.headers.get("Set-Cookie", "")
-            if cookies:
-                cookie_pairs = []
-                for item in cookies.split(","):
-                    for part in item.split(";"):
-                        part = part.strip()
-                        if "=" in part and not part.lower().startswith(
-                            ("expires", "path", "domain", "max-age", "httponly", "secure", "samesite")
-                        ):
-                            cookie_pairs.append(part)
-                cookie_str = "; ".join(cookie_pairs)
-                if "UID=" in cookie_str and "CID=" in cookie_str:
-                    return cookie_str
-
-            logger.warning("115 换取 cookie 接口无有效返回: %s", url)
-        except Exception as exc:
-            logger.warning("115 换取 cookie 失败 (%s): %s", url, exc)
+        logger.warning("115 换取 cookie 接口无有效返回: %s", url)
+    except Exception as exc:
+        logger.warning("115 换取 cookie 失败 (%s): %s", url, exc)
     return None
 
 
@@ -6560,8 +6577,9 @@ def start_115_qrcode():
     """开始扫码登录流程"""
     payload = request.get_json(silent=True) or {}
     app_type = (payload.get("app") or "web").strip()
-    # 实测可用：web(网页版) ios(115 iOS端) android(115 Android端) qandroid(115生活)
-    if app_type not in ("web", "ios", "android", "qandroid"):
+    # 可选设备（对应 115 的 ssoent）：web 网页版 / 115ios 115苹果端 / android 115生活安卓端 /
+    # 115android 115安卓端 / 115ipad 115苹果平板端 / tv 115生活安卓电视端
+    if app_type not in _115_QRCONDE_APP_KEYS:
         app_type = "web"
 
     token_data, error = api_115_qrcode_token(app_type)
