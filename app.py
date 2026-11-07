@@ -27,7 +27,7 @@ except Exception:
     croniter = None
     CRONITER_AVAILABLE = False
 
-APP_VERSION = "v1.8.1"
+APP_VERSION = "v1.8.2"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "autoiso-v2-secret-key")
@@ -649,6 +649,44 @@ def get_transfer_size_cd2_password():
 
 def get_transfer_size_cd2_refresh_path():
     return (get_setting("transfer_size_cd2_refresh_path") or DEFAULT_TRANSFER_SIZE_CD2_REFRESH_PATH).strip()
+
+
+# ========== 115 助手配置 ==========
+
+DEFAULT_115_SHARE_FOLDERS = "最近接收:3266138160150861965"
+DEFAULT_115_OFFLINE_FOLDERS = "最近接收:3266138160150861965"
+
+
+def get_115_cookie():
+    """115 登录 cookie（扫码获取）"""
+    return (get_setting("115_cookie") or "").strip()
+
+
+def set_115_cookie(cookie_str):
+    set_setting("115_cookie", cookie_str)
+
+
+def get_115_share_folders():
+    """转存目标文件夹列表，格式：名字1:cid1;名字2:cid2"""
+    return (get_setting("115_share_folders") or DEFAULT_115_SHARE_FOLDERS).strip()
+
+
+def get_115_offline_folders():
+    """离线下载目标文件夹列表"""
+    return (get_setting("115_offline_folders") or DEFAULT_115_OFFLINE_FOLDERS).strip()
+
+
+def parse_folder_list(raw):
+    """解析 '名字:cid;名字:cid' 格式为 [(名字, cid), ...]"""
+    if not raw:
+        return []
+    result = []
+    for item in raw.split(";"):
+        item = item.strip()
+        if ":" in item:
+            name, cid = item.rsplit(":", 1)
+            result.append((name.strip(), cid.strip()))
+    return result
 
 
 def format_size_value_with_unit(gb_value):
@@ -6028,6 +6066,496 @@ if not scheduler.running:
     scheduler.start()
 
 atexit.register(lambda: scheduler.shutdown(wait=False) if scheduler.running else None)
+
+# ========== 115 助手功能模块 ==========
+
+# 115 API 常量
+QRCODE_API_BASE = "https://qrcodeapi.115.com"
+PASSPORT_API_BASE = "https://passportapi.115.com"
+WEB_API_BASE = "https://webapi.115.com"
+
+# 115 扫码登录状态缓存
+_115_QRCODE_STATE = {"uid": None, "time": None, "sign": None, "status": "idle"}
+_115_QRCODE_LOCK = threading.Lock()
+
+# TG Bot Long Polling 状态
+_TG_POLLING_THREAD = None
+_TG_POLLING_STOP = threading.Event()
+_TG_LAST_UPDATE_ID = 0
+_TG_PENDING_ACTIONS = {}  # chat_id -> {"action": "share"/"offline", "url": "...", "msg_id": ...}
+
+
+def _115_request(method, url, cookie=None, **kwargs):
+    """115 API 请求封装，自动带 cookie 和常用 headers"""
+    headers = kwargs.pop("headers", {})
+    headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    if cookie:
+        headers["Cookie"] = cookie
+    kwargs["headers"] = headers
+    kwargs.setdefault("timeout", 15)
+    resp = requests.request(method, url, **kwargs)
+    resp.raise_for_status()
+    return resp
+
+
+def api_115_qrcode_token():
+    """步骤1：获取扫码登录 token (uid, time, sign)"""
+    try:
+        resp = _115_request("GET", f"{QRCODE_API_BASE}/api/1.0/web/1.0/token/")
+        data = resp.json()
+        if data.get("state") != 1:
+            return None, data.get("message", "获取 token 失败")
+        d = data.get("data", {})
+        return {"uid": d.get("uid"), "time": d.get("time"), "sign": d.get("sign")}, None
+    except Exception as exc:
+        logger.exception("115 扫码 token 获取失败")
+        return None, str(exc)
+
+
+def api_115_qrcode_image(uid):
+    """步骤2：获取二维码图片 URL"""
+    return f"{QRCODE_API_BASE}/api/1.0/web/1.0/qrcode?uid={uid}"
+
+
+def api_115_qrcode_status(uid, time_val, sign):
+    """步骤3：轮询扫码状态。返回 (status, cookie_or_none, error_or_none)
+    status: idle/waiting/scanned/success/expired/error
+    """
+    try:
+        resp = _115_request(
+            "GET",
+            f"{QRCODE_API_BASE}/get/status/",
+            params={"uid": uid, "time": time_val, "sign": sign},
+        )
+        data = resp.json()
+        status = data.get("status")
+        if status == 0:
+            return "waiting", None, None
+        elif status == 1:
+            return "scanned", None, None
+        elif status == 2:
+            # 扫码成功，获取 cookie
+            # 115 扫码登录最后一步是 POST 请求，cookie 在响应头里
+            cookie_resp = _115_request(
+                "POST",
+                f"{PASSPORT_API_BASE}/app/1.0/web/1.0/login/qrcode",
+                data={"uid": uid, "time": time_val, "sign": sign},
+            )
+            # 从响应头提取 cookie
+            cookies = cookie_resp.headers.get("Set-Cookie", "")
+            if not cookies:
+                # 尝试从 JSON body 获取（某些版本）
+                try:
+                    cookie_data = cookie_resp.json()
+                    if cookie_data.get("state") == 1:
+                        cookie_obj = cookie_data.get("data", {}).get("cookie", {})
+                        if cookie_obj:
+                            cookie_str = "; ".join([f"{k}={v}" for k, v in cookie_obj.items()])
+                            return "success", cookie_str, None
+                except:
+                    pass
+                return "error", None, "未能获取到 cookie"
+            # 解析 Set-Cookie 头，提取关键 cookie
+            cookie_pairs = []
+            for item in cookies.split(","):
+                # 每个 Set-Cookie 可能包含多个 cookie，用分号分隔
+                for part in item.split(";"):
+                    part = part.strip()
+                    if "=" in part and not part.startswith(("expires", "path", "domain", "Max-Age", "HttpOnly", "Secure")):
+                        cookie_pairs.append(part)
+            cookie_str = "; ".join(cookie_pairs)
+            return "success", cookie_str, None
+        elif status == -1:
+            return "expired", None, None
+        else:
+            return "error", None, f"未知状态: {status}"
+    except Exception as exc:
+        logger.exception("115 扫码状态查询失败")
+        return "error", None, str(exc)
+
+
+def api_115_share_receive(share_code, receive_code, target_cid, cookie):
+    """转存分享链接到指定文件夹。
+    share_code: 分享码（从 URL 提取）
+    receive_code: 接收码（如果有密码）
+    target_cid: 目标文件夹 cid
+    """
+    try:
+        resp = _115_request(
+            "POST",
+            f"{WEB_API_BASE}/share/receive",
+            cookie=cookie,
+            data={
+                "share_code": share_code,
+                "receive_code": receive_code or "",
+                "cid": target_cid,
+            },
+        )
+        data = resp.json()
+        if data.get("state"):
+            return True, data.get("data", {})
+        return False, data.get("error", data.get("message", "转存失败"))
+    except Exception as exc:
+        logger.exception("115 转存失败")
+        return False, str(exc)
+
+
+def api_115_add_offline_task(url, target_cid, cookie):
+    """添加离线下载任务（磁力/电驴/直链）"""
+    try:
+        resp = _115_request(
+            "POST",
+            f"{WEB_API_BASE}/lixian/add_task_url",
+            cookie=cookie,
+            data={"url": url, "savepath": "", "wp_path_id": target_cid},
+        )
+        data = resp.json()
+        if data.get("state"):
+            return True, data.get("data", {})
+        return False, data.get("error", data.get("message", "添加离线任务失败"))
+    except Exception as exc:
+        logger.exception("115 离线任务失败")
+        return False, str(exc)
+
+
+def extract_share_code(url):
+    """从分享链接提取 share_code。支持 115.com/s/xxx 和 115cdn.com/s/xxx"""
+    m = re.search(r"/s/([a-zA-Z0-9]+)", url)
+    return m.group(1) if m else None
+
+
+def detect_link_type(text):
+    """识别链接类型。返回 (type, url) 或 (None, None)
+    type: share/offline
+    """
+    text = text.strip()
+    # 分享链接
+    if "115.com/s/" in text or "115cdn.com/s/" in text:
+        return "share", text
+    # 磁力
+    if text.startswith("magnet:"):
+        return "offline", text
+    # 电驴
+    if text.startswith("ed2k://"):
+        return "offline", text
+    return None, None
+
+
+# ========== TG Bot Long Polling ==========
+
+def tg_api_call(token, method, proxy_url=None, **kwargs):
+    """TG Bot API 调用封装"""
+    api_url = f"https://api.telegram.org/bot{token}/{method}"
+    request_kwargs = {"json": kwargs, "timeout": 30}
+    if proxy_url:
+        request_kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
+    resp = requests.post(api_url, **request_kwargs)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def tg_send_message(token, chat_id, text, reply_markup=None, proxy_url=None):
+    """发送 TG 消息"""
+    kwargs = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        kwargs["reply_markup"] = reply_markup
+    return tg_api_call(token, "sendMessage", proxy_url=proxy_url, **kwargs)
+
+
+def tg_answer_callback(token, callback_query_id, text=None, proxy_url=None):
+    """回应 inline keyboard 回调"""
+    kwargs = {"callback_query_id": callback_query_id}
+    if text:
+        kwargs["text"] = text
+    return tg_api_call(token, "answerCallbackQuery", proxy_url=proxy_url, **kwargs)
+
+
+def tg_edit_message(token, chat_id, message_id, text, proxy_url=None):
+    """编辑消息（用于更新按钮点击后的状态）"""
+    return tg_api_call(
+        token, "editMessageText", proxy_url=proxy_url,
+        chat_id=chat_id, message_id=message_id, text=text
+    )
+
+
+def build_folder_keyboard(folders, action_type):
+    """构建文件夹选择 inline keyboard
+    folders: [(名字, cid), ...]
+    action_type: share/offline
+    """
+    buttons = []
+    for name, cid in folders:
+        buttons.append([{"text": name, "callback_data": f"{action_type}:{cid}"}])
+    return {"inline_keyboard": buttons}
+
+
+def handle_tg_message(token, chat_id, text, proxy_url=None):
+    """处理 TG 文本消息"""
+    link_type, url = detect_link_type(text)
+    if not link_type:
+        return  # 忽略不支持的链接
+
+    # 检查 115 登录状态
+    cookie = get_115_cookie()
+    if not cookie:
+        tg_send_message(token, chat_id, "❌ 115 未登录，请先在 AutoISO 网页端扫码登录", proxy_url=proxy_url)
+        return
+
+    # 获取目标文件夹列表
+    if link_type == "share":
+        folders = parse_folder_list(get_115_share_folders())
+        action_text = "转存"
+    else:
+        folders = parse_folder_list(get_115_offline_folders())
+        action_text = "离线下载"
+
+    if not folders:
+        tg_send_message(token, chat_id, f"❌ 未配置{action_text}目标文件夹，请先在 AutoISO 设置", proxy_url=proxy_url)
+        return
+
+    # 保存待处理动作
+    _TG_PENDING_ACTIONS[chat_id] = {"action": link_type, "url": url}
+
+    # 发送文件夹选择键盘
+    keyboard = build_folder_keyboard(folders, link_type)
+    tg_send_message(
+        token, chat_id,
+        f"📥 检测到{action_text}链接，请选择目标文件夹：\n\n{url[:80]}...",
+        reply_markup=keyboard,
+        proxy_url=proxy_url,
+    )
+
+
+def handle_tg_callback(token, callback_query, proxy_url=None):
+    """处理 inline keyboard 回调"""
+    callback_id = callback_query.get("id")
+    chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
+    message_id = callback_query.get("message", {}).get("message_id")
+    callback_data = callback_query.get("data", "")
+
+    # 解析回调数据
+    if ":" not in callback_data:
+        tg_answer_callback(token, callback_id, "无效的操作", proxy_url=proxy_url)
+        return
+
+    action_type, target_cid = callback_data.split(":", 1)
+    pending = _TG_PENDING_ACTIONS.get(chat_id)
+    if not pending or pending.get("action") != action_type:
+        tg_answer_callback(token, callback_id, "操作已过期，请重新发送链接", proxy_url=proxy_url)
+        return
+
+    url = pending.get("url")
+    cookie = get_115_cookie()
+    if not cookie:
+        tg_answer_callback(token, callback_id, "115 未登录", proxy_url=proxy_url)
+        tg_edit_message(token, chat_id, message_id, "❌ 115 未登录，请重新登录后再试", proxy_url=proxy_url)
+        _TG_PENDING_ACTIONS.pop(chat_id, None)
+        return
+
+    # 先回应回调，避免 TG 显示 loading
+    tg_answer_callback(token, callback_id, "处理中...", proxy_url=proxy_url)
+    tg_edit_message(token, chat_id, message_id, f"⏳ 正在处理...\n\n{url[:80]}...", proxy_url=proxy_url)
+
+    # 执行操作
+    if action_type == "share":
+        share_code = extract_share_code(url)
+        if not share_code:
+            tg_edit_message(token, chat_id, message_id, "❌ 无法解析分享码", proxy_url=proxy_url)
+            _TG_PENDING_ACTIONS.pop(chat_id, None)
+            return
+        success, result = api_115_share_receive(share_code, "", target_cid, cookie)
+        action_text = "转存"
+    else:
+        success, result = api_115_add_offline_task(url, target_cid, cookie)
+        action_text = "离线任务"
+
+    # 清理待处理动作
+    _TG_PENDING_ACTIONS.pop(chat_id, None)
+
+    # 反馈结果
+    if success:
+        tg_edit_message(
+            token, chat_id, message_id,
+            f"✅ {action_text}成功！\n\n{url[:80]}...",
+            proxy_url=proxy_url,
+        )
+        logger.info("📥 [115助手] %s成功: %s -> cid=%s", action_text, url, target_cid)
+    else:
+        error_msg = result if isinstance(result, str) else str(result)
+        tg_edit_message(
+            token, chat_id, message_id,
+            f"❌ {action_text}失败：{error_msg}\n\n{url[:80]}...",
+            proxy_url=proxy_url,
+        )
+        logger.warning("📥 [115助手] %s失败: %s, 原因: %s", action_text, url, error_msg)
+
+
+def tg_polling_loop():
+    """TG Bot Long Polling 主循环"""
+    global _TG_LAST_UPDATE_ID
+    logger.info("📥 [115助手] TG Bot 消息接收线程启动")
+
+    while not _TG_POLLING_STOP.is_set():
+        try:
+            token = get_setting("tg_bot_token")
+            chat_id = get_setting("tg_chat_id")
+            proxy_url = get_global_proxy()
+
+            if not token or not chat_id:
+                time.sleep(5)
+                continue
+
+            # 获取更新
+            result = tg_api_call(
+                token, "getUpdates", proxy_url=proxy_url,
+                offset=_TG_LAST_UPDATE_ID + 1, timeout=25
+            )
+
+            if not result.get("ok"):
+                logger.warning("📥 [115助手] TG getUpdates 返回异常: %s", result)
+                time.sleep(5)
+                continue
+
+            updates = result.get("result", [])
+            for update in updates:
+                update_id = update.get("update_id")
+                _TG_LAST_UPDATE_ID = max(_TG_LAST_UPDATE_ID, update_id)
+
+                # 处理文本消息
+                message = update.get("message", {})
+                msg_chat_id = message.get("chat", {}).get("id")
+                text = message.get("text", "")
+                if msg_chat_id and text and str(msg_chat_id) == str(chat_id):
+                    handle_tg_message(token, chat_id, text, proxy_url=proxy_url)
+
+                # 处理回调
+                callback_query = update.get("callback_query")
+                if callback_query:
+                    handle_tg_callback(token, callback_query, proxy_url=proxy_url)
+
+        except requests.exceptions.ReadTimeout:
+            # getUpdates long polling 超时是正常的，继续下一轮
+            continue
+        except Exception as exc:
+            logger.exception("📥 [115助手] TG 消息处理异常: %s", exc)
+            time.sleep(5)
+
+    logger.info("📥 [115助手] TG Bot 消息接收线程停止")
+
+
+def start_tg_polling():
+    """启动 TG Bot 消息接收线程"""
+    global _TG_POLLING_THREAD
+    if _TG_POLLING_THREAD and _TG_POLLING_THREAD.is_alive():
+        return
+    _TG_POLLING_STOP.clear()
+    _TG_POLLING_THREAD = threading.Thread(target=tg_polling_loop, daemon=True, name="tg-polling")
+    _TG_POLLING_THREAD.start()
+
+
+def stop_tg_polling():
+    """停止 TG Bot 消息接收线程"""
+    _TG_POLLING_STOP.set()
+    if _TG_POLLING_THREAD:
+        _TG_POLLING_THREAD.join(timeout=5)
+
+
+# ========== 115 助手 Web API ==========
+
+@app.route("/api/115/status", methods=["GET"])
+@require_login
+def get_115_status():
+    """获取 115 登录状态"""
+    cookie = get_115_cookie()
+    return jsonify({
+        "logged_in": bool(cookie),
+        "share_folders": get_115_share_folders(),
+        "offline_folders": get_115_offline_folders(),
+    })
+
+
+@app.route("/api/115/qrcode/start", methods=["POST"])
+@require_login
+def start_115_qrcode():
+    """开始扫码登录流程"""
+    token_data, error = api_115_qrcode_token()
+    if error:
+        return jsonify({"error": error}), 500
+
+    with _115_QRCODE_LOCK:
+        _115_QRCODE_STATE.update({
+            "uid": token_data["uid"],
+            "time": token_data["time"],
+            "sign": token_data["sign"],
+            "status": "waiting",
+        })
+
+    return jsonify({
+        "uid": token_data["uid"],
+        "qrcode_url": api_115_qrcode_image(token_data["uid"]),
+    })
+
+
+@app.route("/api/115/qrcode/status", methods=["GET"])
+@require_login
+def check_115_qrcode_status():
+    """轮询扫码状态"""
+    with _115_QRCODE_LOCK:
+        state = dict(_115_QRCODE_STATE)
+
+    if not state.get("uid"):
+        return jsonify({"status": "idle"})
+
+    status, cookie, error = api_115_qrcode_status(state["uid"], state["time"], state["sign"])
+
+    if status == "success" and cookie:
+        set_115_cookie(cookie)
+        with _115_QRCODE_LOCK:
+            _115_QRCODE_STATE["status"] = "success"
+        logger.info("📥 [115助手] 扫码登录成功，cookie 已保存")
+        return jsonify({"status": "success"})
+    elif status == "expired":
+        with _115_QRCODE_LOCK:
+            _115_QRCODE_STATE["status"] = "expired"
+        return jsonify({"status": "expired", "message": "二维码已过期，请刷新"})
+    elif status == "error":
+        return jsonify({"status": "error", "message": error})
+
+    return jsonify({"status": status})
+
+
+@app.route("/api/115/logout", methods=["POST"])
+@require_login
+def logout_115():
+    """清除 115 cookie"""
+    delete_setting("115_cookie")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/115/folders", methods=["POST"])
+@require_login
+def save_115_folders():
+    """保存目标文件夹配置"""
+    payload = request.get_json(force=True) or {}
+    if "share_folders" in payload:
+        set_setting("115_share_folders", (payload["share_folders"] or "").strip())
+    if "offline_folders" in payload:
+        set_setting("115_offline_folders", (payload["offline_folders"] or "").strip())
+    return jsonify({"ok": True})
+
+
+# 启动 TG Bot 消息接收（在 scheduler.start() 之后）
+# 延迟启动，确保数据库已初始化
+def delayed_start_tg_polling():
+    import time
+    time.sleep(2)  # 等待数据库初始化完成
+    with app.app_context():
+        if get_setting("tg_bot_token") and get_setting("tg_chat_id"):
+            start_tg_polling()
+            logger.info("📥 [115助手] 已启动，等待 TG 消息...")
+
+threading.Thread(target=delayed_start_tg_polling, daemon=True).start()
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

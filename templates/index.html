@@ -409,6 +409,88 @@
                   <button class="btn btn-outline-danger rounded-pill px-3 fw-medium shadow-sm" type="button" id="btnClearTg">清空配置</button>
               </div>
             </form>
+
+            <!-- 115 助手配置 -->
+            <div class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0 mt-4">
+              <div class="col-12">
+                <h6 class="fw-bold mb-3"><i class="bi bi-cloud-arrow-down text-primary me-2"></i>115 助手</h6>
+                <p class="text-muted small mb-4">通过 TG Bot 发送 115 分享链接或磁力/电驴链接，自动转存或离线下载到指定文件夹</p>
+              </div>
+
+              <!-- 115 账号状态 -->
+              <div class="col-12">
+                <div class="d-flex align-items-center justify-content-between p-3 bg-light rounded-3">
+                  <div>
+                    <div class="fw-bold mb-1">115 账号状态</div>
+                    <div id="115StatusText" class="text-muted small">检查中...</div>
+                  </div>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary rounded-pill px-3" type="button" id="btn115Login">
+                      <i class="bi bi-qr-code me-1"></i>扫码登录
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3 d-none" type="button" id="btn115Logout">
+                      退出登录
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 转存目标文件夹 -->
+              <div class="col-12">
+                <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
+                  转存目标文件夹
+                  <i class="bi bi-info-circle text-muted"
+                     style="font-size: 0.8rem; cursor: help;"
+                     data-bs-toggle="tooltip"
+                     data-bs-placement="top"
+                     title="格式：文件夹名:cid;文件夹名:cid（分号分隔）。cid 可从 115 网页端文件夹 URL 中获取。"></i>
+                </label>
+                <input type="text" class="form-control bg-light border-0" id="115ShareFolders"
+                       placeholder="最近接收:3266138160150861965;Media中转:3258406050048760236">
+                <div class="form-text">TG Bot 收到分享链接时，会弹出这些文件夹供选择</div>
+              </div>
+
+              <!-- 离线下载目标文件夹 -->
+              <div class="col-12">
+                <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
+                  离线下载目标文件夹
+                  <i class="bi bi-info-circle text-muted"
+                     style="font-size: 0.8rem; cursor: help;"
+                     data-bs-toggle="tooltip"
+                     data-bs-placement="top"
+                     title="格式同转存目标文件夹。支持磁力链接 (magnet:) 和电驴链接 (ed2k://)。"></i>
+                </label>
+                <input type="text" class="form-control bg-light border-0" id="115OfflineFolders"
+                       placeholder="最近接收:3266138160150861965;Media中转:3258406050048760236">
+                <div class="form-text">TG Bot 收到磁力/电驴链接时，会弹出这些文件夹供选择</div>
+              </div>
+
+              <div class="col-12">
+                <button class="btn btn-primary rounded-pill px-4 fw-bold" type="button" id="btnSave115Folders">
+                  <i class="bi bi-check-lg me-1"></i>保存文件夹配置
+                </button>
+              </div>
+            </div>
+
+            <!-- 使用说明 -->
+            <div class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0 mt-3">
+              <div class="col-12">
+                <h6 class="fw-bold mb-3"><i class="bi bi-info-circle text-info me-2"></i>使用方法</h6>
+                <ol class="text-muted small mb-0 ps-3">
+                  <li class="mb-2">点击「扫码登录」，用手机 115 APP 扫描二维码完成登录</li>
+                  <li class="mb-2">配置转存和离线下载的目标文件夹（格式：名字:cid，多个用分号分隔）</li>
+                  <li class="mb-2">在 TG 上向你的 Bot 发送链接：
+                    <ul class="mt-2">
+                      <li><strong>分享链接</strong>：<code>https://115.com/s/xxxxx</code> 或 <code>https://115cdn.com/s/xxxxx</code></li>
+                      <li><strong>磁力链接</strong>：<code>magnet:?xt=urn:btih:xxxxx</code></li>
+                      <li><strong>电驴链接</strong>：<code>ed2k://|file|xxxxx|</code></li>
+                    </ul>
+                  </li>
+                  <li class="mb-2">Bot 会回复文件夹选择按钮，点击后自动执行转存/离线下载</li>
+                  <li>配合「转存补大小」功能，文件转存到「最近接收」后会自动添加大小标签</li>
+                </ol>
+              </div>
+            </div>
           </div>
           <div class="tab-pane fade" id="tabScraper">
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
@@ -2992,6 +3074,159 @@ echo "------------------------------------------------"
             }
         }},5000);}
     boot();
+  </script>
+
+  <!-- 115 扫码登录弹窗 -->
+  <div class="modal fade" id="modal115QRCode" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content rounded-4 border-0 shadow">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold"><i class="bi bi-qr-code me-2"></i>115 扫码登录</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body text-center py-4">
+          <div id="115QRCodeContainer">
+            <div class="spinner-border text-primary mb-3" role="status">
+              <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="text-muted">正在生成二维码...</p>
+          </div>
+          <div id="115QRCodeStatus" class="mt-3 text-muted small"></div>
+        </div>
+        <div class="modal-footer border-0 justify-content-center">
+          <p class="text-muted small mb-0">请使用手机 115 APP 扫描二维码</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== 115 助手功能 ==========
+    let qrcodeCheckTimer = null;
+
+    async function load115Status() {
+      try {
+        const data = await api('/api/115/status');
+        const statusText = $('115StatusText');
+        const btnLogin = $('btn115Login');
+        const btnLogout = $('btn115Logout');
+        const shareFoldersInput = $('115ShareFolders');
+        const offlineFoldersInput = $('115OfflineFolders');
+
+        if (data.logged_in) {
+          statusText.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>已登录</span>';
+          btnLogin.classList.add('d-none');
+          btnLogout.classList.remove('d-none');
+        } else {
+          statusText.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle-fill me-1"></i>未登录</span>';
+          btnLogin.classList.remove('d-none');
+          btnLogout.classList.add('d-none');
+        }
+
+        shareFoldersInput.value = data.share_folders || '';
+        offlineFoldersInput.value = data.offline_folders || '';
+      } catch (err) {
+        console.error('加载 115 状态失败:', err);
+        $('115StatusText').innerHTML = '<span class="text-danger">加载失败</span>';
+      }
+    }
+
+    async function startQRCodeLogin() {
+      const modal = new bootstrap.Modal($('modal115QRCode'));
+      const container = $('115QRCodeContainer');
+      const statusDiv = $('115QRCodeStatus');
+
+      container.innerHTML = `
+        <div class="spinner-border text-primary mb-3" role="status">
+          <span class="visually-hidden">加载中...</span>
+        </div>
+        <p class="text-muted">正在生成二维码...</p>
+      `;
+      statusDiv.textContent = '';
+      modal.show();
+
+      try {
+        const data = await api('/api/115/qrcode/start', { method: 'POST' });
+        container.innerHTML = `<img src="${data.qrcode_url}" alt="115 登录二维码" class="img-fluid rounded-3" style="max-width: 280px;">`;
+        statusDiv.textContent = '等待扫码...';
+
+        // 开始轮询扫码状态
+        if (qrcodeCheckTimer) clearInterval(qrcodeCheckTimer);
+        qrcodeCheckTimer = setInterval(async () => {
+          try {
+            const status = await api('/api/115/qrcode/status');
+            if (status.status === 'scanned') {
+              statusDiv.innerHTML = '<span class="text-info"><i class="bi bi-check-circle me-1"></i>已扫码，等待确认...</span>';
+            } else if (status.status === 'success') {
+              clearInterval(qrcodeCheckTimer);
+              qrcodeCheckTimer = null;
+              statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>登录成功！</span>';
+              setTimeout(() => {
+                modal.hide();
+                load115Status();
+                notify('115 登录成功', 'success');
+              }, 1000);
+            } else if (status.status === 'expired') {
+              clearInterval(qrcodeCheckTimer);
+              qrcodeCheckTimer = null;
+              statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>二维码已过期，请重新打开</span>';
+            } else if (status.status === 'error') {
+              clearInterval(qrcodeCheckTimer);
+              qrcodeCheckTimer = null;
+              statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${status.message || '登录失败'}</span>`;
+            }
+          } catch (err) {
+            console.error('检查扫码状态失败:', err);
+          }
+        }, 2000);
+      } catch (err) {
+        container.innerHTML = '<div class="text-danger"><i class="bi bi-exclamation-triangle fs-1 mb-3"></i><p>生成二维码失败</p></div>';
+        statusDiv.textContent = err.message;
+      }
+    }
+
+    // 事件绑定
+    $('btn115Login').addEventListener('click', startQRCodeLogin);
+    $('btn115Logout').addEventListener('click', async () => {
+      if (!await ask('确定退出 115 登录吗？')) return;
+      try {
+        await api('/api/115/logout', { method: 'POST' });
+        await load115Status();
+        notify('已退出登录', 'success');
+      } catch (err) {
+        notify(err.message, 'danger');
+      }
+    });
+
+    $('btnSave115Folders').addEventListener('click', async () => {
+      try {
+        await api('/api/115/folders', {
+          method: 'POST',
+          body: JSON.stringify({
+            share_folders: $('115ShareFolders').value.trim(),
+            offline_folders: $('115OfflineFolders').value.trim(),
+          }),
+        });
+        notify('文件夹配置已保存', 'success');
+      } catch (err) {
+        notify(err.message, 'danger');
+      }
+    });
+
+    // 弹窗关闭时停止轮询
+    $('modal115QRCode').addEventListener('hidden.bs.modal', () => {
+      if (qrcodeCheckTimer) {
+        clearInterval(qrcodeCheckTimer);
+        qrcodeCheckTimer = null;
+      }
+    });
+
+    // 在 boot() 中加载 115 状态
+    const originalBoot = boot;
+    boot = async function() {
+      await originalBoot();
+      await load115Status();
+    };
   </script>
 </body>
 </html>
