@@ -3140,6 +3140,16 @@ echo "------------------------------------------------"
   <script>
     // ========== 115 助手功能 ==========
     let qrcodeCheckTimer = null;
+    let mw_115_pollStopped = false;
+
+    function mw_115_stopPolling() {
+      mw_115_pollStopped = true;
+      if (qrcodeCheckTimer) {
+        clearTimeout(qrcodeCheckTimer);
+        clearInterval(qrcodeCheckTimer);
+        qrcodeCheckTimer = null;
+      }
+    }
 
     // 密码显示/隐藏切换
     document.querySelectorAll('.toggle-password').forEach(icon => {
@@ -3230,16 +3240,18 @@ echo "------------------------------------------------"
         container.innerHTML = `<img src="${data.qrcode_url}" alt="115 登录二维码" class="img-fluid rounded-3" style="max-width: 280px;">`;
         statusDiv.textContent = '等待扫码...';
 
-        // 开始轮询扫码状态
-        if (qrcodeCheckTimer) clearInterval(qrcodeCheckTimer);
-        qrcodeCheckTimer = setInterval(async () => {
+        // 开始轮询扫码状态（串行轮询，避免网络慢时请求堆积）
+        mw_115_stopPolling();
+        mw_115_pollStopped = false;
+        const pollOnce = async () => {
+          if (mw_115_pollStopped) return;
+          let next = true;
           try {
             const status = await api('/api/115/qrcode/status');
             if (status.status === 'scanned') {
               statusDiv.innerHTML = '<span class="text-info"><i class="bi bi-check-circle me-1"></i>已扫码，等待确认...</span>';
             } else if (status.status === 'success') {
-              clearInterval(qrcodeCheckTimer);
-              qrcodeCheckTimer = null;
+              next = false;
               statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>登录成功！</span>';
               // 立即更新账号状态卡片，不必等接口回读
               const statusText = $('115StatusText');
@@ -3252,18 +3264,20 @@ echo "------------------------------------------------"
                 notify('115 登录成功', 'success');
               }, 1000);
             } else if (status.status === 'expired') {
-              clearInterval(qrcodeCheckTimer);
-              qrcodeCheckTimer = null;
+              next = false;
               statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>二维码已过期，请重新打开</span>';
             } else if (status.status === 'error') {
-              clearInterval(qrcodeCheckTimer);
-              qrcodeCheckTimer = null;
+              next = false;
               statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${status.message || '登录失败'}</span>`;
             }
           } catch (err) {
             console.error('检查扫码状态失败:', err);
           }
-        }, 2000);
+          if (next && !mw_115_pollStopped) {
+            qrcodeCheckTimer = setTimeout(pollOnce, 2000);
+          }
+        };
+        pollOnce();
       } catch (err) {
         container.innerHTML = '<div class="text-danger"><i class="bi bi-exclamation-triangle fs-1 mb-3"></i><p>生成二维码失败</p></div>';
         statusDiv.textContent = err.message;
@@ -3332,10 +3346,7 @@ echo "------------------------------------------------"
 
     // 弹窗关闭时停止轮询，并强制刷新一次账号状态
     $('modal115QRCode').addEventListener('hidden.bs.modal', async () => {
-      if (qrcodeCheckTimer) {
-        clearInterval(qrcodeCheckTimer);
-        qrcodeCheckTimer = null;
-      }
+      mw_115_stopPolling();
       // 手动关窗时可能刚在手机上确认登录，这里补查一次，确保 cookie 落库
       try {
         const status = await api('/api/115/qrcode/status');

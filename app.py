@@ -4327,6 +4327,11 @@ def save_telegram_settings():
     set_setting("tg_token", tg_token)
     set_setting("tg_chat_id", tg_chat_id)
     db.session.commit()
+    # 保存后立即拉起消息接收线程，无需重启容器
+    try:
+        start_tg_polling()
+    except Exception:
+        logger.exception("启动 TG 消息接收线程失败")
     return jsonify({"ok": True})
 
 
@@ -6197,6 +6202,7 @@ def api_115_qrcode_status(uid, time_val, sign, app_type="web"):
             "GET",
             f"{QRCODE_API_BASE}/get/status/",
             params={"uid": uid, "time": time_val, "sign": sign},
+            timeout=8,
         )
         data = resp.json()
         # 115 API 可能返回 {"status": 0} 或 {"data": {"status": 0}} 两种格式
@@ -6244,10 +6250,12 @@ def api_115_qrcode_status(uid, time_val, sign, app_type="web"):
             logger.warning("115 扫码状态返回 status=None, 原始数据: %s", data)
             return "waiting", None, None
         else:
-            return "error", None, f"未知状态: {status}"
+            logger.warning("115 扫码状态返回未知值: %s", status)
+            return "waiting", None, None
     except Exception as exc:
-        logger.exception("115 扫码状态查询失败")
-        return "error", None, str(exc)
+        # 网络抖动/超时不应该中断扫码会话，按等待继续轮询
+        logger.warning("115 扫码状态查询异常，稍后重试: %s", exc)
+        return "waiting", None, None
 
 
 def api_115_share_receive(share_code, receive_code, target_cid, cookie):
@@ -6486,8 +6494,10 @@ def tg_polling_loop():
     logger.info("📥 [115助手] TG Bot 消息接收线程启动")
 
     while not _TG_POLLING_STOP.is_set():
+        ctx = app.app_context()
+        ctx.push()
         try:
-            token = get_setting("tg_bot_token")
+            token = get_setting("tg_token")
             chat_id = get_setting("tg_chat_id")
             proxy_url = get_global_proxy()
 
@@ -6515,8 +6525,15 @@ def tg_polling_loop():
                 message = update.get("message", {})
                 msg_chat_id = message.get("chat", {}).get("id")
                 text = message.get("text", "")
-                if msg_chat_id and text and str(msg_chat_id) == str(chat_id):
-                    handle_tg_message(token, chat_id, text, proxy_url=proxy_url)
+                if msg_chat_id and text:
+                    if str(msg_chat_id) == str(chat_id):
+                        logger.info("📥 [115助手] 收到 TG 消息: %s", text[:120])
+                        handle_tg_message(token, chat_id, text, proxy_url=proxy_url)
+                    else:
+                        logger.warning(
+                            "📥 [115助手] 忽略非配置会话的消息: chat_id=%s (已配置 %s)",
+                            msg_chat_id, chat_id,
+                        )
 
                 # 处理回调
                 callback_query = update.get("callback_query")
@@ -6529,6 +6546,10 @@ def tg_polling_loop():
         except Exception as exc:
             logger.exception("📥 [115助手] TG 消息处理异常: %s", exc)
             time.sleep(5)
+        finally:
+            # 释放本次应用上下文，避免长轮询长时间占用会话
+            db.session.remove()
+            ctx.pop()
 
     logger.info("📥 [115助手] TG Bot 消息接收线程停止")
 
@@ -6690,9 +6711,11 @@ def delayed_start_tg_polling():
     import time
     time.sleep(2)  # 等待数据库初始化完成
     with app.app_context():
-        if get_setting("tg_bot_token") and get_setting("tg_chat_id"):
+        if get_setting("tg_token") and get_setting("tg_chat_id"):
             start_tg_polling()
             logger.info("📥 [115助手] 已启动，等待 TG 消息...")
+        else:
+            logger.info("📥 [115助手] 未配置 TG Token 或 Chat ID，消息接收未启动")
 
 threading.Thread(target=delayed_start_tg_polling, daemon=True).start()
 
