@@ -653,8 +653,8 @@ def get_transfer_size_cd2_refresh_path():
 
 # ========== 115 助手配置 ==========
 
-DEFAULT_115_SHARE_FOLDERS = "最近接收:3266138160150861965"
-DEFAULT_115_OFFLINE_FOLDERS = "最近接收:3266138160150861965"
+DEFAULT_115_SHARE_FOLDERS = ""
+DEFAULT_115_OFFLINE_FOLDERS = ""
 
 
 def get_115_cookie():
