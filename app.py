@@ -6409,8 +6409,8 @@ def handle_tg_message(token, chat_id, text, proxy_url=None):
         tg_send_message(token, chat_id, f"❌ 未配置{action_text}目标文件夹，请先在 AutoISO 设置", proxy_url=proxy_url)
         return
 
-    # 保存待处理动作
-    _TG_PENDING_ACTIONS[chat_id] = {"action": link_type, "url": url}
+    # 保存待处理动作（键统一用字符串，避免回调里 int/str 不匹配）
+    _TG_PENDING_ACTIONS[str(chat_id)] = {"action": link_type, "url": url}
 
     # 发送文件夹选择键盘
     keyboard = build_folder_keyboard(folders, link_type)
@@ -6425,7 +6425,8 @@ def handle_tg_message(token, chat_id, text, proxy_url=None):
 def handle_tg_callback(token, callback_query, proxy_url=None):
     """处理 inline keyboard 回调"""
     callback_id = callback_query.get("id")
-    chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
+    # 统一转成字符串，与写入 _TG_PENDING_ACTIONS 时的键保持一致
+    chat_id = str(callback_query.get("message", {}).get("chat", {}).get("id") or "")
     message_id = callback_query.get("message", {}).get("message_id")
     callback_data = callback_query.get("data", "")
 
