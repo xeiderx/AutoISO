@@ -153,6 +153,7 @@
         <li class="nav-item"><a class="nav-link" data-view="viewRename"><i class="bi bi-tags me-3 opacity-75"></i>命名与标签</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewHistory"><i class="bi bi-clock-history me-3 opacity-75"></i>历史记录</a></li>
         <li class="nav-item"><a class="nav-link" data-view="viewScrape"><i class="bi bi-film me-3 opacity-75"></i>刮削记录</a></li>
+        <li class="nav-item"><a class="nav-link" data-view="view115Assistant"><i class="bi bi-cloud-arrow-down me-3 opacity-75"></i>115 助手</a></li>
       </ul>
       <div class="mt-auto pt-4">
         <a href="/logout" class="btn btn-dark w-100 rounded-3 text-secondary d-flex align-items-center justify-content-center" style="background: rgba(255,255,255,0.05); border: none; transition: 0.2s;"><i class="bi bi-box-arrow-left me-2"></i>退出登录</a>
@@ -409,92 +410,6 @@
                   <button class="btn btn-outline-danger rounded-pill px-3 fw-medium shadow-sm" type="button" id="btnClearTg">清空配置</button>
               </div>
             </form>
-
-            <!-- 115 助手配置 -->
-            <div class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0 mt-4">
-              <div class="col-12">
-                <h6 class="fw-bold mb-3"><i class="bi bi-cloud-arrow-down text-primary me-2"></i>115 助手</h6>
-                <p class="text-muted small mb-4">通过 TG Bot 发送 115 分享链接或磁力/电驴链接，自动转存或离线下载到指定文件夹</p>
-              </div>
-
-              <!-- 115 账号状态 -->
-              <div class="col-12">
-                <div class="d-flex align-items-center justify-content-between p-3 bg-light rounded-3">
-                  <div>
-                    <div class="fw-bold mb-1">115 账号状态</div>
-                    <div id="115StatusText" class="text-muted small">检查中...</div>
-                  </div>
-                  <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-primary rounded-pill px-3" type="button" id="btn115Login">
-                      <i class="bi bi-qr-code me-1"></i>扫码登录
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3 d-none" type="button" id="btn115Logout">
-                      退出登录
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 转存目标文件夹 -->
-              <div class="col-12">
-                <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
-                  转存目标文件夹
-                  <i class="bi bi-info-circle text-muted"
-                     style="font-size: 0.8rem; cursor: help;"
-                     data-bs-toggle="tooltip"
-                     data-bs-placement="top"
-                     title="格式：文件夹名:cid;文件夹名:cid（分号分隔）。cid 可从 115 网页端文件夹 URL 中获取。"></i>
-                </label>
-                <div class="position-relative">
-                  <input type="text" class="form-control bg-light border-0" id="115ShareFolders"
-                         placeholder="最近接收:xxx;Media中转:xxx">
-                </div>
-                <div class="form-text">TG Bot 收到分享链接时，会弹出这些文件夹供选择</div>
-              </div>
-
-              <!-- 离线下载目标文件夹 -->
-              <div class="col-12">
-                <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
-                  离线下载目标文件夹
-                  <i class="bi bi-info-circle text-muted"
-                     style="font-size: 0.8rem; cursor: help;"
-                     data-bs-toggle="tooltip"
-                     data-bs-placement="top"
-                     title="格式同转存目标文件夹。支持磁力链接 (magnet:) 和电驴链接 (ed2k://)。"></i>
-                </label>
-                <div class="position-relative">
-                  <input type="text" class="form-control bg-light border-0" id="115OfflineFolders"
-                         placeholder="最近接收:xxx;Media中转:xxx">
-                </div>
-                <div class="form-text">TG Bot 收到磁力/电驴链接时，会弹出这些文件夹供选择</div>
-              </div>
-
-              <div class="col-12">
-                <button class="btn btn-primary rounded-pill px-4 fw-bold" type="button" id="btnSave115Folders">
-                  <i class="bi bi-check-lg me-1"></i>保存文件夹配置
-                </button>
-              </div>
-            </div>
-
-            <!-- 使用说明 -->
-            <div class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0 mt-3">
-              <div class="col-12">
-                <h6 class="fw-bold mb-3"><i class="bi bi-info-circle text-info me-2"></i>使用方法</h6>
-                <ol class="text-muted small mb-0 ps-3">
-                  <li class="mb-2">点击「扫码登录」，用手机 115 APP 扫描二维码完成登录</li>
-                  <li class="mb-2">配置转存和离线下载的目标文件夹（格式：名字:cid，多个用分号分隔）</li>
-                  <li class="mb-2">在 TG 上向你的 Bot 发送链接：
-                    <ul class="mt-2">
-                      <li><strong>分享链接</strong>：<code>https://115.com/s/xxxxx</code> 或 <code>https://115cdn.com/s/xxxxx</code></li>
-                      <li><strong>磁力链接</strong>：<code>magnet:?xt=urn:btih:xxxxx</code></li>
-                      <li><strong>电驴链接</strong>：<code>ed2k://|file|xxxxx|</code></li>
-                    </ul>
-                  </li>
-                  <li class="mb-2">Bot 会回复文件夹选择按钮，点击后自动执行转存/离线下载</li>
-                  <li>配合「转存补大小」功能，文件转存到「最近接收」后会自动添加大小标签</li>
-                </ol>
-              </div>
-            </div>
           </div>
           <div class="tab-pane fade" id="tabScraper">
             <form id="scrapeForm" class="row g-4 bg-white p-4 rounded-4 shadow-sm mx-0">
@@ -850,6 +765,95 @@
       <div class="row g-4 mx-0" id="scrapeRecordsContainer"></div>
       <div id="scrapePagination" class="px-2"></div>
     </section>
+
+    <!-- 115 助手 -->
+    <section id="view115Assistant" class="app-view d-none">
+      <div class="row g-4 mx-0">
+        <!-- 115 账号状态 -->
+        <div class="col-12">
+          <div class="bg-white p-4 rounded-4 shadow-sm">
+            <h6 class="fw-bold mb-3"><i class="bi bi-cloud-arrow-down text-primary me-2"></i>115 助手</h6>
+            <p class="text-muted small mb-4">通过 TG Bot 发送 115 分享链接或磁力/电驴链接，自动转存或离线下载到指定文件夹</p>
+
+            <div class="d-flex align-items-center justify-content-between p-3 bg-light rounded-3">
+              <div>
+                <div class="fw-bold mb-1">115 账号状态</div>
+                <div id="115StatusText" class="text-muted small">检查中...</div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-primary rounded-pill px-3" type="button" id="btn115Login">
+                  <i class="bi bi-qr-code me-1"></i>扫码登录
+                </button>
+                <button class="btn btn-sm btn-outline-danger rounded-pill px-3 d-none" type="button" id="btn115Logout">
+                  退出登录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 目标文件夹配置 -->
+        <div class="col-12">
+          <div class="bg-white p-4 rounded-4 shadow-sm">
+            <h6 class="fw-bold mb-4"><i class="bi bi-folder text-warning me-2"></i>目标文件夹配置</h6>
+
+            <!-- 转存目标文件夹 -->
+            <div class="mb-4">
+              <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
+                转存目标文件夹
+                <i class="bi bi-info-circle text-muted"
+                   style="font-size: 0.8rem; cursor: help;"
+                   data-bs-toggle="tooltip"
+                   data-bs-placement="top"
+                   title="格式：文件夹名:cid;文件夹名:cid（分号分隔）。cid 可从 115 网页端文件夹 URL 中获取。"></i>
+              </label>
+              <input type="text" class="form-control bg-light border-0" id="115ShareFolders"
+                     placeholder="最近接收:xxx;Media中转:xxx">
+              <div class="form-text">TG Bot 收到分享链接时，会弹出这些文件夹供选择</div>
+            </div>
+
+            <!-- 离线下载目标文件夹 -->
+            <div class="mb-4">
+              <label class="form-label text-muted small fw-bold d-flex align-items-center gap-1">
+                离线下载目标文件夹
+                <i class="bi bi-info-circle text-muted"
+                   style="font-size: 0.8rem; cursor: help;"
+                   data-bs-toggle="tooltip"
+                   data-bs-placement="top"
+                   title="格式同转存目标文件夹。支持磁力链接 (magnet:) 和电驴链接 (ed2k://)。"></i>
+              </label>
+              <input type="text" class="form-control bg-light border-0" id="115OfflineFolders"
+                     placeholder="最近接收:xxx;Media中转:xxx">
+              <div class="form-text">TG Bot 收到磁力/电驴链接时，会弹出这些文件夹供选择</div>
+            </div>
+
+            <button class="btn btn-primary rounded-pill px-4 fw-bold" type="button" id="btnSave115Folders">
+              <i class="bi bi-check-lg me-1"></i>保存文件夹配置
+            </button>
+          </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="col-12">
+          <div class="bg-white p-4 rounded-4 shadow-sm">
+            <h6 class="fw-bold mb-3"><i class="bi bi-info-circle text-info me-2"></i>使用方法</h6>
+            <ol class="text-muted small mb-0 ps-3">
+              <li class="mb-2">点击「扫码登录」，用手机 115 APP 扫描二维码完成登录</li>
+              <li class="mb-2">配置转存和离线下载的目标文件夹（格式：名字:cid，多个用分号分隔）</li>
+              <li class="mb-2">在 TG 上向你的 Bot 发送链接：
+                <ul class="mt-2">
+                  <li><strong>分享链接</strong>：<code>https://115.com/s/xxxxx</code> 或 <code>https://115cdn.com/s/xxxxx</code></li>
+                  <li><strong>磁力链接</strong>：<code>magnet:?xt=urn:btih:xxxxx</code></li>
+                  <li><strong>电驴链接</strong>：<code>ed2k://|file|xxxxx|</code></li>
+                </ul>
+              </li>
+              <li class="mb-2">Bot 会回复文件夹选择按钮，点击后自动执行转存/离线下载</li>
+              <li>配合「转存补大小」功能，文件转存到「最近接收」后会自动添加大小标签</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div class="modal fade" id="deployScriptModal" tabindex="-1">
@@ -997,7 +1001,7 @@
         }, 10);
     });
 
-    async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const r=await fetch(url,init);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
+    async function api(url,opt={}){const init={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};if(opt.body!==undefined)init.body=opt.body;const controller=new AbortController();const timeoutId=setTimeout(()=>controller.abort(),10000);try{const r=await fetch(url,{...init,signal:controller.signal});clearTimeout(timeoutId);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}catch(e){clearTimeout(timeoutId);if(e.name==='AbortError')throw new Error('请求超时');throw e;}}
     
     window.togglePwd = function(btn, inputId) {
         const inp = $(inputId);
@@ -2941,7 +2945,7 @@ echo "------------------------------------------------"
     async function loadLogs(){const d=await api('/api/logs');const logs=Array.isArray(d.logs)?d.logs:[];$('logContent').textContent=logs.length?logs.join('\n\n'):(d.message||'暂无日志');}
     
     sideNav.querySelectorAll('.nav-link').forEach(link=>{link.addEventListener('click',async()=>{sideNav.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));link.classList.add('active');document.querySelectorAll('.app-view').forEach(v=>v.classList.add('d-none'));const vid=link.dataset.view;$(vid).classList.remove('d-none');
-    const titleMap={viewDashboard:'仪表盘',viewSettings:'系统设置',viewAgentNodes:'边缘节点管理',viewHistory:'历史记录',viewScrape:'刮削记录',viewRename:'命名与标签'};
+    const titleMap={viewDashboard:'仪表盘',viewSettings:'系统设置',viewAgentNodes:'边缘节点管理',viewHistory:'历史记录',viewScrape:'刮削记录',viewRename:'命名与标签',view115Assistant:'115 助手'};
     $('pageTitle').textContent=titleMap[vid]||'AutoISO';
     if(window.innerWidth < 992) { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); }
     if(vid==='viewSettings')await loadSettings();
@@ -2949,6 +2953,7 @@ echo "------------------------------------------------"
     if(vid==='viewHistory')await loadHistory();
     if(vid==='viewScrape')await loadScrapeRecords();
     if(vid==='viewRename'){await loadRenameSettings();await loadRenameRules();}
+    if(vid==='view115Assistant')await load115Status();
     });});
     
     $('btnForceCloseSidebar')?.addEventListener('click', () => { const bsOffcanvas = bootstrap.Offcanvas.getInstance($('sidebarMenu')); if(bsOffcanvas) bsOffcanvas.hide(); });
@@ -3256,12 +3261,7 @@ echo "------------------------------------------------"
       }
     });
 
-    // 在 boot() 中加载 115 状态
-    const originalBoot = boot;
-    boot = async function() {
-      await originalBoot();
-      await load115Status();
-    };
+    // 115 助手视图切换时加载状态（见 switchView 逻辑）
   </script>
 </body>
 </html>

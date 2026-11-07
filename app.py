@@ -6482,12 +6482,19 @@ def stop_tg_polling():
 @require_login
 def get_115_status():
     """获取 115 登录状态"""
-    cookie = get_115_cookie()
-    return jsonify({
-        "logged_in": bool(cookie),
-        "share_folders": get_115_share_folders(),
-        "offline_folders": get_115_offline_folders(),
-    })
+    try:
+        cookie = get_115_cookie()
+        share = get_115_share_folders()
+        offline = get_115_offline_folders()
+        logger.debug("115 状态查询: logged_in=%s", bool(cookie))
+        return jsonify({
+            "logged_in": bool(cookie),
+            "share_folders": share,
+            "offline_folders": offline,
+        })
+    except Exception as exc:
+        logger.exception("115 状态查询失败")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/115/qrcode/start", methods=["POST"])
