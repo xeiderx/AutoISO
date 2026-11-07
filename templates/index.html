@@ -445,8 +445,10 @@
                      data-bs-placement="top"
                      title="格式：文件夹名:cid;文件夹名:cid（分号分隔）。cid 可从 115 网页端文件夹 URL 中获取。"></i>
                 </label>
-                <input type="text" class="form-control bg-light border-0" id="115ShareFolders"
-                       placeholder="最近接收:3266138160150861965;Media中转:3258406050048760236">
+                <div class="position-relative">
+                  <input type="text" class="form-control bg-light border-0" id="115ShareFolders"
+                         placeholder="最近接收:xxx;Media中转:xxx">
+                </div>
                 <div class="form-text">TG Bot 收到分享链接时，会弹出这些文件夹供选择</div>
               </div>
 
@@ -460,8 +462,10 @@
                      data-bs-placement="top"
                      title="格式同转存目标文件夹。支持磁力链接 (magnet:) 和电驴链接 (ed2k://)。"></i>
                 </label>
-                <input type="text" class="form-control bg-light border-0" id="115OfflineFolders"
-                       placeholder="最近接收:3266138160150861965;Media中转:3258406050048760236">
+                <div class="position-relative">
+                  <input type="text" class="form-control bg-light border-0" id="115OfflineFolders"
+                         placeholder="最近接收:xxx;Media中转:xxx">
+                </div>
                 <div class="form-text">TG Bot 收到磁力/电驴链接时，会弹出这些文件夹供选择</div>
               </div>
 
@@ -3104,14 +3108,42 @@ echo "------------------------------------------------"
     // ========== 115 助手功能 ==========
     let qrcodeCheckTimer = null;
 
+    // 密码显示/隐藏切换
+    document.querySelectorAll('.toggle-password').forEach(icon => {
+      icon.addEventListener('click', function() {
+        const targetId = this.getAttribute('data-target');
+        const input = $(targetId);
+        if (input.type === 'password') {
+          input.type = 'text';
+          this.classList.remove('bi-eye-slash');
+          this.classList.add('bi-eye');
+        } else {
+          input.type = 'password';
+          this.classList.remove('bi-eye');
+          this.classList.add('bi-eye-slash');
+        }
+      });
+    });
+
     async function load115Status() {
+      const statusText = $('115StatusText');
+      const btnLogin = $('btn115Login');
+      const btnLogout = $('btn115Logout');
+      const shareFoldersInput = $('115ShareFolders');
+      const offlineFoldersInput = $('115OfflineFolders');
+
+      // 设置超时，避免一直卡在「检查中」
+      const timeoutId = setTimeout(() => {
+        if (statusText.innerHTML.includes('检查中')) {
+          statusText.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle-fill me-1"></i>未登录</span>';
+          btnLogin.classList.remove('d-none');
+          btnLogout.classList.add('d-none');
+        }
+      }, 5000);
+
       try {
         const data = await api('/api/115/status');
-        const statusText = $('115StatusText');
-        const btnLogin = $('btn115Login');
-        const btnLogout = $('btn115Logout');
-        const shareFoldersInput = $('115ShareFolders');
-        const offlineFoldersInput = $('115OfflineFolders');
+        clearTimeout(timeoutId);
 
         if (data.logged_in) {
           statusText.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>已登录</span>';
@@ -3126,8 +3158,11 @@ echo "------------------------------------------------"
         shareFoldersInput.value = data.share_folders || '';
         offlineFoldersInput.value = data.offline_folders || '';
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('加载 115 状态失败:', err);
-        $('115StatusText').innerHTML = '<span class="text-danger">加载失败</span>';
+        statusText.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-circle-fill me-1"></i>未登录</span>';
+        btnLogin.classList.remove('d-none');
+        btnLogout.classList.add('d-none');
       }
     }
 

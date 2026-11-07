@@ -6128,7 +6128,19 @@ def api_115_qrcode_status(uid, time_val, sign):
             params={"uid": uid, "time": time_val, "sign": sign},
         )
         data = resp.json()
+        # 115 API 可能返回 {"status": 0} 或 {"data": {"status": 0}} 两种格式
         status = data.get("status")
+        if status is None:
+            # 尝试从 data 字段获取
+            data_field = data.get("data", {})
+            if isinstance(data_field, dict):
+                status = data_field.get("status")
+        # 如果还是 None，检查整个 data 是否是数字
+        if status is None and isinstance(data.get("data"), int):
+            status = data.get("data")
+
+        logger.debug("115 扫码状态返回: %s, 解析后 status=%s", data, status)
+
         if status == 0:
             return "waiting", None, None
         elif status == 1:
@@ -6167,6 +6179,10 @@ def api_115_qrcode_status(uid, time_val, sign):
             return "success", cookie_str, None
         elif status == -1:
             return "expired", None, None
+        elif status is None:
+            # status 为 None 可能是网络问题或 API 变动，继续等待
+            logger.warning("115 扫码状态返回 status=None, 原始数据: %s", data)
+            return "waiting", None, None
         else:
             return "error", None, f"未知状态: {status}"
     except Exception as exc:
