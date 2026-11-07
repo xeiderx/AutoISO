@@ -6090,7 +6090,7 @@ _115_LAST_LOGGED_STATUS = None
 _TG_POLLING_THREAD = None
 _TG_POLLING_STOP = threading.Event()
 _TG_LAST_UPDATE_ID = 0
-_TG_PENDING_ACTIONS = {}  # chat_id -> {"action": "share"/"offline", "url": "...", "msg_id": ...}
+_TG_PENDING_ACTIONS = {}  # "chat_id:share/offline" -> {"items": [url, ...]}
 
 
 def _115_request(method, url, cookie=None, **kwargs):
@@ -6372,24 +6372,30 @@ def extract_share_password(url):
     return m.group(1) if m else ""
 
 
-def detect_link_type(text):
-    """识别链接类型。返回 (type, url) 或 (None, None)
-    type: share/offline
+def extract_links(text):
+    """从一条消息里提取全部链接，返回 [(type, url), ...]，去重且保持出现顺序
+    type: share（115 分享）/ offline（磁力、电驴）
     """
-    text = (text or "").strip()
-    # 分享链接（消息可能带标题/口令，因此用正则搜出链接本体）
-    m = SHARE_URL_RE.search(text)
-    if m:
-        return "share", m.group(0)
-    # 磁力
-    m = re.search(r"magnet:\?[^\s]+", text)
-    if m:
-        return "offline", m.group(0)
-    # 电驴
-    m = re.search(r"ed2k://[^\s]+", text)
-    if m:
-        return "offline", m.group(0)
-    return None, None
+    text = text or ""
+    found = []
+    for m in SHARE_URL_RE.finditer(text):
+        found.append((m.start(), "share", m.group(0)))
+    for m in re.finditer(r"magnet:\?[^\s]+", text):
+        found.append((m.start(), "offline", m.group(0)))
+    for m in re.finditer(r"ed2k://[^\s]+", text):
+        found.append((m.start(), "offline", m.group(0)))
+    found.sort(key=lambda item: item[0])
+
+    links, seen = [], set()
+    for _, link_type, url in found:
+        url = url.strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        links.append((link_type, url))
+        if len(links) >= 50:  # 防止单条消息塞入过多任务
+            break
+    return links
 
 
 # ========== TG Bot Long Polling ==========
@@ -6441,9 +6447,9 @@ def build_folder_keyboard(folders, action_type):
 
 
 def handle_tg_message(token, chat_id, text, proxy_url=None):
-    """处理 TG 文本消息"""
-    link_type, url = detect_link_type(text)
-    if not link_type:
+    """处理 TG 文本消息：提取全部链接，按类型分组，各弹一次文件夹选择"""
+    links = extract_links(text)
+    if not links:
         return  # 忽略不支持的链接
 
     # 检查 115 登录状态
@@ -6452,33 +6458,44 @@ def handle_tg_message(token, chat_id, text, proxy_url=None):
         tg_send_message(token, chat_id, "❌ 115 未登录，请先在 AutoISO 网页端扫码登录", proxy_url=proxy_url)
         return
 
-    # 获取目标文件夹列表
-    if link_type == "share":
-        folders = parse_folder_list(get_115_share_folders())
-        action_text = "转存"
-    else:
-        folders = parse_folder_list(get_115_offline_folders())
-        action_text = "离线下载"
+    # 同类型的多个链接共用一次文件夹选择
+    groups = {}
+    for link_type, url in links:
+        groups.setdefault(link_type, []).append(url)
 
-    if not folders:
-        tg_send_message(token, chat_id, f"❌ 未配置{action_text}目标文件夹，请先在 AutoISO 设置", proxy_url=proxy_url)
-        return
+    for link_type, urls in groups.items():
+        if link_type == "share":
+            folders = parse_folder_list(get_115_share_folders())
+            action_text = "转存"
+        else:
+            folders = parse_folder_list(get_115_offline_folders())
+            action_text = "离线下载"
 
-    # 保存待处理动作（键统一用字符串，避免回调里 int/str 不匹配）
-    _TG_PENDING_ACTIONS[str(chat_id)] = {"action": link_type, "url": url}
+        if not folders:
+            tg_send_message(
+                token, chat_id,
+                f"❌ 未配置{action_text}目标文件夹，请先在 AutoISO 设置",
+                proxy_url=proxy_url,
+            )
+            continue
 
-    # 发送文件夹选择键盘
-    keyboard = build_folder_keyboard(folders, link_type)
-    tg_send_message(
-        token, chat_id,
-        f"📥 检测到{action_text}链接，请选择目标文件夹：\n\n{url[:80]}...",
-        reply_markup=keyboard,
-        proxy_url=proxy_url,
-    )
+        # 保存待处理动作（键 = 会话 + 类型，支持同时存在转存和离线两批）
+        _TG_PENDING_ACTIONS[f"{chat_id}:{link_type}"] = {"items": urls}
+
+        preview = urls[0] if len(urls[0]) <= 80 else urls[0][:80] + "..."
+        if len(urls) > 1:
+            preview += f"\n\n等共 {len(urls)} 个链接，选一次文件夹后全部处理"
+
+        tg_send_message(
+            token, chat_id,
+            f"📥 检测到 {len(urls)} 个{action_text}链接，请选择目标文件夹：\n\n{preview}",
+            reply_markup=build_folder_keyboard(folders, link_type),
+            proxy_url=proxy_url,
+        )
 
 
 def handle_tg_callback(token, callback_query, proxy_url=None):
-    """处理 inline keyboard 回调"""
+    """处理 inline keyboard 回调：对整批链接依次执行并汇总结果"""
     callback_id = callback_query.get("id")
     # 统一转成字符串，与写入 _TG_PENDING_ACTIONS 时的键保持一致
     chat_id = str(callback_query.get("message", {}).get("chat", {}).get("id") or "")
@@ -6491,57 +6508,84 @@ def handle_tg_callback(token, callback_query, proxy_url=None):
         return
 
     action_type, target_cid = callback_data.split(":", 1)
-    pending = _TG_PENDING_ACTIONS.get(chat_id)
-    if not pending or pending.get("action") != action_type:
+    pending_key = f"{chat_id}:{action_type}"
+    pending = _TG_PENDING_ACTIONS.get(pending_key)
+    if not pending:
         tg_answer_callback(token, callback_id, "操作已过期，请重新发送链接", proxy_url=proxy_url)
         return
 
-    url = pending.get("url")
+    urls = pending.get("items") or []
     cookie = get_115_cookie()
     if not cookie:
         tg_answer_callback(token, callback_id, "115 未登录", proxy_url=proxy_url)
         tg_edit_message(token, chat_id, message_id, "❌ 115 未登录，请重新登录后再试", proxy_url=proxy_url)
-        _TG_PENDING_ACTIONS.pop(chat_id, None)
+        _TG_PENDING_ACTIONS.pop(pending_key, None)
         return
+
+    if action_type == "share":
+        folders = parse_folder_list(get_115_share_folders())
+        action_text = "转存"
+    else:
+        folders = parse_folder_list(get_115_offline_folders())
+        action_text = "离线任务"
+    folder_name = next((name for name, cid in folders if cid == target_cid), target_cid)
 
     # 先回应回调，避免 TG 显示 loading
     tg_answer_callback(token, callback_id, "处理中...", proxy_url=proxy_url)
-    tg_edit_message(token, chat_id, message_id, f"⏳ 正在处理...\n\n{url[:80]}...", proxy_url=proxy_url)
+    tg_edit_message(
+        token, chat_id, message_id,
+        f"⏳ 正在{action_text} 0/{len(urls)}（目标：{folder_name}）",
+        proxy_url=proxy_url,
+    )
 
-    # 执行操作
-    if action_type == "share":
-        share_code = extract_share_code(url)
-        if not share_code:
-            tg_edit_message(token, chat_id, message_id, "❌ 无法解析分享码", proxy_url=proxy_url)
-            _TG_PENDING_ACTIONS.pop(chat_id, None)
-            return
-        success, result = api_115_share_receive(
-            share_code, extract_share_password(url), target_cid, cookie
-        )
-        action_text = "转存"
-    else:
-        success, result = api_115_add_offline_task(url, target_cid, cookie)
-        action_text = "离线任务"
+    succeeded, failed = [], []
+    for index, url in enumerate(urls, 1):
+        if action_type == "share":
+            share_code = extract_share_code(url)
+            if not share_code:
+                failed.append((url, "无法解析分享码"))
+            else:
+                ok, result = api_115_share_receive(
+                    share_code, extract_share_password(url), target_cid, cookie
+                )
+                (succeeded if ok else failed).append(
+                    url if ok else (url, result if isinstance(result, str) else str(result))
+                )
+        else:
+            ok, result = api_115_add_offline_task(url, target_cid, cookie)
+            (succeeded if ok else failed).append(
+                url if ok else (url, result if isinstance(result, str) else str(result))
+            )
 
-    # 清理待处理动作
-    _TG_PENDING_ACTIONS.pop(chat_id, None)
+        if index < len(urls):
+            time.sleep(1)  # 115 接口有频率限制，逐个错开
+        if index % 3 == 0 or index == len(urls):
+            tg_edit_message(
+                token, chat_id, message_id,
+                f"⏳ 正在{action_text} {index}/{len(urls)}（目标：{folder_name}）",
+                proxy_url=proxy_url,
+            )
 
-    # 反馈结果
-    if success:
-        tg_edit_message(
-            token, chat_id, message_id,
-            f"✅ {action_text}成功！\n\n{url[:80]}...",
-            proxy_url=proxy_url,
-        )
-        logger.info("📥 [115助手] %s成功: %s -> cid=%s", action_text, url, target_cid)
-    else:
-        error_msg = result if isinstance(result, str) else str(result)
-        tg_edit_message(
-            token, chat_id, message_id,
-            f"❌ {action_text}失败：{error_msg}\n\n{url[:80]}...",
-            proxy_url=proxy_url,
-        )
-        logger.warning("📥 [115助手] %s失败: %s, 原因: %s", action_text, url, error_msg)
+    _TG_PENDING_ACTIONS.pop(pending_key, None)
+
+    # 汇总结果
+    lines = [f"📋 {action_text}完成：共 {len(urls)} 个，目标「{folder_name}」"]
+    if succeeded:
+        lines.append(f"✅ 成功 {len(succeeded)} 个")
+    if failed:
+        lines.append(f"❌ 失败 {len(failed)} 个")
+        for url, reason in failed[:5]:
+            short_url = url if len(url) <= 60 else url[:57] + "..."
+            lines.append(f"　· {short_url}\n　　原因：{reason}")
+        if len(failed) > 5:
+            lines.append(f"　· 其余 {len(failed) - 5} 个失败未展开")
+
+    summary = "\n".join(lines)
+    tg_edit_message(token, chat_id, message_id, summary, proxy_url=proxy_url)
+    logger.info(
+        "📥 [115助手] %s完成: 成功 %s 个, 失败 %s 个, cid=%s",
+        action_text, len(succeeded), len(failed), target_cid,
+    )
 
 
 def tg_polling_loop():
@@ -6640,6 +6684,7 @@ def get_115_status():
         logger.debug("115 状态查询: logged_in=%s", bool(cookie))
         return jsonify({
             "logged_in": bool(cookie),
+            "cookie": cookie or "",
             "share_folders": share,
             "offline_folders": offline,
         })

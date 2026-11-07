@@ -434,6 +434,18 @@
                     </div>
                   </div>
 
+                  <!-- 当前 Cookie（已登录时显示，支持一键复制） -->
+                  <div class="mt-3 d-none" id="115CookieBox">
+                    <label class="form-label text-muted small fw-bold">当前 Cookie</label>
+                    <div class="input-group">
+                      <input type="text" class="form-control bg-light border-0 font-monospace small"
+                             id="115CookieValue" readonly>
+                      <button class="btn btn-outline-secondary" type="button" id="btn115CopyCookie" title="复制 Cookie">
+                        <i class="bi bi-clipboard"></i>
+                      </button>
+                    </div>
+                  </div>
+
                   <!-- 手动填写 Cookie（扫码不可用时兜底） -->
                   <div class="mt-3">
                     <a class="text-muted small text-decoration-none" data-bs-toggle="collapse" href="#115ManualCookieBox" role="button">
@@ -507,6 +519,7 @@
                       </ul>
                     </li>
                     <li class="mb-2">Bot 会回复文件夹选择按钮，点击后自动执行转存/离线下载</li>
+                    <li class="mb-2">一次可以发多个链接（换行或空格分隔均可），同类型链接只需选择一次文件夹，Bot 会逐个处理并汇总成功/失败数量</li>
                     <li>配合「转存补大小」功能，文件转存到「最近接收」后会自动添加大小标签</li>
                   </ol>
                 </div>
@@ -3198,6 +3211,17 @@ echo "------------------------------------------------"
           btnLogout.classList.add('d-none');
         }
 
+        // 已登录时展示完整 Cookie，便于复制备份
+        const cookieBox = $('115CookieBox');
+        const cookieValue = $('115CookieValue');
+        if (data.logged_in && data.cookie) {
+          cookieValue.value = data.cookie;
+          cookieBox.classList.remove('d-none');
+        } else {
+          cookieValue.value = '';
+          cookieBox.classList.add('d-none');
+        }
+
         shareFoldersInput.value = data.share_folders || '';
         offlineFoldersInput.value = data.offline_folders || '';
       } catch (err) {
@@ -3286,6 +3310,22 @@ echo "------------------------------------------------"
 
     // 事件绑定
     $('btn115Login').addEventListener('click', startQRCodeLogin);
+    $('btn115CopyCookie').addEventListener('click', async () => {
+      const value = $('115CookieValue').value;
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        notify('Cookie 已复制', 'success');
+      } catch (err) {
+        // 非 HTTPS 环境下 clipboard API 不可用，退回选中复制
+        const input = $('115CookieValue');
+        input.removeAttribute('readonly');
+        input.select();
+        document.execCommand('copy');
+        input.setAttribute('readonly', 'readonly');
+        notify('Cookie 已复制', 'success');
+      }
+    });
     $('btn115Logout').addEventListener('click', async () => {
       if (!await ask('确定退出 115 登录吗？')) return;
       try {
