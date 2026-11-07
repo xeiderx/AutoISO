@@ -3117,8 +3117,9 @@ echo "------------------------------------------------"
               <option value="115ios">115 (iOS 端)</option>
               <option value="android">115生活 (Android 端)</option>
               <option value="115android">115 (Android 端)</option>
-              <option value="115ipad">115 (iPad 端)</option>
-              <option value="tv">115网盘 (Android 电视端)</option>
+              <option value="qios">115管理 (iOS 端)</option>
+              <option value="wechatmini">115生活 (微信小程序)</option>
+              <option value="alipaymini">115生活 (支付宝小程序)</option>
             </select>
           </div>
           <div id="115QRCodeContainer">
@@ -3240,6 +3241,11 @@ echo "------------------------------------------------"
               clearInterval(qrcodeCheckTimer);
               qrcodeCheckTimer = null;
               statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>登录成功！</span>';
+              // 立即更新账号状态卡片，不必等接口回读
+              const statusText = $('115StatusText');
+              statusText.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>已登录</span>';
+              $('btn115Login').classList.add('d-none');
+              $('btn115Logout').classList.remove('d-none');
               setTimeout(() => {
                 modal.hide();
                 load115Status();
@@ -3324,12 +3330,20 @@ echo "------------------------------------------------"
       }
     });
 
-    // 弹窗关闭时停止轮询
-    $('modal115QRCode').addEventListener('hidden.bs.modal', () => {
+    // 弹窗关闭时停止轮询，并强制刷新一次账号状态
+    $('modal115QRCode').addEventListener('hidden.bs.modal', async () => {
       if (qrcodeCheckTimer) {
         clearInterval(qrcodeCheckTimer);
         qrcodeCheckTimer = null;
       }
+      // 手动关窗时可能刚在手机上确认登录，这里补查一次，确保 cookie 落库
+      try {
+        const status = await api('/api/115/qrcode/status');
+        if (status.status === 'success') notify('115 登录成功', 'success');
+      } catch (err) {
+        console.error('关闭弹窗后补查扫码状态失败:', err);
+      }
+      load115Status().catch(err => console.error('115 状态加载失败:', err));
     });
 
     // 115 助手视图切换时加载状态（见 switchView 逻辑）

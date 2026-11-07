@@ -6101,12 +6101,13 @@ def _115_request(method, url, cookie=None, **kwargs):
     return resp
 
 
-def api_115_qrcode_token(app_type="web"):
+def api_115_qrcode_token():
     """步骤1：获取扫码登录 token (uid, time, sign)
-    app_type: web/ios/android/ipad/tv/life，不同端二维码可被对应 APP 扫描
+
+    与官方实现一致：二维码统一用 web 端 token 生成，扫码后绑定哪个端由换 cookie 的接口决定
     """
     try:
-        resp = _115_request("GET", f"{QRCODE_API_BASE}/api/1.0/{app_type}/1.0/token/")
+        resp = _115_request("GET", f"{QRCODE_API_BASE}/api/1.0/web/1.0/token/")
         data = resp.json()
         if data.get("state") != 1:
             return None, data.get("message", "获取 token 失败")
@@ -6117,9 +6118,9 @@ def api_115_qrcode_token(app_type="web"):
         return None, str(exc)
 
 
-def api_115_qrcode_image(uid, app_type="web"):
+def api_115_qrcode_image(uid):
     """步骤2：获取二维码图片 URL"""
-    return f"{QRCODE_API_BASE}/api/1.0/{app_type}/1.0/qrcode?uid={uid}"
+    return f"{QRCODE_API_BASE}/api/1.0/web/1.0/qrcode?uid={uid}"
 
 
 def _115_extract_cookie(cookie_obj):
@@ -6132,20 +6133,19 @@ def _115_extract_cookie(cookie_obj):
     return None
 
 
-# 扫码登录时绑定设备（ssoent）与 UA 的对应关系
+# 扫码后绑定的设备端：业务键 -> (换 cookie 的接口用的 app 路径, 需要的 UA)
 _115_QRCONDE_APP_KEYS = {
     "web": ("web", None),
-    "ios": ("ios", "UPhone/1.0.0"),
-    "android": ("android", None),
-    "qandroid": ("qandroid", None),
     "115ios": ("115ios", None),
+    "android": ("android", None),
     "115android": ("115android", None),
-    "115ipad": ("115ipad", None),
-    "tv": ("tv", None),
+    "qios": ("ios", "OfficePhone/1.0.0"),
+    "wechatmini": ("wechatmini", None),
+    "alipaymini": ("alipaymini", None),
 }
 
 
-def _115_fetch_login_cookie(uid, time_val, sign, app_type="web"):
+def _115_fetch_login_cookie(uid, app_type="web"):
     """已确认登录后换取 cookie。
 
     官方实现（p115client）：POST https://qrcodeapi.115.com/app/1.0/{app}/1.0/login/qrcode/
@@ -6229,7 +6229,7 @@ def api_115_qrcode_status(uid, time_val, sign, app_type="web"):
             # 已确认登录，用 uid/time/sign 换取 cookie（失败重试一次，避免偶发失败
             cookie_str = None
             for attempt in range(2):
-                cookie_str = _115_fetch_login_cookie(uid, time_val, sign, app_type)
+                cookie_str = _115_fetch_login_cookie(uid, app_type)
                 if cookie_str:
                     break
                 if attempt == 0:
@@ -6577,12 +6577,12 @@ def start_115_qrcode():
     """开始扫码登录流程"""
     payload = request.get_json(silent=True) or {}
     app_type = (payload.get("app") or "web").strip()
-    # 可选设备（对应 115 的 ssoent）：web 网页版 / 115ios 115苹果端 / android 115生活安卓端 /
-    # 115android 115安卓端 / 115ipad 115苹果平板端 / tv 115生活安卓电视端
+    # 可选设备：web 网页版 / 115ios 115苹果端 / android 115生活安卓端 /
+    # 115android 115安卓端 / qios 115管理苹果端 / wechatmini 微信小程序 / alipaymini 支付宝小程序
     if app_type not in _115_QRCONDE_APP_KEYS:
         app_type = "web"
 
-    token_data, error = api_115_qrcode_token(app_type)
+    token_data, error = api_115_qrcode_token()
     if error:
         return jsonify({"error": error}), 500
 
@@ -6601,7 +6601,7 @@ def start_115_qrcode():
     return jsonify({
         "uid": token_data["uid"],
         "app": app_type,
-        "qrcode_url": api_115_qrcode_image(token_data["uid"], app_type),
+        "qrcode_url": api_115_qrcode_image(token_data["uid"]),
     })
 
 
@@ -6623,6 +6623,8 @@ def check_115_qrcode_status():
         set_115_cookie(cookie)
         with _115_QRCODE_LOCK:
             _115_QRCODE_STATE["status"] = "success"
+            # 置空 uid，避免重复轮询再次走换取 cookie 的流程
+            _115_QRCODE_STATE["uid"] = None
         logger.info("📥 [115助手] 扫码登录成功，cookie 已保存")
         return jsonify({"status": "success"})
     elif status == "expired":
