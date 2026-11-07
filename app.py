@@ -1,4 +1,5 @@
 import atexit
+import base64
 import hmac
 import json
 import logging
@@ -6284,19 +6285,73 @@ def api_115_share_receive(share_code, receive_code, target_cid, cookie):
         return False, str(exc)
 
 
+# ========== 115 云下载（离线）接口加密 ==========
+# 115 的云下载接口要求把参数整体加密后以 data 字段提交，以下为官方客户端的算法
+_115_APP_VER = "35.6.0.0"
+_115_CLOUDDOWNLOAD_UA = (
+    f"Mozilla/5.0 115disk/{_115_APP_VER} 115Browser/{_115_APP_VER} "
+    f"115wangpan_android/{_115_APP_VER}"
+)
+_115_RSA_MODULUS = 0x8686980c0f5a24c4b9d43020cd2c22703ff3f450756529058b1cf88f09b8602136477198a6e2683149659bd122c33592fdb5ad47944ad1ea4d36c6b172aad6338c3bb6ac6227502d010993ac967d1aef00f0c8e038de2e4d3bc2ec368af2e9f10a6f1eda4f7262f136420c07c331b871bf139f74f3010e3c4fe57df3afb71683
+_115_RSA_EXPONENT = 0x10001
+_115_OBFUSCATE_KEY = b"\x8d\xa5\xa5\x8d"
+_115_OBFUSCATE_KEY2 = b"x\x06\xadL3\x86]\x18L\x01?F"
+
+
+def _115_obfuscate_xor(src, key):
+    """115 云下载参数的异或混淆（首段按 len%4 对齐，之后按 key 长度分段）"""
+    lead = len(src) % 4
+    out = bytearray()
+    if lead:
+        out += bytes(src[i] ^ key[i] for i in range(lead))
+    pos = lead
+    while pos < len(src):
+        end = min(pos + len(key), len(src))
+        out += bytes(src[i] ^ key[i - pos] for i in range(pos, end))
+        pos = end
+    return bytes(out)
+
+
+def _115_encrypt_payload(payload):
+    """把参数打成云下载接口要求的 RSA 密文（base64 字符串）"""
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    tmp = _115_obfuscate_xor(raw, _115_OBFUSCATE_KEY)[::-1]
+    data = b"\x00" * 16 + _115_obfuscate_xor(tmp, _115_OBFUSCATE_KEY2)
+    cipher = bytearray()
+    for idx in range(0, len(data), 117):
+        block = data[idx:idx + 117]
+        padded = b"\x00" + b"\x02" * (128 - 2 - len(block)) + b"\x00" + block
+        cipher += pow(
+            int.from_bytes(padded, "big"), _115_RSA_EXPONENT, _115_RSA_MODULUS
+        ).to_bytes(128, "big")
+    return base64.b64encode(bytes(cipher)).decode()
+
+
 def api_115_add_offline_task(url, target_cid, cookie):
-    """添加离线下载任务（磁力/电驴/直链）"""
+    """添加离线下载任务（磁力/电驴/直链）
+
+    115 已废弃 webapi.115.com/lixian/*，现改用 clouddownload.115.com/lixianssp/
+    所有参数（含 ac）需整体加密后放在 data 字段中提交
+    """
     try:
+        payload = {
+            "url": url,
+            "wp_path_id": str(target_cid),
+            "app_ver": _115_APP_VER,
+            "ac": "add_task_url",
+        }
         resp = _115_request(
             "POST",
-            f"{WEB_API_BASE}/lixian/add_task_url",
+            "https://clouddownload.115.com/lixianssp/",
             cookie=cookie,
-            data={"url": url, "savepath": "", "wp_path_id": target_cid},
+            data={"data": _115_encrypt_payload(payload)},
+            headers={"User-Agent": _115_CLOUDDOWNLOAD_UA},
+            timeout=20,
         )
         data = resp.json()
         if data.get("state"):
             return True, data.get("data", {})
-        return False, data.get("error", data.get("message", "添加离线任务失败"))
+        return False, data.get("error_msg") or data.get("error") or "添加离线任务失败"
     except Exception as exc:
         logger.exception("115 离线任务失败")
         return False, str(exc)
