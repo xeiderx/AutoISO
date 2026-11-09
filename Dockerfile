@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # 复制项目代码
 COPY app.py /app/app.py
 COPY templates /app/templates
-COPY static /app/static
 
 # 创建必要的目录
 RUN mkdir -p /data /output
